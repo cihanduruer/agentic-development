@@ -2,18 +2,56 @@ using AgenticHotelBooking.Api;
 using AgenticHotelBooking.Application;
 using AgenticHotelBooking.Domain;
 using AgenticHotelBooking.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddSignalR();
-builder.Services.AddHotelBookingPersistence(builder.Configuration.GetConnectionString("HotelBooking"));
-builder.Services.AddSingleton<IAgentEventStore, InMemoryAgentEventStore>();
+var eventStoreOptions = new AgentEventStoreOptions(
+    builder.Configuration.GetValue("OperationsEvents:RetentionDays", 30),
+    builder.Configuration.GetValue("OperationsEvents:MaxRecords", 2_000),
+    builder.Configuration.GetValue("OperationsEvents:MaxQueryLimit", 500));
+builder.Services.AddHotelBookingPersistence(
+    builder.Configuration.GetConnectionString("HotelBooking"),
+    eventStoreOptions);
+const string operationsWriterPolicy = "OperationsWriter";
+if (!builder.Environment.IsDevelopment())
+{
+    var authority = builder.Configuration["OperationsAuth:Authority"];
+    var audience = builder.Configuration["OperationsAuth:Audience"];
+    var requiredRole = builder.Configuration["OperationsAuth:RequiredRole"];
+    if (string.IsNullOrWhiteSpace(authority) ||
+        string.IsNullOrWhiteSpace(audience) ||
+        string.IsNullOrWhiteSpace(requiredRole))
+    {
+        throw new InvalidOperationException(
+            "OperationsAuth Authority, Audience, and RequiredRole are required outside Development.");
+    }
+
+    builder.Services
+        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.Authority = authority;
+            options.Audience = audience;
+            options.MapInboundClaims = false;
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                RoleClaimType = "roles"
+            };
+        });
+    builder.Services.AddAuthorizationBuilder()
+        .AddPolicy(operationsWriterPolicy, policy =>
+            policy.RequireAuthenticatedUser().RequireRole(requiredRole));
+}
 var routerOptions = new MicrosoftRouterOptions(
     builder.Configuration.GetValue("MicrosoftRouting:ModelEnabled", false),
     builder.Configuration.GetValue("MicrosoftRouting:MinimumConfidence", 0.8),
@@ -60,6 +98,11 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
 }));
 
 app.UseCors();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -89,20 +132,24 @@ app.MapPost("/api/reservations", async (
     return Results.Created($"/api/reservations/{reservation.Id}", reservation);
 });
 
-app.MapGet("/api/operations/events", (int? limit, IAgentEventStore store) =>
-    store.GetRecent(limit ?? 100));
+app.MapGet("/api/operations/events", (
+    int? limit,
+    IAgentEventStore store,
+    CancellationToken cancellationToken) =>
+    store.GetRecentAsync(limit ?? 100, cancellationToken));
 
-app.MapPost("/api/operations/events", async (
+var ingestEvent = app.MapPost("/api/operations/events", async (
     RecordAgentEventRequest request,
     IAgentEventStore store,
-    IHubContext<OperationsHub> hub) =>
+    IHubContext<OperationsHub> hub,
+    CancellationToken cancellationToken) =>
 {
-    var recorded = store.Record(request);
-    await hub.Clients.All.SendAsync("AgentEventRecorded", recorded);
+    var recorded = await store.RecordAsync(request, cancellationToken);
+    await hub.Clients.All.SendAsync("AgentEventRecorded", recorded, cancellationToken);
     return Results.Created($"/api/operations/events/{recorded.Id}", recorded);
 });
 
-app.MapPost("/api/orchestration/route", async (
+var routeWork = app.MapPost("/api/orchestration/route", async (
     RoutingRequest request,
     IAgentRouter router,
     IAgentEventStore store,
@@ -111,7 +158,7 @@ app.MapPost("/api/orchestration/route", async (
 {
     var started = TimeProvider.System.GetTimestamp();
     var decision = await router.RouteAsync(request, cancellationToken);
-    var recorded = store.Record(new RecordAgentEventRequest(
+    var recorded = await store.RecordAsync(new RecordAgentEventRequest(
         AgentEventKind.RouteDecided,
         request.CorrelationId,
         request.WorkItemId,
@@ -121,10 +168,16 @@ app.MapPost("/api/orchestration/route", async (
         decision.EffectiveWorker,
         decision.Confidence,
         (long)TimeProvider.System.GetElapsedTime(started).TotalMilliseconds,
-        request.KnowledgeRevision));
+        request.KnowledgeRevision), cancellationToken);
     await hub.Clients.All.SendAsync("AgentEventRecorded", recorded, cancellationToken);
     return Results.Ok(decision);
 });
+
+if (!app.Environment.IsDevelopment())
+{
+    ingestEvent.RequireAuthorization(operationsWriterPolicy);
+    routeWork.RequireAuthorization(operationsWriterPolicy);
+}
 
 app.MapHub<OperationsHub>("/hubs/operations");
 
