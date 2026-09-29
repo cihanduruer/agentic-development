@@ -22,4 +22,7 @@
   <Folder Name="/tests/UnitTests/">
     <Project Path="tests/UnitTests/AgenticHotelBooking.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/KnowledgeIndexer/KnowledgeIndexer.csproj" />
+  </Folder>
 </Solution>

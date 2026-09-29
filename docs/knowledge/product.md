@@ -1,3 +1,7 @@
+---
+owner: Product owner
+last_reviewed: 2026-09-29
+---
 # Product
 
 ## Objective

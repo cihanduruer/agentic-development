@@ -1,3 +1,7 @@
+---
+owner: Engineering owner
+last_reviewed: 2026-09-29
+---
 # Agentic delivery
 
 ## Flow
@@ -34,7 +38,7 @@ Synchronization never changes work-item state. It adds `delivery-evidence`, remo
 | `completion_gate` | `complete`, `verify_more`, `incomplete` |
 | `action_guard` | `allow`, `confirm`, `human_review`, `deny` |
 
-Deterministic policy handles incomplete evidence, high-risk actions, irreversible actions, and single eligible workers without a model call. Microsoft Agent Framework invokes Azure OpenAI only when multiple safe workers are eligible. Structured output is validated against the live menu, and low confidence, invalid output, configuration failure, or service failure routes to `human_review`.
+Deterministic policy handles incomplete evidence, high-risk actions, and irreversible actions. Every request first invokes Azure AI Content Safety Prompt Shields and requires Azure AI Search grounding for the exact knowledge revision. Microsoft Agent Framework invokes Azure OpenAI only when those checks pass and multiple safe workers are eligible. Structured output is validated against the live menu. Prompt attack detection, absent revision grounding, low confidence, invalid output, configuration failure, or any evaluation/model service failure routes to `human_review`.
 
 The model receives labels and evidence metadata, not source code, prompts, secrets, personal data, work-item descriptions, or full internal documents. Application Insights records latency and failures; the operations event stream records the effective route, confidence, policy/model identifier, outcome, and knowledge revision.
 
@@ -60,3 +64,7 @@ After the same QA gate succeeds for a commit on `main`, `.github/workflows/relea
 `.github/workflows/deploy-production.yml` is manual-only. It accepts an exact successful release workflow run ID and full `main` commit SHA, requires the typed confirmation `DEPLOY-PRODUCTION`, verifies the run and commit through GitHub's API, downloads the named artifact from that run, verifies every checksum and its QA and PR-validation provenance, and only then enters the `production` GitHub Environment in a separate deployment job. It deploys `infra/resource-group.bicep` within the precreated `agentic-hotelbookingprod` resource-group scope and promotes the verified binaries without rebuilding. The OIDC-authenticated deployment identity obtains and masks the production Static Web Apps deployment token only after infrastructure exists, avoiding a circular bootstrap secret. Production deployment is never triggered by a push, merge, schedule, or successful check.
 
 The current private-repository billing plan does not support branch protection, rulesets, environment reviewers, or environment wait timers; the relevant GitHub APIs return HTTP 403 or 422. These controls therefore cannot be claimed as enforced. The production workflow compensates by revalidating successful QA and PR-validation evidence for the exact selected commit before Azure authentication, while manual dispatch, typed confirmation, `main` containment, artifact checksums, and environment branch restriction remain mandatory.
+
+## Grounded evaluation evidence
+
+PR validation persists deterministic gate and indexer test results. `.github/workflows/grounded-evaluation.yml` is the explicit live-cloud evaluation path: it authenticates with GitHub OIDC, invokes the Microsoft `azure.ai.evaluation.GroundednessEvaluator`, fails below a score of 4, and uploads revision-named JSON evidence. This workflow is manual because each invocation consumes the configured model deployment; a passing local/unit suite is not represented as a live Foundry evaluation.

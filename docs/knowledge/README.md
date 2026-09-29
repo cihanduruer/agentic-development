@@ -1,3 +1,7 @@
+---
+owner: Engineering owner
+last_reviewed: 2026-09-29
+---
 # Knowledge center
 
 These documents are the canonical context for people and agents.

@@ -98,6 +98,15 @@ jobs:
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Routing evaluation evidence
+        run: >-
+          dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj
+          --no-build
+          --filter "FullyQualifiedName~RoutingEvaluationTests|FullyQualifiedName~KnowledgeDocumentChunkerTests"
+          --logger "trx;LogFileName=grounding-evaluation.trx"
+          --results-directory EvaluationResults
+      - name: Vulnerability scan
+        run: dotnet list package --vulnerable --include-transitive
       - name: Build Bicep
         uses: azure/cli@v2
         with:
@@ -127,3 +136,8 @@ jobs:
         with:
           name: test-results
           path: TestResults
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: routing-evaluation-evidence
+          path: EvaluationResults

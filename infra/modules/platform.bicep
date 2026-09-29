@@ -1,8 +1,9 @@
 param environment string
 param location string
-param sqlAdminLogin string
-@secure()
-param sqlAdminPassword string
+param sqlEntraAdminLogin string
+param sqlEntraAdminObjectId string
+param tenantId string
+param deploymentPrincipalObjectId string
 param operationsApiAudience string
 param tags object
 
@@ -77,75 +78,6 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
-resource api 'Microsoft.Web/sites@2023-12-01' = {
-  name: '${baseName}-api'
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    serverFarmId: plan.id
-    httpsOnly: true
-    siteConfig: {
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      linuxFxVersion: 'DOTNETCORE|10.0'
-      appSettings: [
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'ConnectionStrings__HotelBooking'
-          value: '@Microsoft.KeyVault(SecretUri=${sqlConnectionSecret.properties.secretUriWithVersion})'
-        }
-        {
-          name: 'AllowedOrigins__0'
-          value: 'https://${staticWebApp.properties.defaultHostname}'
-        }
-        {
-          name: 'MicrosoftRouting__ModelEnabled'
-          value: 'true'
-        }
-        {
-          name: 'MicrosoftRouting__Endpoint'
-          value: 'https://${aiServices.name}.openai.azure.com/'
-        }
-        {
-          name: 'MicrosoftRouting__Deployment'
-          value: routingModel.name
-        }
-        {
-          name: 'OperationsAuth__Authority'
-          value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
-        }
-        {
-          name: 'OperationsAuth__Audience'
-          value: operationsApiAudience
-        }
-        {
-          name: 'OperationsAuth__RequiredRole'
-          value: 'Operations.Ingest'
-        }
-        {
-          name: 'OperationsEvents__RetentionDays'
-          value: '30'
-        }
-        {
-          name: 'OperationsEvents__MaxRecords'
-          value: '2000'
-        }
-        {
-          name: 'OperationsEvents__MaxQueryLimit'
-          value: '500'
-        }
-      ]
-    }
-  }
-}
-
 resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   name: '${baseName}-web'
   location: location
@@ -174,30 +106,19 @@ resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   }
 }
 
-resource keyVault 'Microsoft.KeyVault/vaults@2024-11-01' = {
-  name: '${baseName}-kv'
-  location: location
-  tags: tags
-  properties: {
-    tenantId: subscription().tenantId
-    enableRbacAuthorization: true
-    enablePurgeProtection: true
-    enableSoftDelete: true
-    publicNetworkAccess: 'Enabled'
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-  }
-}
-
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
   name: '${baseName}-sql'
   location: location
   tags: tags
   properties: {
-    administratorLogin: sqlAdminLogin
-    administratorLoginPassword: sqlAdminPassword
+    administrators: {
+      administratorType: 'ActiveDirectory'
+      principalType: 'Application'
+      login: sqlEntraAdminLogin
+      sid: sqlEntraAdminObjectId
+      tenantId: tenantId
+      azureADOnlyAuthentication: true
+    }
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Enabled'
     restrictOutboundNetworkAccess: 'Disabled'
@@ -232,24 +153,92 @@ resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
   }
 }
 
-resource sqlConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
-  parent: keyVault
-  name: 'sql-connection-string'
-  properties: {
-    value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Initial Catalog=${database.name};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+resource api 'Microsoft.Web/sites@2023-12-01' = {
+  name: '${baseName}-api'
+  location: location
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
   }
-}
-
-resource apiSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, api.id, 'key-vault-secrets-user')
-  scope: keyVault
   properties: {
-    principalId: api.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '4633458b-17de-408a-b874-0445c86b69e6'
-    )
+    serverFarmId: plan.id
+    httpsOnly: true
+    siteConfig: {
+      alwaysOn: true
+      ftpsState: 'Disabled'
+      minTlsVersion: '1.2'
+      linuxFxVersion: 'DOTNETCORE|10.0'
+      appSettings: [
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsights.properties.ConnectionString
+        }
+        {
+          name: 'ConnectionStrings__HotelBooking'
+          value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Initial Catalog=${database.name};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+        }
+        {
+          name: 'Database__ApplyMigrations'
+          value: 'false'
+        }
+        {
+          name: 'AllowedOrigins__0'
+          value: 'https://${staticWebApp.properties.defaultHostname}'
+        }
+        {
+          name: 'MicrosoftRouting__ModelEnabled'
+          value: 'true'
+        }
+        {
+          name: 'MicrosoftRouting__Endpoint'
+          value: 'https://${aiServices.name}.openai.azure.com/'
+        }
+        {
+          name: 'MicrosoftRouting__Deployment'
+          value: routingModel.name
+        }
+        {
+          name: 'RoutingEvaluation__Enabled'
+          value: 'true'
+        }
+        {
+          name: 'RoutingEvaluation__ContentSafetyEndpoint'
+          value: 'https://${aiServices.name}.cognitiveservices.azure.com/'
+        }
+        {
+          name: 'RoutingEvaluation__SearchEndpoint'
+          value: 'https://${search.name}.search.windows.net/'
+        }
+        {
+          name: 'RoutingEvaluation__SearchIndex'
+          value: 'knowledge'
+        }
+        {
+          name: 'OperationsAuth__Authority'
+          value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
+        }
+        {
+          name: 'OperationsAuth__Audience'
+          value: operationsApiAudience
+        }
+        {
+          name: 'OperationsAuth__RequiredRole'
+          value: 'Operations.Ingest'
+        }
+        {
+          name: 'OperationsEvents__RetentionDays'
+          value: '30'
+        }
+        {
+          name: 'OperationsEvents__MaxRecords'
+          value: '2000'
+        }
+        {
+          name: 'OperationsEvents__MaxQueryLimit'
+          value: '500'
+        }
+      ]
+    }
   }
 }
 
@@ -266,10 +255,52 @@ resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource apiContentSafetyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiServices.id, api.id, 'cognitive-services-user')
+  scope: aiServices
+  properties: {
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'a97b65f3-24c7-4388-baec-2e87135dc908'
+    )
+  }
+}
+
+resource apiSearchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(search.id, api.id, 'search-index-data-reader')
+  scope: search
+  properties: {
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+    )
+  }
+}
+
+resource deploymentSearchContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(search.id, deploymentPrincipalObjectId, 'search-index-data-contributor')
+  scope: search
+  properties: {
+    principalId: deploymentPrincipalObjectId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+    )
+  }
+}
+
 output apiUrl string = 'https://${api.properties.defaultHostName}'
 output apiAppName string = api.name
+output apiName string = api.name
+output apiPrincipalId string = api.identity.principalId
 output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
 output routingDeploymentName string = routingModel.name
 output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
+output searchEndpoint string = 'https://${search.name}.search.windows.net/'
 output sqlServerName string = sqlServer.name
