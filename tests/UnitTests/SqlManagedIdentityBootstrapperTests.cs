@@ -312,6 +312,81 @@ public sealed class SqlManagedIdentityBootstrapperTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [MemberData(nameof(DelegatedRuntimeRolePermissionStates))]
+    public void ExtractedModelRejectsEveryExplicitRuntimeRolePermission(
+        string permissionName,
+        string state,
+        int granteePrincipalId)
+    {
+        const int runtimeRolePrincipalId = 42;
+        var permissions = new[]
+        {
+            new SqlDatabasePermissionEntry(
+                4,
+                runtimeRolePrincipalId,
+                0,
+                permissionName,
+                state,
+                granteePrincipalId),
+        };
+
+        Assert.False(
+            SqlManagedIdentityBootstrap.HasNoExplicitPermissionsOnRuntimeRole(
+                permissions,
+                runtimeRolePrincipalId));
+    }
+
+    [Fact]
+    public void ExtractedModelIgnoresPermissionsOnOtherSecurables()
+    {
+        var permissions = new[]
+        {
+            new SqlDatabasePermissionEntry(4, 41, 0, "ALTER", "G", 73),
+            new SqlDatabasePermissionEntry(1, 42, 0, "CONTROL", "G", 73),
+        };
+
+        Assert.True(
+            SqlManagedIdentityBootstrap.HasNoExplicitPermissionsOnRuntimeRole(
+                permissions,
+                42));
+        Assert.True(
+            SqlManagedIdentityBootstrap.HasNoExplicitPermissionsOnRuntimeRole(
+                [],
+                42));
+    }
+
+    [Fact]
+    public void CommandRejectsDelegatedRuntimeRolePermissionsBeforeAndAfterMutation()
+    {
+        var commandText = SqlManagedIdentityBootstrap.CommandText;
+        var precheckIndex = commandText.IndexOf(
+            "The runtime role has delegated database-principal permissions.",
+            StringComparison.Ordinal);
+        var revokeIndex = commandText.IndexOf(
+            "REVOKE SELECT ON OBJECT::dbo.Hotels",
+            StringComparison.Ordinal);
+        var postcheckIndex = commandText.IndexOf(
+            "The runtime role has delegated database-principal permissions after bootstrap.",
+            StringComparison.Ordinal);
+        var membershipMutationIndex = commandText.IndexOf(
+            "ALTER ROLE [hotel_booking_runtime] ADD MEMBER",
+            StringComparison.Ordinal);
+
+        Assert.Equal(2, CountOccurrences(commandText, "permissions.class = 4"));
+        Assert.Contains(
+            "permissions.major_id = @ExistingRuntimeRoleId",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "permissions.major_id = @RuntimeRoleId",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.True(precheckIndex > 0);
+        Assert.True(precheckIndex < revokeIndex);
+        Assert.True(postcheckIndex > membershipMutationIndex);
+    }
+
     public static TheoryData<IReadOnlyList<SqlDatabaseGrant>>
         RejectedRecoverablePermissionStates()
     {
@@ -347,6 +422,22 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 .ToArray(),
             exact.Take(exact.Count - 1).Append(exact[0]).ToArray(),
         };
+    }
+
+    public static TheoryData<string, string, int>
+        DelegatedRuntimeRolePermissionStates()
+    {
+        var states = new TheoryData<string, string, int>();
+        foreach (var permissionName in new[] { "ALTER", "CONTROL", "TAKE OWNERSHIP" })
+        {
+            foreach (var state in new[] { "G", "W" })
+            {
+                states.Add(permissionName, state, 73);
+                states.Add(permissionName, state, 74);
+            }
+        }
+
+        return states;
     }
 
     private static IReadOnlyList<SqlDatabaseGrant>

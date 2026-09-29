@@ -5,7 +5,10 @@ $sourcePath = Join-Path $repositoryRoot 'tools\SqlManagedIdentityBootstrapper\Sq
 $originalBytes = [System.IO.File]::ReadAllBytes($sourcePath)
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $original = $utf8.GetString($originalBytes)
-$testProject = Join-Path $repositoryRoot 'tests\UnitTests\AgenticHotelBooking.UnitTests.csproj'
+$unitTestProject =
+    Join-Path $repositoryRoot 'tests\UnitTests\AgenticHotelBooking.UnitTests.csproj'
+$integrationTestProject =
+    Join-Path $repositoryRoot 'tests\IntegrationTests\AgenticHotelBooking.IntegrationTests.csproj'
 
 $mutations = @(
     @{
@@ -63,6 +66,42 @@ $mutations = @(
                 Value = ''
             }
         )
+    },
+    @{
+        Name = 'skip-runtime-role-delegation-precheck'
+        Replacements = @(
+            @{
+                Pattern = "(?s)\r?\n            IF @ExistingRuntimeRoleId IS NOT NULL\r?\n               AND EXISTS \(\r?\n                   SELECT 1\r?\n                   FROM sys\.database_permissions AS permissions\r?\n                   WHERE permissions\.class = 4\r?\n                     AND permissions\.major_id = @ExistingRuntimeRoleId\r?\n               \)\r?\n            BEGIN\r?\n                THROW 51017, 'The runtime role has delegated database-principal permissions\.', 1;\r?\n            END;"
+                Value = ''
+            }
+        )
+    },
+    @{
+        Name = 'skip-runtime-role-delegation-postcheck'
+        Replacements = @(
+            @{
+                Pattern = "(?s)\r?\n            IF EXISTS \(\r?\n                SELECT 1\r?\n                FROM sys\.database_permissions AS permissions\r?\n                WHERE permissions\.class = 4\r?\n                  AND permissions\.major_id = @RuntimeRoleId\r?\n            \)\r?\n            BEGIN\r?\n                THROW 51018, 'The runtime role has delegated database-principal permissions after bootstrap\.', 1;\r?\n            END;"
+                Value = ''
+            }
+        )
+    },
+    @{
+        Name = 'semantically-bypass-runtime-role-owner-checks'
+        TestProject = $integrationTestProject
+        Filter =
+            'FullyQualifiedName~UnexpectedRuntimeRoleOwnerFailsClosed'
+        Replacements = @(
+            @{
+                Pattern = 'AND owning_principal_id = @DboPrincipalId'
+                Value =
+                    'AND (owning_principal_id = @DboPrincipalId OR owning_principal_id IS NULL OR owning_principal_id IS NOT NULL)'
+            },
+            @{
+                Pattern = 'owning_principal_id IS NULL\r?\n                         OR owning_principal_id <> @DboPrincipalId'
+                Value =
+                    'owning_principal_id IS NULL AND owning_principal_id <> @DboPrincipalId'
+            }
+        )
     }
 )
 
@@ -79,9 +118,21 @@ try {
         }
 
         [System.IO.File]::WriteAllText($sourcePath, $mutated, $utf8)
+        $testProject = if ($mutation.TestProject) {
+            $mutation.TestProject
+        }
+        else {
+            $unitTestProject
+        }
+        $filter = if ($mutation.Filter) {
+            $mutation.Filter
+        }
+        else {
+            'FullyQualifiedName~SqlManagedIdentityBootstrapperTests'
+        }
         & dotnet test $testProject `
             --no-restore `
-            --filter 'FullyQualifiedName~SqlManagedIdentityBootstrapperTests' `
+            --filter $filter `
             --verbosity quiet
         $testExitCode = $LASTEXITCODE
         [System.IO.File]::WriteAllBytes($sourcePath, $originalBytes)

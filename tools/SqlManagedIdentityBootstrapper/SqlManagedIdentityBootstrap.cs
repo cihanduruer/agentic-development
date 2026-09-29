@@ -124,6 +124,17 @@ public static class SqlManagedIdentityBootstrap
             .SetEquals(RecoverableDirectPermissions);
     }
 
+    public static bool HasNoExplicitPermissionsOnRuntimeRole(
+        IEnumerable<SqlDatabasePermissionEntry> permissions,
+        int runtimeRolePrincipalId)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
+
+        return !permissions.Any(
+            permission => permission.Class == 4
+                && permission.MajorId == runtimeRolePrincipalId);
+    }
+
     public const string CommandText = """
         SET NOCOUNT ON;
         SET XACT_ABORT ON;
@@ -300,6 +311,17 @@ public static class SqlManagedIdentityBootstrap
                )
             BEGIN
                 THROW 51012, 'The runtime role has unexpected database principals as members.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.class = 4
+                     AND permissions.major_id = @ExistingRuntimeRoleId
+               )
+            BEGIN
+                THROW 51017, 'The runtime role has delegated database-principal permissions.', 1;
             END;
 
             IF @ExistingRuntimeRoleId IS NOT NULL
@@ -532,6 +554,16 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51013, 'The runtime role does not have the exact expected membership.', 1;
             END;
 
+            IF EXISTS (
+                SELECT 1
+                FROM sys.database_permissions AS permissions
+                WHERE permissions.class = 4
+                  AND permissions.major_id = @RuntimeRoleId
+            )
+            BEGIN
+                THROW 51018, 'The runtime role has delegated database-principal permissions after bootstrap.', 1;
+            END;
+
             COMMIT TRANSACTION;
         END TRY
         BEGIN CATCH
@@ -606,3 +638,11 @@ public sealed record SqlDatabaseGrant(
     int Class = 1,
     int MinorId = 0,
     string State = "G");
+
+public sealed record SqlDatabasePermissionEntry(
+    int Class,
+    int MajorId,
+    int MinorId,
+    string PermissionName,
+    string State,
+    int GranteePrincipalId);

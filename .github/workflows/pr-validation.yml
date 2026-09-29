@@ -92,7 +92,18 @@ jobs:
         run: dotnet restore --locked-mode
       - name: Test SQL bootstrapper source mutations
         shell: pwsh
+        env:
+          SQL_BOOTSTRAP_TEST_CONNECTION: >-
+            Server=localhost,1433;
+            Initial Catalog=master;
+            User ID=sa;
+            Password=LocalSql-2026-Bootstrap!;
+            Encrypt=False;
+            TrustServerCertificate=True
         run: ./scripts/Test-SqlManagedIdentityBootstrapperMutations.ps1
+      - name: Test SQL bootstrapper evidence gate
+        shell: pwsh
+        run: ./scripts/Test-Assert-SqlManagedIdentityBootstrapperEvidence.ps1
       - name: Test agentic intake script
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh
@@ -150,6 +161,11 @@ jobs:
           --filter FullyQualifiedName~SqlManagedIdentityBootstrapperSqlServerTests
           --logger "trx;LogFileName=sql-bootstrapper.trx"
           --results-directory TestResults
+      - name: Verify SQL bootstrapper evidence
+        shell: pwsh
+        run: >-
+          ./scripts/Assert-SqlManagedIdentityBootstrapperEvidence.ps1
+          -TrxPath TestResults/sql-bootstrapper.trx
       - name: Routing evaluation evidence
         run: >-
           dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj

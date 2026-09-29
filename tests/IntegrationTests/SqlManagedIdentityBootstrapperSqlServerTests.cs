@@ -101,6 +101,75 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             });
     }
 
+    [SqlServerTheory]
+    [MemberData(nameof(DelegatedRuntimeRolePermissionStates))]
+    public async Task DelegatedRuntimeRolePermissionFailsClosed(
+        string permissionName,
+        string state,
+        string granteeType)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    DelegatedRuntimeRolePermissionSql(
+                        permissionName,
+                        state,
+                        granteeType));
+                var directBefore = await ReadDirectPermissions(connection);
+                var delegatedBefore =
+                    await ReadDelegatedRuntimeRolePermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51017, exception.Number);
+                Assert.Equal(directBefore, await ReadDirectPermissions(connection));
+                Assert.Equal(
+                    delegatedBefore,
+                    await ReadDelegatedRuntimeRolePermissions(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoleMembers(connection));
+            });
+    }
+
+    [SqlServerFact]
+    public async Task FailureImmediatelyBeforeCommitRollsBackEveryMutation()
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    "CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];");
+                var directBefore = await ReadDirectPermissions(connection);
+
+                var commandText = SqlManagedIdentityBootstrap.CommandText.Replace(
+                    "COMMIT TRANSACTION;",
+                    "THROW 51999, 'Injected failure before commit.', 1;",
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "COMMIT TRANSACTION;",
+                    commandText,
+                    StringComparison.Ordinal);
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrapCommand(
+                        connection,
+                        principalObjectId,
+                        commandText));
+
+                Assert.Equal(51999, exception.Number);
+                Assert.Equal(directBefore, await ReadDirectPermissions(connection));
+                Assert.Equal("dbo", await ReadRuntimeRoleOwner(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoleMembers(connection));
+                Assert.Empty(await ReadDelegatedRuntimeRolePermissions(connection));
+            });
+    }
+
     private static async Task InIsolatedDatabase(
         Func<SqlConnection, Guid, Task> test)
     {
@@ -201,10 +270,19 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
 
     private static async Task ExecuteBootstrap(
         SqlConnection connection,
-        Guid principalObjectId)
+        Guid principalObjectId) =>
+        await ExecuteBootstrapCommand(
+            connection,
+            principalObjectId,
+            SqlManagedIdentityBootstrap.CommandText);
+
+    private static async Task ExecuteBootstrapCommand(
+        SqlConnection connection,
+        Guid principalObjectId,
+        string commandText)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = SqlManagedIdentityBootstrap.CommandText;
+        command.CommandText = commandText;
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalName", SqlDbType.NVarChar, 128)
             {
@@ -226,6 +304,22 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                 Value = "INSTANCE",
             });
         await command.ExecuteNonQueryAsync();
+    }
+
+    public static TheoryData<string, string, string>
+        DelegatedRuntimeRolePermissionStates()
+    {
+        var states = new TheoryData<string, string, string>();
+        foreach (var permissionName in new[] { "ALTER", "CONTROL", "TAKE OWNERSHIP" })
+        {
+            foreach (var state in new[] { "G", "W" })
+            {
+                states.Add(permissionName, state, "user");
+                states.Add(permissionName, state, "role");
+            }
+        }
+
+        return states;
     }
 
     private static async Task CreateAttackerOwnedRuntimeRole(
@@ -252,6 +346,39 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         await ExecuteNonQuery(connection, commandText);
     }
 
+    private static string DelegatedRuntimeRolePermissionSql(
+        string permissionName,
+        string state,
+        string granteeType)
+    {
+        var createGrantee = granteeType switch
+        {
+            "user" => "CREATE USER [attacker] WITHOUT LOGIN;",
+            "role" => "CREATE ROLE [attacker] AUTHORIZATION [dbo];",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(granteeType),
+                granteeType,
+                "Unsupported grantee type."),
+        };
+        var grantOption = state switch
+        {
+            "G" => string.Empty,
+            "W" => " WITH GRANT OPTION",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(state),
+                state,
+                "Unsupported permission state."),
+        };
+
+        return
+            $"""
+            CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
+            {createGrantee}
+            GRANT {permissionName}
+                ON ROLE::[hotel_booking_runtime] TO [attacker]{grantOption};
+            """;
+    }
+
     private static async Task AssertRuntimeRoleContract(
         SqlConnection connection)
     {
@@ -260,6 +387,7 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         Assert.Equal(
             ExpectedRuntimePermissionRows,
             await ReadRuntimeRolePermissions(connection));
+        Assert.Empty(await ReadDelegatedRuntimeRolePermissions(connection));
 
         await using var command = connection.CreateCommand();
         command.CommandText =
@@ -379,6 +507,40 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             WHERE roles.name = N'hotel_booking_runtime';
             """;
         return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string[]> ReadDelegatedRuntimeRolePermissions(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT CONCAT(
+                permissions.class, N':',
+                permissions.major_id, N':',
+                permissions.minor_id, N':',
+                permissions.permission_name COLLATE DATABASE_DEFAULT, N':',
+                permissions.state COLLATE DATABASE_DEFAULT, N':',
+                grantees.name COLLATE DATABASE_DEFAULT)
+            FROM sys.database_permissions AS permissions
+            INNER JOIN sys.database_principals AS grantees
+                ON grantees.principal_id = permissions.grantee_principal_id
+            WHERE permissions.class = 4
+              AND permissions.major_id =
+                  DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime')
+            ORDER BY
+                permissions.permission_name,
+                permissions.state,
+                grantees.name;
+            """;
+        var permissions = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            permissions.Add(reader.GetString(0));
+        }
+
+        return [.. permissions];
     }
 
     private static async Task<string[]> ReadDirectPermissions(
