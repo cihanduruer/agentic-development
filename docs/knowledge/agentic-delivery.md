@@ -21,7 +21,7 @@ GitHub intentionally marks Copilot cloud-agent pull request runs `action_require
 
 ## Azure Boards delivery synchronization
 
-After a successful development deployment, lifecycle synchronization requires one merged same-repository PR, one trusted canonical `AB#<id>` issue, exact-deployed-SHA validation and QA evidence, and exact-head Copilot review evidence. Automatic runs wait for bounded evidence races; manual replay pins the deployment run, SHA, and PR. PRs explicitly marked `Platform change: true` skip only when they have no AB identity or also declare `Azure Boards: N/A`; the latter prevents historical AB references from becoming delivery scope. Stale, missing, ambiguous, or untrusted evidence fails closed.
+After a successful development deployment, lifecycle synchronization requires one merged same-repository PR, one trusted canonical `AB#<id>` issue, exact-deployed-SHA validation and QA evidence, and exact-head Copilot review evidence. The delivery identity must be in the PR title or its `Azure Boards:` tracking field; incidental body references are ignored. Automatic runs wait for bounded evidence races; manual replay pins the deployment run, SHA, and PR. PRs explicitly marked `Platform change: true` skip only when they have no AB identity or also declare `Azure Boards: N/A`; the latter prevents historical AB references from becoming delivery scope. Stale, missing, ambiguous, or untrusted evidence fails closed.
 
 Synchronization never changes work-item state. It adds `delivery-evidence`, removes `ready-for-triage`, and adds deduplicated PR, deployment, validation, QA, and review links under an optimistic revision test. Complete replays are no-ops; terminal items may receive missing evidence but are never reopened.
 

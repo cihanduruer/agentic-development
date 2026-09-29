@@ -100,6 +100,16 @@ $arguments = @{
 
 $evidence = Resolve-LifecycleEvidence @arguments
 Assert-True ($evidence.WorkItemId -eq 959) "The trusted AB#959 evidence should resolve."
+Assert-True (
+    @(Get-PullRequestAbIds `
+        -Title "Document the pipeline" `
+        -Body "Historical example: AB#959").Count -eq 0
+) "Incidental PR body references must not become delivery identity."
+Assert-True (
+    @(Get-PullRequestAbIds `
+        -Title "Deliver pricing" `
+        -Body "- Azure Boards: AB#959").Count -eq 1
+) "The explicit Azure Boards tracking field should provide delivery identity."
 
 $laterReviewRun = $reviewRun.PSObject.Copy()
 $laterReviewRun.created_at = "2026-09-29T08:01:00Z"

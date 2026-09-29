@@ -30,6 +30,22 @@ function Get-AbIds {
     )
 }
 
+function Get-PullRequestAbIds {
+    param(
+        [AllowEmptyString()][string]$Title,
+        [AllowEmptyString()][string]$Body
+    )
+
+    $trackingValues = @(
+        [regex]::Matches(
+            $Body,
+            '(?im)^\s*-\s*Azure Boards:\s*(?<value>[^\r\n]*)$') |
+            ForEach-Object { $_.Groups["value"].Value } |
+            Where-Object { $_ -notmatch '^\s*N/A(?:\s*[.;]|$)' }
+    )
+    return @(Get-AbIds -Text "$Title`n$($trackingValues -join "`n")")
+}
+
 function Test-CanonicalWorkItemIssue {
     param(
         [Parameter(Mandatory)][object]$Issue,
@@ -97,7 +113,7 @@ function Resolve-LifecycleEvidence {
         }
     }
 
-    $ids = @(Get-AbIds -Text "$($pull.title)`n$pullBody")
+    $ids = @(Get-PullRequestAbIds -Title ([string]$pull.title) -Body $pullBody)
     if ($ids.Count -eq 0) {
         if (-not $isPlatformChange) {
             throw "Merged PR #$($pull.number) has no Azure Boards identity and is not explicitly marked as a platform change."

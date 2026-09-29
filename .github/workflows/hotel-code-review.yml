@@ -56,10 +56,20 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Request Copilot review
+        id: request-review
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.COPILOT_AGENT_TOKEN }}
           script: |
+            const existingReviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+            core.setOutput(
+              'existing_review_ids',
+              existingReviews.map(review => review.id).join(','));
             await github.rest.pulls.requestReviewers({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -76,7 +86,32 @@ jobs:
             const repo = context.repo.repo;
             const pull = context.payload.pull_request;
             const reviewer = 'copilot-pull-request-reviewer[bot]';
+            const existingReviewIds = new Set(
+              '${{ steps.request-review.outputs.existing_review_ids }}'
+                .split(',')
+                .filter(Boolean)
+                .map(Number));
             const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+            const isNewCurrentHeadReview = review =>
+              review.user?.login === reviewer
+              && review.commit_id === pull.head.sha
+              && !existingReviewIds.has(review.id);
+            const freshnessRegressions = [
+              [{ id: 1, user: { login: reviewer }, commit_id: pull.head.sha }, new Set([1]), false],
+              [{ id: 2, user: { login: reviewer }, commit_id: pull.head.sha }, new Set([1]), true],
+              [{ id: 2, user: { login: reviewer }, commit_id: '0'.repeat(40) }, new Set([1]), false]
+            ];
+            for (const [review, priorIds, expected] of freshnessRegressions) {
+              const originalIds = new Set(existingReviewIds);
+              existingReviewIds.clear();
+              for (const id of priorIds) existingReviewIds.add(id);
+              if (isNewCurrentHeadReview(review) !== expected) {
+                core.setFailed(`Review freshness regression for review ${review.id}.`);
+                return;
+              }
+              existingReviewIds.clear();
+              for (const id of originalIds) existingReviewIds.add(id);
+            }
 
             let currentReview;
             for (let attempt = 1; attempt <= 36; attempt++) {
@@ -87,9 +122,7 @@ jobs:
                 per_page: 100
               });
               currentReview = reviews
-                .filter(review =>
-                  review.user?.login === reviewer
-                  && review.commit_id === pull.head.sha)
+                .filter(isNewCurrentHeadReview)
                 .sort((left, right) => new Date(right.submitted_at) - new Date(left.submitted_at))[0];
               if (currentReview) {
                 break;
