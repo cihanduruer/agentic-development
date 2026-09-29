@@ -4,6 +4,8 @@ This folder documents how the Hotel Booking system is developed, validated, obse
 
 For a meeting-ready What/Why/How walkthrough, use the [Agentic Development presentation](PRESENTATION.md).
 
+For a practical 10-15 minute replay with live-demo preflight and safe fallbacks, use the [showcase guide](SHOWCASE.md).
+
 ## Development process
 
 ```mermaid
