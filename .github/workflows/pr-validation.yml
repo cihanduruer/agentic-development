@@ -104,6 +104,9 @@ jobs:
       - name: Test SQL bootstrapper evidence gate
         shell: pwsh
         run: ./scripts/Test-Assert-SqlManagedIdentityBootstrapperEvidence.ps1
+      - name: Test SQL bootstrapper evidence mutants
+        shell: pwsh
+        run: ./scripts/Test-SqlManagedIdentityBootstrapperEvidenceMutations.ps1
       - name: Test agentic intake script
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh

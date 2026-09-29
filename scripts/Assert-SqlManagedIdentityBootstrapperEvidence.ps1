@@ -61,45 +61,158 @@ if (@($results | Where-Object { $_.outcome -ne 'Passed' }).Count -gt 0) {
     throw 'SQL bootstrapper TRX contains a result that is not Passed.'
 }
 
-$expectedGroups = [ordered] @{
-    ExactDirectPermissionContractMigratesAndRerunsIdempotently = 1
-    MutatedDirectPermissionStateFailsClosed = 5
-    UnexpectedRuntimeRoleOwnerFailsClosed = 2
-    UnexpectedRuntimeRoleMemberFailsClosed = 1
-    DelegatedRuntimeRolePermissionFailsClosed = 12
-    FailureImmediatelyBeforeCommitRollsBackEveryMutation = 1
-}
 $testClassPrefix =
     'AgenticHotelBooking.IntegrationTests.' +
     'SqlManagedIdentityBootstrapperSqlServerTests.'
-$methodPattern =
-    '^' +
-    [regex]::Escape($testClassPrefix) +
-    '(?<Method>[A-Za-z_][A-Za-z0-9_]*)(?:\(.*\))?$'
-$methodNames = foreach ($result in $results) {
-    if ($result.testName -notmatch $methodPattern) {
-        throw "SQL bootstrapper TRX contains unexpected test name '$($result.testName)'."
+$expectedIdentities = @(
+    "${testClassPrefix}ExactDirectPermissionContractMigratesAndRerunsIdempotently"
+    "${testClassPrefix}MutatedDirectPermissionStateFailsClosed(mutation: `"subset`")"
+    "${testClassPrefix}MutatedDirectPermissionStateFailsClosed(mutation: `"superset`")"
+    "${testClassPrefix}MutatedDirectPermissionStateFailsClosed(mutation: `"deny`")"
+    "${testClassPrefix}MutatedDirectPermissionStateFailsClosed(mutation: `"grant-option`")"
+    "${testClassPrefix}MutatedDirectPermissionStateFailsClosed(mutation: `"column`")"
+    "${testClassPrefix}UnexpectedRuntimeRoleOwnerFailsClosed(ownerType: `"user`")"
+    "${testClassPrefix}UnexpectedRuntimeRoleOwnerFailsClosed(ownerType: `"role`")"
+    "${testClassPrefix}UnexpectedRuntimeRoleMemberFailsClosed"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"ALTER`", state: `"G`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"ALTER`", state: `"G`", granteeType: `"role`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"ALTER`", state: `"W`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"ALTER`", state: `"W`", granteeType: `"role`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"CONTROL`", state: `"G`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"CONTROL`", state: `"G`", granteeType: `"role`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"CONTROL`", state: `"W`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"CONTROL`", state: `"W`", granteeType: `"role`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"G`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"G`", granteeType: `"role`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"user`")"
+    "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"role`")"
+    "${testClassPrefix}FailureImmediatelyBeforeCommitRollsBackEveryMutation"
+)
+$expectedIdentitySet =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($expectedIdentity in $expectedIdentities) {
+    if (-not $expectedIdentitySet.Add($expectedIdentity)) {
+        throw "Duplicate expected SQL test identity '$expectedIdentity'."
+    }
+}
+$actualIdentitySet =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($result in $results) {
+    if (-not $actualIdentitySet.Add([string] $result.testName)) {
+        throw "SQL bootstrapper TRX contains duplicate test identity '$($result.testName)'."
+    }
+}
+if (-not $actualIdentitySet.SetEquals($expectedIdentitySet)) {
+    $missing = @($expectedIdentities | Where-Object { -not $actualIdentitySet.Contains($_) })
+    $unexpected = @($actualIdentitySet | Where-Object { -not $expectedIdentitySet.Contains($_) })
+    throw "SQL bootstrapper TRX identities differ. Missing: [$($missing -join '; ')]. Unexpected: [$($unexpected -join '; ')]."
+}
+
+function Get-CanonicalGuid {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string] $Value,
+
+        [Parameter(Mandatory)]
+        [string] $Label
+    )
+
+    $parsed = [guid]::Empty
+    if (-not [guid]::TryParse($Value, [ref] $parsed)) {
+        throw "SQL bootstrapper TRX $Label '$Value' is not a GUID."
     }
 
-    $Matches.Method
+    return $parsed.ToString('D')
 }
-$actualGroups = @($methodNames | Group-Object)
-if ($actualGroups.Count -ne $expectedGroups.Count) {
-    throw "SQL bootstrapper TRX has $($actualGroups.Count) method groups; expected $($expectedGroups.Count)."
+
+$definitions = @($trx.TestRun.TestDefinitions.UnitTest)
+$entries = @($trx.TestRun.TestEntries.TestEntry)
+if ($definitions.Count -ne $expectedTotal -or $entries.Count -ne $expectedTotal) {
+    throw "SQL bootstrapper TRX must contain exactly $expectedTotal definitions and entries."
 }
-foreach ($entry in $expectedGroups.GetEnumerator()) {
-    $matchingGroups = @(
-        $actualGroups |
-            Where-Object { $_.Name -eq $entry.Key }
-    )
-    $actual = if ($matchingGroups.Count -eq 1) {
-        [int] $matchingGroups[0].Count
+
+$definitionsByTestId = @{}
+$definitionExecutionIds =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($definition in $definitions) {
+    $testId = Get-CanonicalGuid -Value $definition.id -Label 'definition test ID'
+    $executionId =
+        Get-CanonicalGuid `
+            -Value $definition.Execution.id `
+            -Label 'definition execution ID'
+    if ($definitionsByTestId.ContainsKey($testId)) {
+        throw "SQL bootstrapper TRX contains duplicate definition test ID '$testId'."
     }
-    else {
-        0
+    if (-not $definitionExecutionIds.Add($executionId)) {
+        throw "SQL bootstrapper TRX contains duplicate definition execution ID '$executionId'."
     }
-    if ($actual -ne $entry.Value) {
-        throw "SQL bootstrapper TRX group '$($entry.Key)' has $actual results; expected $($entry.Value)."
+    if (-not $expectedIdentitySet.Contains([string] $definition.name)) {
+        throw "SQL bootstrapper TRX contains unexpected definition '$($definition.name)'."
+    }
+    if ($definition.TestMethod.className -ne
+        'AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests') {
+        throw "SQL bootstrapper TRX definition '$($definition.name)' has an unexpected class."
+    }
+    $identityWithoutClass =
+        ([string] $definition.name).Substring(
+            'AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.'.Length)
+    $expectedMethodName = ($identityWithoutClass -split '\(', 2)[0]
+    if ($definition.TestMethod.name -cne $expectedMethodName) {
+        throw "SQL bootstrapper TRX definition '$($definition.name)' has an unexpected method."
+    }
+
+    $definitionsByTestId[$testId] = @{
+        Definition = $definition
+        ExecutionId = $executionId
+    }
+}
+
+$entriesByTestId = @{}
+$entryExecutionIds =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($entry in $entries) {
+    $testId = Get-CanonicalGuid -Value $entry.testId -Label 'entry test ID'
+    $executionId =
+        Get-CanonicalGuid -Value $entry.executionId -Label 'entry execution ID'
+    if ($entriesByTestId.ContainsKey($testId)) {
+        throw "SQL bootstrapper TRX contains duplicate entry test ID '$testId'."
+    }
+    if (-not $entryExecutionIds.Add($executionId)) {
+        throw "SQL bootstrapper TRX contains duplicate entry execution ID '$executionId'."
+    }
+
+    $entriesByTestId[$testId] = $executionId
+}
+
+$resultTestIds =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$resultExecutionIds =
+    [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($result in $results) {
+    $testId = Get-CanonicalGuid -Value $result.testId -Label 'result test ID'
+    $executionId =
+        Get-CanonicalGuid -Value $result.executionId -Label 'result execution ID'
+    if (-not $resultTestIds.Add($testId)) {
+        throw "SQL bootstrapper TRX contains duplicate result test ID '$testId'."
+    }
+    if (-not $resultExecutionIds.Add($executionId)) {
+        throw "SQL bootstrapper TRX contains duplicate result execution ID '$executionId'."
+    }
+    if (-not $definitionsByTestId.ContainsKey($testId)) {
+        throw "SQL bootstrapper TRX result '$($result.testName)' has no matching definition."
+    }
+    if (-not $entriesByTestId.ContainsKey($testId)) {
+        throw "SQL bootstrapper TRX result '$($result.testName)' has no matching entry."
+    }
+
+    $definitionLink = $definitionsByTestId[$testId]
+    if ($definitionLink.Definition.name -cne $result.testName) {
+        throw "SQL bootstrapper TRX result '$($result.testName)' does not match its definition."
+    }
+    if ($definitionLink.ExecutionId -ne $executionId -or
+        $entriesByTestId[$testId] -ne $executionId) {
+        throw "SQL bootstrapper TRX result '$($result.testName)' has inconsistent execution linkage."
     }
 }
 
