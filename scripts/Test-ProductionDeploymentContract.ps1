@@ -60,6 +60,20 @@ try {
         }
     }
 
+    $singletonContract = @{
+        schemaVersion = 1
+        name = 'entra-sql-managed-identity'
+        version = 1
+    } | ConvertTo-Json -Compress
+    "[$singletonContract]" | Set-Content (Join-Path $temp 'deployment-contract.json')
+    try {
+        & $scriptPath -ReleaseDirectory $temp
+        throw 'A singleton-array deployment contract was accepted.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'object root') { throw }
+    }
+
     @{
         schemaVersion = 1
         name = 'entra-sql-managed-identity'
@@ -76,6 +90,20 @@ try {
         catch {
             if ($_.Exception.Message -notmatch 'older than') { throw }
         }
+    }
+
+    $singletonEvidence = @{
+        schemaVersion = 2
+        deploymentContract = 'entra-sql-managed-identity'
+        deploymentContractVersion = 1
+    } | ConvertTo-Json -Compress
+    "[$singletonEvidence]" | Set-Content (Join-Path $temp 'release-evidence.json')
+    try {
+        & $scriptPath -ReleaseDirectory $temp
+        throw 'Singleton-array release evidence was accepted.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'object root') { throw }
     }
 }
 finally {

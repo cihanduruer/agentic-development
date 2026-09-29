@@ -33,7 +33,9 @@ if ($development.IndexOf('Remove approved active legacy SQL administrator creden
     $cleanup -notmatch 'Explicit human approval' -or
     $cleanup -notmatch 'Runtime readiness' -or
     $cleanup -notmatch 'keyvault secret delete' -or
-    $cleanup -notmatch 'Key Vault Secrets Officer' -or
+    $cleanup -notmatch 'approved operator' -or
+    $cleanup -match 'Key Vault Secrets Officer' -or
+    $cleanup -match 'role assignment create' -or
     $cleanup -match 'az resource delete') {
     throw 'Legacy credential cleanup must require approval and run only after runtime readiness.'
 }
@@ -43,7 +45,8 @@ if ($indexRetry -notmatch 'AttemptTimeoutSeconds' -or
     throw 'Search indexing must terminate child processes within the overall retry deadline.'
 }
 if ($contractAssertion -notmatch 'is \[int\]' -or
-    $contractAssertion -notmatch 'isnot \[string\]') {
+    $contractAssertion -notmatch 'isnot \[string\]' -or
+    $contractAssertion -notmatch 'JSON object root') {
     throw 'Production deployment contracts must enforce strict JSON value types.'
 }
 

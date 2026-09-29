@@ -10,9 +10,27 @@ if (-not (Test-Path $contractPath) -or -not (Test-Path $evidencePath)) {
     throw 'Release artifact is older than the required production deployment contract.'
 }
 
+function Assert-JsonObjectRoot {
+    param(
+        [string] $Json,
+        [string] $Name
+    )
+
+    $trimmed = $Json.Trim()
+    if ($trimmed.Length -lt 2 -or
+        $trimmed[0] -ne '{' -or
+        $trimmed[$trimmed.Length - 1] -ne '}') {
+        throw "$Name must have a JSON object root."
+    }
+}
+
 try {
-    $contract = Get-Content $contractPath -Raw | ConvertFrom-Json
-    $evidence = Get-Content $evidencePath -Raw | ConvertFrom-Json
+    $contractJson = Get-Content $contractPath -Raw
+    $evidenceJson = Get-Content $evidencePath -Raw
+    Assert-JsonObjectRoot $contractJson 'deployment-contract.json'
+    Assert-JsonObjectRoot $evidenceJson 'release-evidence.json'
+    $contract = $contractJson | ConvertFrom-Json
+    $evidence = $evidenceJson | ConvertFrom-Json
 }
 catch {
     throw "Release deployment-contract metadata is malformed: $($_.Exception.Message)"

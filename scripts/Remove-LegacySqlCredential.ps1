@@ -11,9 +11,6 @@ param(
     [Parameter(Mandatory)]
     [string] $LegacyVaultName,
 
-    [Parameter(Mandatory)]
-    [Guid] $DeploymentPrincipalObjectId,
-
     [switch] $Approved,
 
     [switch] $RuntimeReadinessVerified,
@@ -76,32 +73,6 @@ if ([string]::IsNullOrWhiteSpace($vaultId)) {
     exit 0
 }
 
-$secretScope = "$vaultId/secrets/sql-connection-string"
-$assignmentCount = Invoke-AzTsv @(
-    'role', 'assignment', 'list',
-    '--assignee-object-id', $DeploymentPrincipalObjectId.ToString(),
-    '--role', 'Key Vault Secrets Officer',
-    '--scope', $secretScope,
-    '--query', 'length(@)'
-)
-$createdRoleAssignmentId = ''
-if ($assignmentCount -eq '0') {
-    $createdRoleAssignmentId = Invoke-AzTsv @(
-        'role', 'assignment', 'create',
-        '--assignee-object-id', $DeploymentPrincipalObjectId.ToString(),
-        '--assignee-principal-type', 'ServicePrincipal',
-        '--role', 'Key Vault Secrets Officer',
-        '--scope', $secretScope,
-        '--query', 'id'
-    )
-    if ([string]::IsNullOrWhiteSpace($createdRoleAssignmentId)) {
-        throw 'Azure did not return the temporary exact-secret cleanup role assignment ID.'
-    }
-}
-elseif ($assignmentCount -ne '1') {
-    throw 'Unable to establish the exact-secret cleanup role assignment.'
-}
-
 function Get-LegacySecretState {
     $result = & az keyvault secret list-versions `
         --vault-name $LegacyVaultName `
@@ -134,49 +105,37 @@ function Get-LegacySecretState {
     return 'error'
 }
 
-try {
-    $secretState = ''
-    for ($attempt = 1; $attempt -le $AuthorizationRetryCount; $attempt++) {
-        $secretState = Get-LegacySecretState
-        if ($secretState -ne 'forbidden') {
-            break
-        }
-        if ($attempt -lt $AuthorizationRetryCount) {
-            Start-Sleep -Seconds $RetryDelaySeconds
-        }
-    }
-
-    if ($secretState -eq 'forbidden') {
-        throw "Unable to verify the active legacy SQL connection-string secret after RBAC propagation: $LastSecretDiagnostic"
-    }
-    if ($secretState -eq 'error') {
-        throw "Unable to verify the active legacy SQL connection-string secret: $LastSecretDiagnostic"
-    }
-    if ($secretState -eq 'present') {
-        & az keyvault secret delete `
-            --vault-name $LegacyVaultName `
-            --name sql-connection-string `
-            --output none `
-            --only-show-errors
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to delete the active legacy SQL connection-string secret."
-        }
-    }
-
+$secretState = ''
+for ($attempt = 1; $attempt -le $AuthorizationRetryCount; $attempt++) {
     $secretState = Get-LegacySecretState
-    if ($secretState -ne 'absent') {
-        throw "The active legacy SQL connection-string secret absence could not be verified: $LastSecretDiagnostic"
+    if ($secretState -ne 'forbidden') {
+        break
     }
+    if ($attempt -lt $AuthorizationRetryCount) {
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+}
 
-    Write-Output "Verified that no active legacy SQL connection-string secret remains."
+if ($secretState -eq 'forbidden') {
+    throw "The deployment identity has no constrained Key Vault data-plane access. An approved operator must delete only '$LegacyVaultName/sql-connection-string' and rerun verification: $LastSecretDiagnostic"
 }
-finally {
-    if (-not [string]::IsNullOrWhiteSpace($createdRoleAssignmentId)) {
-        & az role assignment delete `
-            --ids $createdRoleAssignmentId `
-            --only-show-errors
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Failed to remove the temporary exact-secret cleanup role assignment.'
-        }
+if ($secretState -eq 'error') {
+    throw "Unable to verify the active legacy SQL connection-string secret: $LastSecretDiagnostic"
+}
+if ($secretState -eq 'present') {
+    & az keyvault secret delete `
+        --vault-name $LegacyVaultName `
+        --name sql-connection-string `
+        --output none `
+        --only-show-errors
+    if ($LASTEXITCODE -ne 0) {
+        throw "The active legacy SQL credential was not deleted. Use an approved operator identity constrained to metadata and delete access for '$LegacyVaultName/sql-connection-string', then rerun verification."
     }
 }
+
+$secretState = Get-LegacySecretState
+if ($secretState -ne 'absent') {
+    throw "The active legacy SQL connection-string secret absence could not be verified: $LastSecretDiagnostic"
+}
+
+Write-Output "Verified that no active legacy SQL connection-string secret remains."

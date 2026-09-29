@@ -391,7 +391,6 @@ jobs:
             -SqlServerName '${{ steps.infrastructure.outputs.sqlServerName }}' `
             -ApiAppName '${{ steps.infrastructure.outputs.apiAppName }}' `
             -LegacyVaultName '${{ steps.infrastructure.outputs.legacyKeyVaultName }}' `
-            -DeploymentPrincipalObjectId '${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}' `
             -Approved `
             -RuntimeReadinessVerified
 
