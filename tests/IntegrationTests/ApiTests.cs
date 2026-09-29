@@ -73,9 +73,14 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
 
         var response = await client.PostAsJsonAsync("/api/orchestration/route", request);
         var decision = await response.Content.ReadFromJsonAsync<RoutingDecision>();
+        var events = await client.GetFromJsonAsync<AgentEvent[]>("/api/operations/events");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("qa-agent", decision!.EffectiveWorker);
         Assert.False(decision.Shadow);
+        Assert.Contains(
+            events!,
+            item => item.CorrelationId == request.CorrelationId &&
+                    item.Summary.StartsWith("policy:", StringComparison.Ordinal));
     }
 }
