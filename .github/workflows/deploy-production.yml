@@ -629,7 +629,9 @@ jobs:
           always() &&
           steps.api-identity.outputs.configuredApi == 'true' &&
           (steps.api-cutover.outcome == 'failure' ||
-          steps.api-cutover-readiness.outcome == 'failure')
+          steps.api-cutover.outcome == 'cancelled' ||
+          steps.api-cutover-readiness.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'cancelled')
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -641,7 +643,9 @@ jobs:
           always() &&
           steps.api-rollback-login.outcome == 'success' &&
           (steps.api-cutover.outcome == 'failure' ||
-          steps.api-cutover-readiness.outcome == 'failure')
+          steps.api-cutover.outcome == 'cancelled' ||
+          steps.api-cutover-readiness.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'cancelled')
         shell: pwsh
         run: |
           $previousConnectionPath = Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt'
@@ -655,6 +659,13 @@ jobs:
           }
           else {
             'The managed-identity API cutover failed without a captured diagnostic.'
+          }
+          if ('${{ steps.api-cutover.outcome }}' -eq 'cancelled') {
+            ./scripts/Wait-AzureResourceGroupDeployment.ps1 `
+              -ResourceGroup agentic-hotelbookingprod `
+              -DeploymentName "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              -TimeoutSeconds 2400 `
+              -AllowFailedTerminalState
           }
           az webapp config appsettings set `
             --resource-group agentic-hotelbookingprod `

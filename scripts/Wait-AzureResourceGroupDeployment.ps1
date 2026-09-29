@@ -12,7 +12,9 @@ param(
     [ValidateRange(0, 300)]
     [int] $PollIntervalSeconds = 15,
 
-    [switch] $AllowTimeout
+    [switch] $AllowTimeout,
+
+    [switch] $AllowFailedTerminalState
 )
 
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -39,6 +41,10 @@ while ($true) {
             return
         }
         { $_ -in @('Canceled', 'Failed') } {
+            if ($AllowFailedTerminalState) {
+                Write-Output "Deployment '$DeploymentName' reached terminal state '$($_)'."
+                return
+            }
             $errorDetail = if ($null -eq $deployment.error) {
                 'Azure returned no error detail.'
             } else {

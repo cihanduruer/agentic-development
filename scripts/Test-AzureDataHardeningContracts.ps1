@@ -162,9 +162,12 @@ foreach ($workflow in @($development, $production)) {
         $rollbackLoginBody -notmatch 'uses: azure/login@v2' -or
         $rollbackLoginBody -notmatch 'api-cutover\.outcome' -or
         $rollbackLoginBody -notmatch 'api-cutover-readiness\.outcome' -or
+        $rollbackLoginBody -notmatch "outcome == 'cancelled'" -or
         $rollbackBody -notmatch 'webapp config appsettings set' -or
         $rollbackBody -notmatch 'prior app SQL connection was restored and proven ready' -or
         $rollbackBody -notmatch 'api-rollback-login\.outcome' -or
+        $rollbackBody -notmatch 'Wait-AzureResourceGroupDeployment\.ps1' -or
+        $rollbackBody -notmatch 'AllowFailedTerminalState' -or
         $capturedConfigurationCleanupBody -notmatch 'always\(\)' -or
         $capturedConfigurationCleanupBody -notmatch 'Remove-DeploymentSecretFiles\.ps1' -or
         $capturedConfigurationCleanupBody -notmatch 'previous-sql-connection\.txt' -or

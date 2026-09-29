@@ -61,6 +61,19 @@ Invoke-Scenario -Responses @(
     }
 }
 
+foreach ($terminalState in @('Failed', 'Canceled')) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 0; Body = "{`"provisioningState`":`"$terminalState`"}" }
+    ) -Assertion {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState
+    }
+}
+
 Invoke-Scenario -Responses @(
     @{ ExitCode = 1; Body = $null }
 ) -Assertion {
