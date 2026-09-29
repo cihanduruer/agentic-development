@@ -53,13 +53,13 @@ The `.github/workflows/agentic-intake.yml` workflow runs every five minutes and 
 1. GitHub Actions signs in to Azure through workload identity federation.
 2. `scripts/Start-AgenticWork.ps1` obtains an Azure DevOps access token.
 3. It queries `sample-project` for New User Stories and Bugs without the `github-synced` tag.
-4. It searches all repository issues for the unique `AB#<id>` title or canonical Azure Boards link and reuses that issue; multiple matches fail closed.
+4. It searches issues from repository owners, members, or collaborators for the unique `AB#<id>` title or exact canonical Azure Boards organization/project/item link and reuses that issue; multiple matches fail closed.
 5. If no issue exists, it creates one containing the requirement and agent operating contract.
 6. It assigns `copilot-swe-agent` with the `hotel-developer` custom-agent profile through GitHub's public-preview issues REST API. `COPILOT_AGENT_TOKEN` is a GitHub user token, not the workflow `GITHUB_TOKEN`.
 7. It validates the stable Copilot bot identity or a documented Copilot login projection.
 8. Only after assignment succeeds, it moves a New Azure Boards item to Active, adds `github-synced`, and records the GitHub link.
 
-The AB reference, tag, existing-link check, and work-item revision test make retries idempotent and protect against duplicates and concurrent updates.
+The AB reference, tag, existing-link check, and work-item revision test make retries idempotent and protect against duplicates and concurrent updates. Targeted recovery accepts only New or Active items and refuses to restart terminal work.
 
 ## Agent roles and coordination
 

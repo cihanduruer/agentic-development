@@ -43,11 +43,18 @@ function Test-WorkItemIssue {
         [object]$Issue,
 
         [Parameter(Mandatory)]
+        [string]$Organization,
+
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
         [int]$Id
     )
 
     $titlePattern = "^\[AB#$Id\](?:\s|$)"
-    $bodyPattern = "(?m)^\s*Azure Boards work item:\s*\[AB#$Id\]\("
+    $workItemUrl = [regex]::Escape("https://dev.azure.com/$Organization/$Project/_workitems/edit/$Id")
+    $bodyPattern = "(?m)^\s*Azure Boards work item:\s*\[AB#$Id\]\($workItemUrl\)\s*$"
     return ([string]$Issue.title -match $titlePattern) -or ([string]$Issue.body -match $bodyPattern)
 }
 
@@ -57,11 +64,23 @@ function Select-WorkItemIssue {
         [object[]]$Issues,
 
         [Parameter(Mandatory)]
+        [string]$Organization,
+
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
         [int]$Id
     )
 
     $matches = @($Issues | Where-Object {
-        $null -eq $_.pull_request -and (Test-WorkItemIssue -Issue $_ -Id $Id)
+        $null -eq $_.pull_request `
+            -and $_.author_association -in @("OWNER", "MEMBER", "COLLABORATOR") `
+            -and (Test-WorkItemIssue `
+                -Issue $_ `
+                -Organization $Organization `
+                -Project $Project `
+                -Id $Id)
     })
 
     if ($matches.Count -gt 1) {
@@ -70,6 +89,20 @@ function Select-WorkItemIssue {
     }
 
     return $matches | Select-Object -First 1
+}
+
+function Assert-WorkItemState {
+    param(
+        [Parameter(Mandatory)]
+        [string]$State,
+
+        [Parameter(Mandatory)]
+        [int]$Id
+    )
+
+    if ($State -notin @("New", "Active")) {
+        throw "AB#$Id is '$State'; only New or Active items can be started or recovered."
+    }
 }
 
 function Invoke-GitHubRest {
@@ -218,9 +251,7 @@ function Invoke-AgenticIntake {
             throw "AB#$id is not an eligible User Story or Bug in project '$Project'."
         }
 
-        if ($state -notin @("New", "Active") -and "github-synced" -notin $tags) {
-            throw "AB#$id is '$state'; only New or Active unsynchronized items can be started."
-        }
+        Assert-WorkItemState -State $state -Id $id
 
         $issueBody = @"
 Azure Boards work item: [AB#$id]($workItemUrl)
@@ -246,7 +277,11 @@ $description
             continue
         }
 
-        $issue = Select-WorkItemIssue -Issues $repositoryIssues -Id $id
+        $issue = Select-WorkItemIssue `
+            -Issues $repositoryIssues `
+            -Organization $Organization `
+            -Project $Project `
+            -Id $id
         $assignment = @{
             target_repo = $Repository
             base_branch = $BaseBranch

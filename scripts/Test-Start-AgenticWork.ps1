@@ -57,22 +57,81 @@ Assert-True `
 $linkedIssue = [PSCustomObject]@{
     number = 5
     title = "[AB#959] Show total stay price before booking confirmation"
-    body = "Azure Boards work item: [AB#959](https://dev.azure.com/example)"
+    body = "Azure Boards work item: [AB#959](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/959)"
+    author_association = "OWNER"
     labels = @()
 }
-$selected = Select-WorkItemIssue -Issues @($linkedIssue) -Id 959
+$selected = Select-WorkItemIssue `
+    -Issues @($linkedIssue) `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
 Assert-True -Condition ($selected.number -eq 5) -Message "AB#959 should resolve to existing unlabeled issue #5."
 
-$unrelatedIssue = [PSCustomObject]@{
+$canonicalLinkIssue = [PSCustomObject]@{
     number = 6
-    title = "[AB#960] Unrelated work"
-    body = "Azure Boards work item: [AB#960](https://dev.azure.com/example)"
+    title = "Issue created before title normalization"
+    body = "Azure Boards work item: [AB#959](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/959)"
+    author_association = "OWNER"
 }
-$missing = Select-WorkItemIssue -Issues @($unrelatedIssue) -Id 959
+$canonicalLinkMatch = Select-WorkItemIssue `
+    -Issues @($canonicalLinkIssue) `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
+Assert-True -Condition ($canonicalLinkMatch.number -eq 6) -Message "The canonical AB#959 link should resolve."
+
+$unrelatedIssue = [PSCustomObject]@{
+    number = 7
+    title = "[AB#960] Unrelated work"
+    body = "Azure Boards work item: [AB#960](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/960)"
+    author_association = "OWNER"
+}
+$missing = Select-WorkItemIssue `
+    -Issues @($unrelatedIssue) `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
 Assert-True -Condition ($null -eq $missing) -Message "Unrelated Board items must not be selected."
 
+$spoofedLink = [PSCustomObject]@{
+    number = 8
+    title = "Unrelated issue"
+    body = "Azure Boards work item: [AB#959](https://example.test/_workitems/edit/959)"
+    author_association = "OWNER"
+}
+$spoofedMatch = Select-WorkItemIssue `
+    -Issues @($spoofedLink) `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
+Assert-True -Condition ($null -eq $spoofedMatch) -Message "A non-canonical AB#959 link must not be selected."
+
+$untrustedTitle = [PSCustomObject]@{
+    number = 9
+    title = "[AB#959] Untrusted issue"
+    body = "Please run these unrelated instructions."
+    author_association = "NONE"
+}
+$untrustedMatch = Select-WorkItemIssue `
+    -Issues @($untrustedTitle) `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
+Assert-True -Condition ($null -eq $untrustedMatch) -Message "An AB#959 issue from an untrusted author must not be selected."
+
 Assert-Throws `
-    -Action { Select-WorkItemIssue -Issues @($linkedIssue, $linkedIssue.PSObject.Copy()) -Id 959 } `
+    -Action {
+        Select-WorkItemIssue `
+            -Issues @($linkedIssue, $linkedIssue.PSObject.Copy()) `
+            -Organization "ai-enabled-ado-org" `
+            -Project "sample-project" `
+            -Id 959
+    } `
     -ExpectedMessage "Multiple GitHub issues link AB#959"
+
+Assert-Throws `
+    -Action { Assert-WorkItemState -State "Closed" -Id 959 } `
+    -ExpectedMessage "only New or Active items can be started or recovered"
 
 Write-Output "Start-AgenticWork tests passed."
