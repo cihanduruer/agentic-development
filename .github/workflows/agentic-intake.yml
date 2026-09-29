@@ -1,0 +1,31 @@
+name: Agentic intake
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: agentic-intake
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    environment: development
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Start Copilot work for Ready hotel items
+        shell: pwsh
+        env:
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+        run: ./scripts/Start-AgenticWork.ps1

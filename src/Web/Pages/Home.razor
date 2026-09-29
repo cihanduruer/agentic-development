@@ -1,0 +1,161 @@
+@page "/"
+@using AgenticHotelBooking.Domain
+@inject HttpClient Http
+
+<PageTitle>Agentic Hotel Booking</PageTitle>
+
+<section class="hero">
+    <p class="eyebrow">A Microsoft-first agentic delivery sample</p>
+    <h1>Find a room. Book with confidence.</h1>
+    <p>Explore sample hotels and complete a booking backed by explicit availability rules.</p>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+
+@if (hotels is null)
+{
+    <p>Loading hotels...</p>
+}
+else
+{
+    <div class="hotel-grid">
+        @foreach (var hotel in hotels)
+        {
+            <article class="hotel-card">
+                <span class="city">@hotel.City</span>
+                <h2>@hotel.Name</h2>
+                <p>@hotel.Description</p>
+                <button class="btn btn-primary" @onclick="() => SelectHotel(hotel)">View rooms</button>
+            </article>
+        }
+    </div>
+}
+
+@if (selectedHotel is not null)
+{
+    <section class="booking-panel" aria-labelledby="booking-title">
+        <h2 id="booking-title">Book @selectedHotel.Name</h2>
+        <div class="booking-fields">
+            <label>Check-in <input type="date" @bind="checkIn" /></label>
+            <label>Check-out <input type="date" @bind="checkOut" /></label>
+            <label>Guests <input type="number" min="1" max="8" @bind="guests" /></label>
+            <button class="btn btn-outline-primary" @onclick="SearchRooms">Check availability</button>
+        </div>
+
+        @if (rooms is not null)
+        {
+            <div class="room-list">
+                @foreach (var room in rooms)
+                {
+                    <button class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
+                            @onclick="() => selectedRoom = room"
+                            aria-pressed="@(selectedRoom?.Id == room.Id)">
+                        <strong>@room.Name</strong>
+                        <span>Up to @room.Capacity guests</span>
+                        <span>€@room.NightlyRate per night</span>
+                    </button>
+                }
+            </div>
+        }
+
+        @if (selectedRoom is not null)
+        {
+            <div class="confirm-row">
+                <label>Guest name <input @bind="guestName" /></label>
+                <button class="btn btn-success" @onclick="BookRoom">Confirm booking</button>
+            </div>
+        }
+    </section>
+}
+
+@if (reservation is not null)
+{
+    <section class="confirmation" role="status">
+        <span>Booking confirmed</span>
+        <h2>@reservation.Reference</h2>
+        <p>@reservation.GuestName · @reservation.CheckIn to @reservation.CheckOut</p>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<Hotel>? hotels;
+    private Hotel? selectedHotel;
+    private IReadOnlyList<Room>? rooms;
+    private Room? selectedRoom;
+    private Reservation? reservation;
+    private string? error;
+    private string guestName = string.Empty;
+    private int guests = 2;
+    private DateOnly checkIn = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+    private DateOnly checkOut = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            hotels = await Http.GetFromJsonAsync<Hotel[]>("api/hotels") ?? [];
+        }
+        catch (Exception exception)
+        {
+            error = $"Hotels could not be loaded: {exception.Message}";
+        }
+    }
+
+    private void SelectHotel(Hotel hotel)
+    {
+        selectedHotel = hotel;
+        rooms = null;
+        selectedRoom = null;
+        reservation = null;
+        error = null;
+    }
+
+    private async Task SearchRooms()
+    {
+        if (selectedHotel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            error = null;
+            selectedRoom = null;
+            rooms = await Http.GetFromJsonAsync<Room[]>(
+                $"api/hotels/{selectedHotel.Id}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}") ?? [];
+        }
+        catch (Exception exception)
+        {
+            error = $"Availability could not be checked: {exception.Message}";
+        }
+    }
+
+    private async Task BookRoom()
+    {
+        if (selectedHotel is null || selectedRoom is null)
+        {
+            return;
+        }
+
+        try
+        {
+            error = null;
+            var response = await Http.PostAsJsonAsync("api/reservations", new BookingRequest(
+                selectedHotel.Id, selectedRoom.Id, checkIn, checkOut, guests, guestName));
+            if (!response.IsSuccessStatusCode)
+            {
+                error = await response.Content.ReadAsStringAsync();
+                return;
+            }
+
+            reservation = await response.Content.ReadFromJsonAsync<Reservation>();
+        }
+        catch (Exception exception)
+        {
+            error = $"The booking could not be completed: {exception.Message}";
+        }
+    }
+}

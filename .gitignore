@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+.vscode/
+TestResults/
+artifacts/
+*.user
+*.suo
+*.db
+*.local.json
+infra/*.parameters.json
+!infra/*.example.parameters.json
