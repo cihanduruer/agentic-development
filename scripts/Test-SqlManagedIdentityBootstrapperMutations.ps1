@@ -98,3 +98,4 @@ finally {
 }
 
 Write-Host 'SQL managed identity bootstrapper mutation tests passed.'
+exit 0
