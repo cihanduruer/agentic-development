@@ -87,9 +87,19 @@ function Resolve-LifecycleEvidence {
         throw "Deployed SHA '$ExpectedSha' belongs to PR #$($pull.number), not selected PR #$ExpectedPullRequestNumber."
     }
 
-    $ids = @(Get-AbIds -Text "$($pull.title)`n$($pull.body)")
+    $pullBody = [string]$pull.body
+    $isPlatformChange = $pullBody -match '(?im)^\s*-\s*Platform change:\s*true\s*$'
+    $boardsNotApplicable = $pullBody -match '(?im)^\s*(?:-\s*)?Azure Boards:\s*N/A(?:\s*[.;].*)?$'
+    if ($isPlatformChange -and $boardsNotApplicable) {
+        return [pscustomobject]@{
+            Action = "Skipped"
+            Reason = "Merged PR #$($pull.number) explicitly declares a platform change with Azure Boards not applicable."
+        }
+    }
+
+    $ids = @(Get-AbIds -Text "$($pull.title)`n$pullBody")
     if ($ids.Count -eq 0) {
-        if ([string]$pull.body -notmatch '(?im)^\s*-\s*Platform change:\s*true\s*$') {
+        if (-not $isPlatformChange) {
             throw "Merged PR #$($pull.number) has no Azure Boards identity and is not explicitly marked as a platform change."
         }
         return [pscustomobject]@{

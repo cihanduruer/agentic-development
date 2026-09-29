@@ -136,6 +136,19 @@ $platformArguments.PullRequests = @($platformPull)
 $platformResult = Resolve-LifecycleEvidence @platformArguments
 Assert-True ($platformResult.Action -eq "Skipped") "A non-AB platform PR should skip clearly."
 
+$historicalReferencePull = $pull.PSObject.Copy()
+$historicalReferencePull.title = "Document the development pipeline"
+$historicalReferencePull.body = @"
+- Platform change: true
+Azure Boards: N/A; AB#959 is a closed historical demonstration, not new product scope.
+"@
+$historicalReferenceArguments = $arguments.Clone()
+$historicalReferenceArguments.PullRequests = @($historicalReferencePull)
+$historicalReferenceResult = Resolve-LifecycleEvidence @historicalReferenceArguments
+Assert-True (
+    $historicalReferenceResult.Action -eq "Skipped"
+) "A platform/N/A PR must not treat a historical AB reference as delivery scope."
+
 $untrackedPull = $pull.PSObject.Copy()
 $untrackedPull.title = "Change delivery behavior"
 $untrackedPull.body = "- Platform change: false"
