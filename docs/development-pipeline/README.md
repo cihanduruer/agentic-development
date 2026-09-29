@@ -117,7 +117,7 @@ The development deployment uses `gpt-4.1-mini` in Sweden Central. The API in Wes
 
 ## AI operations and observability
 
-The API accepts typed operations events and broadcasts them through SignalR. The `/operations` dashboard shows recent and live:
+The API persists typed operations events in Azure SQL and broadcasts them through SignalR only after a successful write. Retention defaults to 30 days and 2,000 records, and a caller can retrieve no more than 500 events per request. The `/operations` dashboard remains publicly readable and shows recent and live:
 
 - routing decisions and confidence;
 - policy or model identifier;
@@ -129,6 +129,8 @@ The API accepts typed operations events and broadcasts them through SignalR. The
 - work-item correlation and knowledge revision.
 
 Application Insights and Log Analytics provide runtime telemetry. Event contracts intentionally exclude prompts, source code, credentials, tokens, guest personal data, and tool-output bodies. Correlation IDs are operational identifiers rather than user identifiers.
+
+Outside Development, `POST /api/operations/events` and `POST /api/orchestration/route` require a Microsoft Entra bearer token whose audience matches `OperationsAuth__Audience` and whose `roles` claim contains `Operations.Ingest`. Missing authority, audience, or role configuration fails API startup. `GET /api/operations/events`, `/hubs/operations`, and hotel-booking endpoints remain public. Development is the explicit exception for local and integration-test ingestion.
 
 ## Pull-request validation
 
@@ -174,6 +176,7 @@ Infrastructure is declared in `infra/`. Production must use a separate resource 
 - Azure OpenAI local authentication is disabled.
 - App Service has the least-privilege Cognitive Services OpenAI User role.
 - The SQL connection is exposed to App Service through a Key Vault reference.
+- Operations writers use Entra workload identities and the `Operations.Ingest` application role; API keys and shared secrets are not accepted by the API.
 - GitHub Environment secrets hold deployment-only values.
 - CORS allows only configured web origins.
 - Production, spending, permanent deletion, secrets, external publication, and other irreversible actions require human approval.
@@ -207,6 +210,23 @@ Model-assisted routing is disabled locally by default; deterministic policy rema
 ```
 
 `DefaultAzureCredential` uses the developer's Azure CLI or IDE identity locally.
+
+## Entra operations-writer setup
+
+Tenant-scoped Microsoft Entra application registrations and app-role assignments are not ARM resources managed by this repository's resource-group Bicep deployment. An Entra administrator must complete these steps before deploying:
+
+1. Create or select an API application registration, set an Application ID URI, and define an application role with value `Operations.Ingest` and allowed member type `Applications`.
+2. Create or select each calling workload identity and assign that service principal the API's `Operations.Ingest` app role. Grant tenant admin consent where required.
+3. Set the development GitHub Environment variable `OPERATIONS_API_AUDIENCE` to the API Application ID URI (for example, `api://<application-client-id>`).
+4. Have callers request an application token for `<application-id-uri>/.default` and send it as a bearer token. Do not provision an API key or client secret solely for operations ingestion; use workload identity federation or managed identity.
+
+The Bicep deployment derives the authority from the subscription tenant, configures the audience and required role on App Service, and fails if the audience variable is absent or empty at runtime.
+
+## Grounding note
+
+- **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, and `.github/workflows/deploy-development.yml`.
+- **Derived:** The Entra registration and role assignment remain manual because this repository deploys Azure Resource Manager resources and does not manage tenant-scoped Microsoft Graph objects.
+- **Knowledge revision:** `2dc64f51b643ebe8a8e0a90d56ebb522c8a30728`.
 
 ## Required validation commands
 

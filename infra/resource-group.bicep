@@ -13,6 +13,9 @@ param sqlAdminPassword string
 @description('SQL administrator login.')
 param sqlAdminLogin string = 'hoteladmin'
 
+@description('Application ID URI exposed by the Entra operations API registration.')
+param operationsApiAudience string
+
 var tags = {
   application: 'agentic-hotelbooking'
   environment: environment
@@ -26,6 +29,7 @@ module platform 'modules/platform.bicep' = {
     location: location
     sqlAdminLogin: sqlAdminLogin
     sqlAdminPassword: sqlAdminPassword
+    operationsApiAudience: operationsApiAudience
     tags: tags
   }
 }

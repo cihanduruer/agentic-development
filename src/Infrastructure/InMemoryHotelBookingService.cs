@@ -8,11 +8,20 @@ public sealed class InMemoryAgentEventStore : IAgentEventStore
     private const int Capacity = 2_000;
     private readonly ConcurrentQueue<AgentEvent> events = new();
 
-    public IReadOnlyList<AgentEvent> GetRecent(int limit = 100) =>
-        events.Reverse().Take(Math.Clamp(limit, 1, 500)).ToArray();
-
-    public AgentEvent Record(RecordAgentEventRequest request)
+    public Task<IReadOnlyList<AgentEvent>> GetRecentAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<AgentEvent> result = events.Reverse().Take(Math.Clamp(limit, 1, 500)).ToArray();
+        return Task.FromResult(result);
+    }
+
+    public Task<AgentEvent> RecordAsync(
+        RecordAgentEventRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(request.CorrelationId) ||
             string.IsNullOrWhiteSpace(request.Agent) ||
             string.IsNullOrWhiteSpace(request.Summary))
@@ -45,6 +54,6 @@ public sealed class InMemoryAgentEventStore : IAgentEventStore
             events.TryDequeue(out _);
         }
 
-        return recorded;
+        return Task.FromResult(recorded);
     }
 }
