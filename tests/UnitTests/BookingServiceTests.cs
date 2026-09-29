@@ -47,6 +47,24 @@ public sealed class BookingServiceTests
         Assert.Equal("Family Loft", rooms[0].Name);
     }
 
+    [Fact]
+    public async Task CreateReservationCalculatesMultiNightTotal()
+    {
+        await using var context = CreateContext();
+        var service = new EntityFrameworkHotelBookingService(context);
+        var hotel = (await service.GetHotelsAsync(CancellationToken.None))[0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+
+        var reservation = await service.CreateReservationAsync(
+            new BookingRequest(hotel.Id, room.Id, checkIn, checkIn.AddDays(3), 2, "Ada"),
+            CancellationToken.None);
+
+        Assert.Equal(3, reservation.Nights);
+        Assert.Equal(room.NightlyRate, reservation.NightlyRate);
+        Assert.Equal(room.NightlyRate * 3, reservation.TotalStayPrice);
+    }
+
     private static HotelBookingDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<HotelBookingDbContext>()

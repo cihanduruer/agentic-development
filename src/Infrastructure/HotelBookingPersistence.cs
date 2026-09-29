@@ -420,7 +420,8 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
                 entity.CheckOut,
                 entity.Guests,
                 entity.GuestName,
-                entity.CreatedAt);
+                entity.CreatedAt,
+                room.NightlyRate);
         }
         finally
         {

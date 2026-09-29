@@ -18,7 +18,13 @@ public sealed record Reservation(
     DateOnly CheckOut,
     int Guests,
     string GuestName,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    decimal NightlyRate)
+{
+    public int Nights => CheckOut.DayNumber - CheckIn.DayNumber;
+
+    public decimal TotalStayPrice => NightlyRate * Nights;
+}
 
 public sealed record BookingRequest(
     Guid HotelId,

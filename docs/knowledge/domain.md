@@ -7,6 +7,7 @@
 - **Stay:** half-open interval from check-in (inclusive) to check-out (exclusive).
 - **Reservation:** confirmed allocation of one room for a stay and party.
 - **Availability:** absence of an overlapping reservation and sufficient room capacity.
+- **Stay price:** nightly rate multiplied by the number of nights in the stay, displayed in euros before confirmation and on the confirmed reservation.
 
 ## Rules
 
@@ -18,3 +19,4 @@
 6. Reservation creation performs availability checking and insertion atomically.
 7. A confirmed reservation receives an immutable, non-secret reference.
 8. Dates use `DateOnly`; event timestamps use UTC `DateTimeOffset`.
+9. Total stay price equals the selected room's nightly rate multiplied by `check-out.DayNumber - check-in.DayNumber`.
