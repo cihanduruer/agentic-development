@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/**'
       - 'infra/**'
+      - 'scripts/Set-WebApiConfiguration.ps1'
       - '.github/workflows/deploy-development.yml'
       - 'scripts/Test-DevelopmentOperations.ps1'
 
@@ -53,9 +54,9 @@ jobs:
       - name: Configure web API endpoint
         shell: pwsh
         run: |
-          @{ ApiBaseUrl = '${{ steps.infrastructure.outputs.apiUrl }}/' } |
-            ConvertTo-Json |
-            Set-Content artifacts/web/wwwroot/appsettings.json
+          ./scripts/Set-WebApiConfiguration.ps1 `
+            -WebRoot artifacts/web/wwwroot `
+            -ApiBaseUrl '${{ steps.infrastructure.outputs.apiUrl }}'
       - name: Deploy web
         uses: Azure/static-web-apps-deploy@v1
         with:
