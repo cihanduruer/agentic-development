@@ -31,7 +31,7 @@ flowchart TD
     OPS -. observes .-> DEPLOY
 ```
 
-The intake, pull-request validation, development deployment, routing telemetry, and operations dashboard are implemented. The dedicated automated review-to-QA handoff and production release workflow remain explicit pipeline stages to complete; production release must retain a manual approval gate.
+The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check.
 
 ## System ownership
 
@@ -79,6 +79,8 @@ The product owner uses GitHub Copilot Desktop to refine a hotel requirement befo
 ### QA agent
 
 `.github/agents/hotel-qa.agent.md` defines an independent evidence role. It does not accept the developer's claims without proof and reports each acceptance criterion as passed, failed, or unverified. Reservation changes require negative-path and concurrency coverage.
+
+GitHub currently exposes no supported pull-request check API that dispatches this repository custom agent. `.github/workflows/qa-evidence.yml` therefore does not claim to run `hotel-qa`. It applies the contract independently after validation and review, reruns build and tests, compiles Bicep, validates pull-request acceptance and negative-path evidence, and uploads `qa-result.json`, `qa-result.md`, and TRX files. The JSON records the custom-agent execution as `not-run`. Agent judgment remains a separate manual invocation.
 
 ### Parallel work
 
@@ -141,6 +143,22 @@ Application Insights and Log Analytics provide runtime telemetry. Event contract
 5. Compile the subscription-scope Bicep entry point.
 
 No proof means no completion. A change is not ready to merge without acceptance evidence, required output locations, test results, review status, knowledge updates, citations, unresolved gaps, and security or deployment impact.
+
+## Copilot review gate
+
+`.github/workflows/hotel-code-review.yml` runs in `pull_request_target` only for non-draft `main` pull requests that change hotel application, test, infrastructure, delivery, agent, or workflow paths. It never checks out or executes pull-request code with the privileged review-request token.
+
+The workflow requests `copilot-pull-request-reviewer[bot]` through the supported GitHub REST review-request endpoint using `COPILOT_AGENT_TOKEN`, then uses the scoped `GITHUB_TOKEN` for read and pull-request metadata writes. It waits for a review tied to the current head commit. Unresolved High findings and findings without a machine-readable severity fail the check, add `development-required`, and return the pull request to development. Resolved threads clear the block on the next run. GitHub exposes severity labels in comment bodies but no confidence score; the workflow does not invent one.
+
+Repository settings should require `PR validation / validate`, `Hotel code review / Copilot findings gate`, and `QA evidence / Independent QA evidence gate` before merge. The branch-protection and repository-rulesets APIs currently return HTTP 403 (`Upgrade to GitHub Pro or make this repository public`) for this private repository, so these checks cannot be server-enforced on the current plan. They remain fail-closed workflow evidence, and a human must not merge around a failing or missing result. Copilot code review must be enabled for the repository, and `COPILOT_AGENT_TOKEN` must be authorized to request Copilot reviews.
+
+## Release proposal and production
+
+A successful `QA evidence` run for `main` triggers `.github/workflows/release-proposal.yml`. It publishes API and web packages once, records the exact source commit and QA run, creates SHA-256 checksums, and uploads `release-<commit>` for 90 days. This is evidence, not deployment.
+
+Production uses `.github/workflows/deploy-production.yml` and can run only through `workflow_dispatch`. The operator supplies the release workflow run ID, its full commit SHA, and the exact text `DEPLOY-PRODUCTION`. The workflow verifies that the run is a successful `Release proposal` run from `main`, confirms the commit is in current `main` history, downloads only that run's named artifact, verifies checksums, revalidates the referenced successful QA run and PR validation check for the same commit, and promotes without rebuilding. It does not trust unavailable branch protection. Deployment uses `infra/production.parameters.json` and the separate `agentic-hotelbookingprod` resource group. The existing development deployment remains unchanged.
+
+The `production` GitHub Environment exists and is restricted to `main`. GitHub returned HTTP 422 when required reviewers and a wait timer were configured because those protection rules are unavailable for this private repository on its current billing plan. Until the plan supports those controls, typed confirmation, immutable source checks, manual dispatch, branch restriction, and repository write access are the implemented human controls. A repository administrator must configure environment OIDC values and deployment secrets before the first release. No production deployment was performed while implementing this pipeline.
 
 ## Development deployment
 
@@ -229,7 +247,11 @@ az bicep build --file infra\main.bicep
 | `.github/agents/` | Developer and QA custom-agent profiles |
 | `.github/workflows/agentic-intake.yml` | Azure Boards to Copilot dispatch |
 | `.github/workflows/pr-validation.yml` | Pull-request quality gates |
+| `.github/workflows/hotel-code-review.yml` | Copilot review request and blocking-findings gate |
+| `.github/workflows/qa-evidence.yml` | Independent acceptance and negative-path evidence gate |
+| `.github/workflows/release-proposal.yml` | Immutable release packages, checksums, and proposal |
 | `.github/workflows/deploy-development.yml` | Development infrastructure and application deployment |
+| `.github/workflows/deploy-production.yml` | Manual-only verified production promotion |
 | `scripts/Start-AgenticWork.ps1` | Idempotent work-item intake implementation |
 | `infra/` | Azure Bicep definitions |
 | `src/Infrastructure/MicrosoftAgentRouter.cs` | Deterministic and model-assisted routing |

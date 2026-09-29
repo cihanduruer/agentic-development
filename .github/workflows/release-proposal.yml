@@ -1,0 +1,123 @@
+name: Release proposal
+
+on:
+  workflow_run:
+    workflows: [QA evidence]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-proposal-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build immutable release evidence
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download QA result
+        uses: actions/download-artifact@v4
+        with:
+          pattern: qa-evidence-*
+          path: qa
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Resolve and verify tested source
+        id: source
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const qa = JSON.parse(fs.readFileSync('qa/qa-result.json', 'utf8'));
+            if (qa.status !== 'passed' || !/^[0-9a-f]{40}$/.test(qa.headSha)) {
+              core.setFailed('QA artifact does not identify a successful tested commit.');
+              return;
+            }
+            const branch = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main'
+            });
+            const comparison = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: qa.headSha,
+              head: branch.data.commit.sha
+            });
+            if (!['identical', 'ahead'].includes(comparison.data.status)) {
+              core.setFailed('QA source commit is not contained in main history.');
+              return;
+            }
+            core.setOutput('sha', qa.headSha);
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore
+        run: dotnet restore --locked-mode
+
+      - name: Publish API
+        run: dotnet publish src/Api/AgenticHotelBooking.Api.csproj -c Release --no-restore -o artifacts/api
+
+      - name: Publish web
+        run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release --no-restore -o artifacts/web
+
+      - name: Package release and evidence
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          QA_RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Compress-Archive -Path artifacts/api/* -DestinationPath release/api.zip
+          Compress-Archive -Path artifacts/web/* -DestinationPath release/web.zip
+          $evidence = [ordered]@{
+            schemaVersion = 1
+            sourceCommit = $env:SOURCE_SHA
+            sourceBranch = 'main'
+            qaWorkflowRunId = [long]$env:QA_RUN_ID
+            qaWorkflowUrl = "https://github.com/$env:REPOSITORY/actions/runs/$env:QA_RUN_ID"
+            createdAtUtc = [DateTime]::UtcNow.ToString('o')
+            productionDeployment = 'not-started'
+          }
+          $evidence | ConvertTo-Json | Set-Content release/release-evidence.json
+          @(
+            '# Release proposal'
+            ''
+            "- Source commit: ``$env:SOURCE_SHA``"
+            "- Source branch: ``main``"
+            "- QA evidence: https://github.com/$env:REPOSITORY/actions/runs/$env:QA_RUN_ID"
+            '- Production deployment: not started'
+            ''
+            'This artifact is a proposal only. Production requires manual workflow dispatch, typed confirmation, immutable run and commit verification, and the protected `production` environment.'
+          ) | Set-Content release/release-proposal.md
+          Get-ChildItem release -File |
+            Where-Object Name -ne 'checksums.sha256' |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Set-Content release/checksums.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.source.outputs.sha }}
+          path: release
+          if-no-files-found: error
+          retention-days: 90

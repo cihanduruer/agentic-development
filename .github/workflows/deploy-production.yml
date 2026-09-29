@@ -1,0 +1,218 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release proposal workflow run ID
+        required: true
+        type: string
+      commit_sha:
+        description: Exact 40-character main commit SHA packaged by that run
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY-PRODUCTION
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Promote verified artifact
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate manual authorization and immutable source
+        id: verify
+        uses: actions/github-script@v8
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') {
+              core.setFailed('Production deployment workflow must run from main.');
+              return;
+            }
+            if (process.env.CONFIRMATION !== 'DEPLOY-PRODUCTION') {
+              core.setFailed('Typed confirmation must exactly equal DEPLOY-PRODUCTION.');
+              return;
+            }
+            if (!/^[0-9]+$/.test(process.env.RELEASE_RUN_ID)) {
+              core.setFailed('Release run ID must be numeric.');
+              return;
+            }
+            if (!/^[0-9a-f]{40}$/.test(process.env.COMMIT_SHA)) {
+              core.setFailed('Commit SHA must be a full lowercase 40-character SHA.');
+              return;
+            }
+
+            const run = (await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.RELEASE_RUN_ID)
+            })).data;
+            if (run.path !== '.github/workflows/release-proposal.yml'
+                || run.conclusion !== 'success'
+                || run.head_branch !== 'main') {
+              core.setFailed('The selected run is not a successful main Release proposal run.');
+              return;
+            }
+
+            const branch = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main'
+            });
+            const comparison = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: process.env.COMMIT_SHA,
+              head: branch.data.commit.sha
+            });
+            if (!['identical', 'ahead'].includes(comparison.data.status)) {
+              core.setFailed('Selected commit is not contained in main history.');
+              return;
+            }
+            core.setOutput('artifact-name', `release-${process.env.COMMIT_SHA}`);
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Download selected release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.verify.outputs.artifact-name }}
+          path: release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.release_run_id }}
+
+      - name: Verify artifact checksums and evidence
+        shell: pwsh
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          Push-Location release
+          try {
+            Get-Content checksums.sha256 | ForEach-Object {
+              if ($_ -notmatch '^([0-9a-f]{64})  (.+)$') {
+                throw "Invalid checksum entry: $_"
+              }
+              $actual = (Get-FileHash $Matches[2] -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $Matches[1]) {
+                throw "Checksum mismatch for $($Matches[2])."
+              }
+            }
+            $evidence = Get-Content release-evidence.json -Raw | ConvertFrom-Json
+            if ($evidence.sourceCommit -ne $env:COMMIT_SHA) {
+              throw 'Release evidence commit does not match the approved commit.'
+            }
+            if ([string]$evidence.qaWorkflowRunId -eq '') {
+              throw 'Release evidence does not identify the QA workflow run.'
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Verify immutable QA evidence
+        uses: actions/github-script@v8
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const evidence = JSON.parse(fs.readFileSync('release/release-evidence.json', 'utf8'));
+            const qaRun = (await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(evidence.qaWorkflowRunId)
+            })).data;
+            if (qaRun.path !== '.github/workflows/qa-evidence.yml'
+                || qaRun.conclusion !== 'success') {
+              core.setFailed('Release evidence does not reference a successful QA workflow run.');
+              return;
+            }
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: Number(evidence.qaWorkflowRunId),
+                per_page: 100
+              }
+            );
+            const qaArtifact = artifacts.find(artifact =>
+              artifact.name === `qa-evidence-${process.env.COMMIT_SHA}`
+              && !artifact.expired);
+            if (!qaArtifact) {
+              core.setFailed('The successful QA run has no unexpired evidence artifact for the selected commit.');
+              return;
+            }
+
+            const checks = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: process.env.COMMIT_SHA,
+              per_page: 100
+            });
+            const validation = checks.data.check_runs.find(check =>
+              check.name === 'validate'
+              && check.app?.slug === 'github-actions'
+              && check.conclusion === 'success');
+            if (!validation) {
+              core.setFailed('PR validation evidence is not successful for the selected commit.');
+            }
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy production infrastructure
+        id: infrastructure
+        uses: azure/arm-deploy@v2
+        with:
+          scope: subscription
+          region: westeurope
+          template: infra/main.bicep
+          parameters: infra/production.parameters.json sqlAdminPassword=${{ secrets.SQL_ADMIN_PASSWORD }}
+          failOnStdErr: false
+
+      - name: Deploy API artifact
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.infrastructure.outputs.apiAppName }}
+          package: release/api.zip
+
+      - name: Prepare web artifact
+        shell: pwsh
+        run: |
+          Expand-Archive release/web.zip deployed-web
+          @{ ApiBaseUrl = '${{ steps.infrastructure.outputs.apiUrl }}/' } |
+            ConvertTo-Json |
+            Set-Content deployed-web/wwwroot/appsettings.json
+
+      - name: Deploy web artifact
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: deployed-web/wwwroot
+          output_location: ''
+          skip_app_build: true

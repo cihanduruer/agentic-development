@@ -29,3 +29,15 @@ The model receives labels and evidence metadata, not source code, prompts, secre
 ## Completion evidence
 
 Completion requires acceptance criteria, output locations, test evidence, review status, knowledge revision, citations, and explicit gaps. An agent never grades its own research or implementation as the only reviewer.
+
+## Automated review, QA, and release gates
+
+Eligible non-draft pull requests to `main` that change application, test, infrastructure, delivery-script, agent, or workflow paths request `copilot-pull-request-reviewer[bot]` through GitHub's supported review-request API. The gate waits for a Copilot review of the current head commit. Unresolved findings explicitly labeled High are blocking. Findings whose severity cannot be read from the API response also block rather than being silently downgraded. A blocking result applies `development-required`; development must resolve the thread and trigger a new review. Medium and Low findings remain visible but do not block this gate.
+
+After review and PR validation, `.github/workflows/qa-evidence.yml` independently rebuilds and reruns the tests, compiles Bicep, checks acceptance-criteria and negative-path evidence in the pull request, and uploads an auditable result. GitHub does not provide a supported pull-request check API for dispatching the repository's `hotel-qa` custom agent. The workflow therefore records `hotel-qa` execution as `not-run`; it enforces that profile's evidence contract without claiming an agent ran. A human may invoke `hotel-qa` separately when agent judgment is required.
+
+After the same QA gate succeeds for a commit on `main`, `.github/workflows/release-proposal.yml` publishes the API and web exactly once and uploads their SHA-256 checksums with the source commit and QA run identity. It proposes a release; it does not deploy.
+
+`.github/workflows/deploy-production.yml` is manual-only. It accepts an exact successful release workflow run ID and full `main` commit SHA, requires the typed confirmation `DEPLOY-PRODUCTION`, verifies the run and commit through GitHub's API, downloads the named artifact from that run, verifies every checksum, and then enters the `production` GitHub Environment. It deploys `infra/production.parameters.json` to the separate `agentic-hotelbookingprod` resource group and promotes the verified binaries without rebuilding. Production deployment is never triggered by a push, merge, schedule, or successful check.
+
+The current private-repository billing plan does not support branch protection, rulesets, environment reviewers, or environment wait timers; the relevant GitHub APIs return HTTP 403 or 422. These controls therefore cannot be claimed as enforced. The production workflow compensates by revalidating successful QA and PR-validation evidence for the exact selected commit before Azure authentication, while manual dispatch, typed confirmation, `main` containment, artifact checksums, and environment branch restriction remain mandatory.
