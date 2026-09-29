@@ -32,7 +32,13 @@ function Invoke-ApiRequest {
 
         [string]$Body,
 
-        [hashtable]$Headers = @{}
+        [hashtable]$Headers = @{},
+
+        [ValidateRange(1, 60)]
+        [int]$TimeoutSeconds = 30,
+
+        [ValidateRange(0, 2)]
+        [int]$RetryCount = 2
     )
 
     $parameters = @{
@@ -40,13 +46,15 @@ function Invoke-ApiRequest {
         Uri                  = $Uri
         Headers              = $Headers
         SkipHttpErrorCheck   = $true
-        MaximumRetryCount    = 2
-        RetryIntervalSec     = 2
-        OperationTimeoutSeconds = 30
+        OperationTimeoutSeconds = $TimeoutSeconds
     }
     if ($Method -eq 'POST') {
         $parameters.ContentType = 'application/json'
         $parameters.Body = $Body
+    }
+    elseif ($RetryCount -gt 0) {
+        $parameters.MaximumRetryCount = $RetryCount
+        $parameters.RetryIntervalSec = 2
     }
 
     Invoke-WebRequest @parameters
@@ -136,10 +144,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $healthy = $false
-for ($attempt = 1; $attempt -le 24; $attempt++) {
-    Start-Sleep -Seconds 5
+$restartDeadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
+$attempt = 0
+while ([DateTimeOffset]::UtcNow -lt $restartDeadline) {
+    $attempt++
+    $remainingSeconds = [Math]::Ceiling(($restartDeadline - [DateTimeOffset]::UtcNow).TotalSeconds)
+    $requestTimeout = [Math]::Max(1, [Math]::Min(10, $remainingSeconds))
     try {
-        $health = Invoke-ApiRequest -Method GET -Uri "$api/health"
+        $health = Invoke-ApiRequest `
+            -Method GET `
+            -Uri "$api/health" `
+            -TimeoutSeconds $requestTimeout `
+            -RetryCount 0
         if ([int]$health.StatusCode -eq 200) {
             $healthy = $true
             break
@@ -147,6 +163,11 @@ for ($attempt = 1; $attempt -le 24; $attempt++) {
     }
     catch {
         Write-Verbose "Health probe attempt $attempt failed: $($_.Exception.Message)"
+    }
+
+    $sleepSeconds = [Math]::Min(5, ($restartDeadline - [DateTimeOffset]::UtcNow).TotalSeconds)
+    if ($sleepSeconds -gt 0) {
+        Start-Sleep -Seconds $sleepSeconds
     }
 }
 if (-not $healthy) {

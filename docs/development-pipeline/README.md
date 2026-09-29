@@ -254,7 +254,7 @@ Every development deployment runs `scripts/Test-DevelopmentOperations.ps1`. The 
 
 ## Grounding note
 
-- **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, and `.github/workflows/deploy-development.yml`.
+- **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, `.github/workflows/deploy-development.yml`, and `scripts/Test-DevelopmentOperations.ps1`.
 - **Derived:** Entra registration and role assignment are managed outside this ARM deployment through Azure CLI/Microsoft Graph automation or administrator action.
 - **Knowledge revision:** `2dc64f51b643ebe8a8e0a90d56ebb522c8a30728`.
 

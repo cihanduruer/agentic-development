@@ -14,6 +14,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
 jobs:
   deploy:
     environment: development
