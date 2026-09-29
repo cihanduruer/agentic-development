@@ -133,7 +133,20 @@ public sealed class RoutingEvaluationTests
             """{"Id":"document-id"}""");
 
         Assert.NotNull(hit);
+        AzureSearchGroundingEvaluator.ValidateSearchHit(hit);
         Assert.Equal("document-id", hit.Id);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"Id":null}""")]
+    [InlineData("""{"Id":""}""")]
+    public void GroundingSearchProjectionRejectsMissingDocumentId(string payload)
+    {
+        var hit = JsonSerializer.Deserialize<KnowledgeSearchHit>(payload);
+
+        Assert.Throws<InvalidDataException>(
+            () => AzureSearchGroundingEvaluator.ValidateSearchHit(hit));
     }
 
     [Fact]

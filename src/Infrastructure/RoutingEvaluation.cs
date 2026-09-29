@@ -191,8 +191,9 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
             },
             cancellationToken);
 
-        await foreach (var _ in response.Value.GetResultsAsync())
+        await foreach (var result in response.Value.GetResultsAsync())
         {
+            ValidateSearchHit(result.Document);
             return true;
         }
 
@@ -212,6 +213,15 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
         }
 
         return string.Join(' ', terms);
+    }
+
+    public static void ValidateSearchHit(KnowledgeSearchHit? hit)
+    {
+        if (string.IsNullOrWhiteSpace(hit?.Id))
+        {
+            throw new InvalidDataException(
+                "Azure AI Search returned grounding evidence without a document ID.");
+        }
     }
 }
 
