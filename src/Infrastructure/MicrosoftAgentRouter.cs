@@ -57,7 +57,7 @@ public sealed partial class MicrosoftAgentRouter(
         {
             evaluation = await evaluationGate.EvaluateAsync(request, cancellationToken);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             LogEvaluationFailure(logger, exception, request.CorrelationId);
             return HumanDecision("evaluation_error", "Microsoft safety or grounding evaluation failed.");
@@ -114,7 +114,7 @@ public sealed partial class MicrosoftAgentRouter(
                 options.Deployment,
                 reason);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             LogModelRoutingFailure(logger, exception, request.CorrelationId);
             return HumanDecision("model_error", "Model-assisted routing failed; human review is required.");

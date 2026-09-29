@@ -102,7 +102,7 @@ public sealed class AzurePromptShield(
         {
             Content = JsonContent.Create(new
             {
-                userPrompt = $"{request.TaskCategory}\n{request.RequiredCapability}",
+                userPrompt = $"{request.TaskCategory}\n{request.RequiredCapability}\n{request.Risk}",
                 documents = request.AvailableWorkers.Select(worker => $"{worker.Key}: {worker.Value}").ToArray()
             })
         };

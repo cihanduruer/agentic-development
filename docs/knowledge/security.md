@@ -6,7 +6,7 @@ last_reviewed: 2026-09-29
 
 - GitHub Actions authenticates to Azure through OpenID Connect.
 - The API uses its App Service managed identity for Azure SQL, Azure AI Services, and Azure AI Search. AI Services and Search local-key authentication is disabled.
-- Azure SQL accepts Microsoft Entra authentication only. The runtime identity has a custom role limited to catalog reads and reservation reads/inserts; it is not a database owner and cannot migrate schemas.
+- Azure SQL accepts Microsoft Entra authentication only. The runtime identity has a custom role limited to catalog reads, reservation reads/inserts, and operations-event reads/inserts/deletes for bounded retention; it is not a database owner and cannot migrate schemas.
 - Prompt and worker-description inputs are untrusted and are sent to the Azure AI Content Safety Prompt Shields API before routing.
 - Routing requires an Azure AI Search hit for the exact requested knowledge commit. Prompt attack detection, absent grounding, configuration failure, and service failure route to `human_review`.
 - The dedicated Microsoft evaluation workflow invokes `azure.ai.evaluation.GroundednessEvaluator` and persists its JSON evidence. PR validation separately persists deterministic routing-gate test results.

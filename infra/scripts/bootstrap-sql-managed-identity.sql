@@ -1,11 +1,14 @@
 :setvar ApiPrincipalName ""
 :setvar ApiPrincipalObjectId ""
 
+DECLARE @ApiPrincipalSid binary(16) =
+    CONVERT(binary(16), CONVERT(uniqueidentifier, N'$(ApiPrincipalObjectId)'));
+
 IF EXISTS (
     SELECT 1
     FROM sys.database_principals
     WHERE name = N'$(ApiPrincipalName)'
-      AND CONVERT(nvarchar(36), CONVERT(uniqueidentifier, sid)) <> N'$(ApiPrincipalObjectId)'
+      AND sid <> @ApiPrincipalSid
 )
 BEGIN
     IF IS_ROLEMEMBER(N'hotel_booking_runtime', N'$(ApiPrincipalName)') = 1
@@ -17,8 +20,9 @@ END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$(ApiPrincipalName)')
 BEGIN
+    DECLARE @ApiPrincipalSidHex varchar(34) = sys.fn_varbintohexstr(@ApiPrincipalSid);
     EXEC(N'CREATE USER ' + QUOTENAME(N'$(ApiPrincipalName)') +
-         N' FROM EXTERNAL PROVIDER WITH OBJECT_ID=''' + REPLACE(N'$(ApiPrincipalObjectId)', '''', '''''') + N'''');
+         N' WITH SID = ' + @ApiPrincipalSidHex + N', TYPE = E');
 END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'hotel_booking_runtime')

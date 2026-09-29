@@ -99,6 +99,19 @@ public sealed class MicrosoftAgentRouterTests
         Assert.Equal(0, resolver.CallCount);
     }
 
+    [Fact]
+    public async Task RoutesEvaluationTimeoutToHumanReviewWhenCallerDidNotCancel()
+    {
+        var resolver = new FakeResolver();
+        var router = CreateRouter(resolver, new TimeoutEvaluationGate());
+
+        var decision = await router.RouteAsync(CreateAmbiguousRequest(), CancellationToken.None);
+
+        Assert.Equal("human_review", decision.EffectiveWorker);
+        Assert.Contains("evaluation_error", decision.Reason);
+        Assert.Equal(0, resolver.CallCount);
+    }
+
     private static MicrosoftAgentRouter CreateRouter(
         IAmbiguousRouteResolver resolver,
         IRoutingEvaluationGate? evaluationGate = null) =>
@@ -162,5 +175,13 @@ public sealed class MicrosoftAgentRouterTests
             RoutingRequest request,
             CancellationToken cancellationToken) =>
             Task.FromException<RoutingEvaluationResult>(new HttpRequestException("Unavailable"));
+    }
+
+    private sealed class TimeoutEvaluationGate : IRoutingEvaluationGate
+    {
+        public Task<RoutingEvaluationResult> EvaluateAsync(
+            RoutingRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromException<RoutingEvaluationResult>(new TaskCanceledException("Service timeout"));
     }
 }

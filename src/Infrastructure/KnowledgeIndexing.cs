@@ -58,15 +58,16 @@ public static class KnowledgeDocumentChunker
         }
 
         var sections = SplitSections(parts[2]);
+        var normalizedPath = repositoryPath.Replace('\\', '/');
         return sections.Select((section, index) =>
         {
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(section.Content))).ToLowerInvariant();
-            var keyMaterial = $"{revision}\n{repositoryPath}\n{index}\n{hash}";
+            var keyMaterial = $"{revision}\n{normalizedPath}\n{index}\n{hash}";
             var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(keyMaterial))).ToLowerInvariant();
             return new KnowledgeSearchDocument
             {
                 Id = id,
-                Path = repositoryPath.Replace('\\', '/'),
+                Path = normalizedPath,
                 Revision = revision,
                 Owner = owner,
                 LastReviewed = lastReviewed,

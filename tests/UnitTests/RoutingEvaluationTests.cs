@@ -59,9 +59,11 @@ public sealed class RoutingEvaluationTests
     public async Task PromptShieldInvokesMicrosoftApiAndDetectsDocumentAttack()
     {
         HttpRequestMessage? captured = null;
+        string? capturedBody = null;
         var handler = new StubHttpMessageHandler(request =>
         {
             captured = request;
+            capturedBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
@@ -85,6 +87,10 @@ public sealed class RoutingEvaluationTests
             "/contentsafety/text:shieldPrompt?api-version=2024-09-01",
             captured.RequestUri!.PathAndQuery);
         Assert.Equal("Bearer", captured.Headers.Authorization!.Scheme);
+        Assert.Contains(
+            "reversible",
+            capturedBody,
+            StringComparison.Ordinal);
     }
 
     [Fact]

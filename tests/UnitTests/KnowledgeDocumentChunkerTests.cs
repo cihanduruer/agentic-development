@@ -23,9 +23,11 @@ public sealed class KnowledgeDocumentChunkerTests
 
         var first = KnowledgeDocumentChunker.Chunk("docs\\knowledge\\security.md", markdown, "abc123");
         var second = KnowledgeDocumentChunker.Chunk("docs\\knowledge\\security.md", markdown, "abc123");
+        var linuxPath = KnowledgeDocumentChunker.Chunk("docs/knowledge/security.md", markdown, "abc123");
 
         Assert.Equal(2, first.Count);
         Assert.Equal(first.Select(item => item.Id), second.Select(item => item.Id));
+        Assert.Equal(first.Select(item => item.Id), linuxPath.Select(item => item.Id));
         Assert.All(first, item =>
         {
             Assert.Equal("abc123", item.Revision);
