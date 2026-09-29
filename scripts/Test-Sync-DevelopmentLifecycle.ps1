@@ -371,4 +371,105 @@ Assert-Throws {
 } "returned truncated results"
 Assert-True ($script:pageRequestCount -eq 1) "Truncated search results must fail without pointless paging."
 
+$script:boundaryMode = 'platform'
+$script:azureCalls = 0
+$originalGitHubToken = $env:GITHUB_TOKEN
+$env:GITHUB_TOKEN = 'test-token'
+$platformBoundaryPull = $platformPull.PSObject.Copy()
+$platformBoundaryPull.body = @"
+- Azure Boards: N/A
+- Platform change: true
+"@
+
+function az {
+    $script:azureCalls++
+    throw 'Azure must not be called by boundary failure/skip tests.'
+}
+
+function Invoke-GitHubApi {
+    param([string]$Uri)
+
+    if ($Uri -match '/actions/runs/100$') {
+        return $deployment.PSObject.Copy()
+    }
+    if ($Uri -match '/compare/') {
+        return [pscustomobject]@{ status = 'identical' }
+    }
+    if ($Uri -match '/commits/.+/pulls\?') {
+        $selectedPull = if ($script:boundaryMode -eq 'platform') {
+            $platformBoundaryPull
+        } else {
+            $pull
+        }
+        return ,@($selectedPull)
+    }
+    if ($Uri -match '/search/issues\?') {
+        return [pscustomobject]@{
+            total_count = 1
+            incomplete_results = $false
+            items = @($issue)
+        }
+    }
+    if ($Uri -match '/actions/artifacts\?') {
+        if ($script:boundaryMode -eq 'platform') {
+            return [pscustomobject]@{ artifacts = @() }
+        }
+        return [pscustomobject]@{
+            artifacts = @([pscustomobject]@{
+                name = "qa-evidence-$deployedSha"
+                expired = $false
+                workflow_run = [pscustomobject]@{ id = 42 }
+            })
+        }
+    }
+    if ($Uri -match '/actions/runs/42$') {
+        return $qa
+    }
+    if ($Uri -match '/actions/workflows/pr-validation\.yml/runs') {
+        $runs = if ($script:boundaryMode -eq 'platform') { @() } else { @($validation) }
+        return [pscustomobject]@{ workflow_runs = $runs }
+    }
+    if ($Uri -match '/actions/workflows/hotel-code-review\.yml/runs') {
+        $runs = if ($script:boundaryMode -eq 'platform') { @() } else { @($reviewRun) }
+        return [pscustomobject]@{ workflow_runs = $runs }
+    }
+    if ($Uri -match '/pulls/6/reviews\?') {
+        return ,@()
+    }
+    throw "Unexpected GitHub API request in boundary test: $Uri"
+}
+
+$platformBoundaryResult = Invoke-DevelopmentLifecycleSync `
+    -Organization 'ai-enabled-ado-org' `
+    -Project 'sample-project' `
+    -Repository $repository `
+    -DeploymentRunId 100 `
+    -DeployedSha $deployedSha `
+    -EvidenceWaitAttempts 1 `
+    -EvidenceWaitSeconds 0 `
+    -DryRun
+Assert-True (
+    $platformBoundaryResult.Action -eq 'Skipped'
+) "The full API boundary must preserve a zero-AB platform/N/A skip."
+Assert-True (
+    $script:azureCalls -eq 0
+) "A platform skip must not request Azure credentials or write to Boards."
+
+$script:boundaryMode = 'zero-review'
+Assert-Throws {
+    Invoke-DevelopmentLifecycleSync `
+        -Organization 'ai-enabled-ado-org' `
+        -Project 'sample-project' `
+        -Repository $repository `
+        -DeploymentRunId 100 `
+        -DeployedSha $deployedSha `
+        -EvidenceWaitAttempts 1 `
+        -EvidenceWaitSeconds 0 `
+        -DryRun
+} "no successful review workflow contains a Copilot review"
+Assert-True (
+    $script:azureCalls -eq 0
+) "Missing reviews must fail before Azure credentials or Board writes."
+$env:GITHUB_TOKEN = $originalGitHubToken
+
 Write-Output "Development lifecycle synchronization tests passed."

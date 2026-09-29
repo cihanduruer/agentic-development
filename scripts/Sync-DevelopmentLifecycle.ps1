@@ -441,13 +441,13 @@ function Invoke-DevelopmentLifecycleSync {
     $pulls = @(Get-GitHubPages -Uri (
         "https://api.github.com/repos/$Repository/commits/$DeployedSha/pulls"))
     $candidatePulls = @($pulls | Where-Object { $_.merge_commit_sha -eq $DeployedSha })
-    $candidateIds = if ($candidatePulls.Count -eq 1) {
-        @(Get-PullRequestAbIds `
+    $candidateIds = @(
+        if ($candidatePulls.Count -eq 1) {
+            Get-PullRequestAbIds `
             -Title ([string]$candidatePulls[0].title) `
-            -Body ([string]$candidatePulls[0].body))
-    } else {
-        @()
-    }
+                -Body ([string]$candidatePulls[0].body)
+        }
+    )
     $issues = @(Get-CanonicalIssueCandidates `
         -Repository $Repository `
         -Ids $candidateIds)
@@ -461,12 +461,12 @@ function Invoke-DevelopmentLifecycleSync {
             -Repository $Repository `
             -ExpectedSha $DeployedSha)
         $reviewRuns = @(Get-WorkflowRuns -Repository $Repository -Workflow "hotel-code-review.yml")
-        $reviews = if ($candidatePulls.Count -eq 1) {
-            @(Get-GitHubPages -Uri (
-                "https://api.github.com/repos/$Repository/pulls/$($candidatePulls[0].number)/reviews"))
-        } else {
-            @()
-        }
+        $reviews = @(
+            if ($candidatePulls.Count -eq 1) {
+                Get-GitHubPages -Uri (
+                    "https://api.github.com/repos/$Repository/pulls/$($candidatePulls[0].number)/reviews")
+            }
+        )
 
         try {
             $evidence = Resolve-LifecycleEvidence `
