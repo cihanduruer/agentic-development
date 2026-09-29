@@ -248,6 +248,9 @@ jobs:
           if ($servers.Count -eq 0) {
             'configureSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             'sqlServerName=' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'existingSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'preExistingSqlAuthMode=initial' |
+              Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             exit 0
           }
           $administratorsJson = az sql server ad-admin list `
@@ -264,7 +267,20 @@ jobs:
               }).Count -ne 1) {
             throw 'Existing production SQL requires the GitHub deployment principal as Entra administrator before any deployment mutation.'
           }
+          $entraOnly = az sql server show `
+            --resource-group agentic-hotelbookingprod `
+            --name $servers[0].name `
+            --query administrators.azureADOnlyAuthentication `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or $entraOnly -notin @('true', 'false')) {
+            throw 'Unable to classify existing production SQL authentication before mutation.'
+          }
+          $sqlAuthMode = if ($entraOnly -eq 'true') { 'entraOnly' } else { 'legacy' }
           'configureSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          'existingSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "preExistingSqlAuthMode=$sqlAuthMode" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "sqlServerName=$($servers[0].name)" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -340,10 +356,21 @@ jobs:
             --output tsv `
             --only-show-errors 2>&1
           $appLookupExitCode = $LASTEXITCODE
+          $configuredApi = $false
           if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
             throw "Unable to determine whether the production API exists: $appId"
           }
           if ($appLookupExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($appId)) {
+            $configuredConnection = az webapp config appsettings list `
+              --resource-group agentic-hotelbookingprod `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --query "[?name=='ConnectionStrings__HotelBooking'].value | [0]" `
+              --output tsv `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Unable to classify whether the existing production API has runtime SQL configuration.'
+            }
+            $configuredApi = -not [string]::IsNullOrWhiteSpace($configuredConnection)
             $principalId = az webapp identity show `
               --resource-group agentic-hotelbookingprod `
               --name '${{ steps.infrastructure.outputs.apiAppName }}' `
@@ -376,6 +403,8 @@ jobs:
             throw 'The production API managed identity could not be resolved before SQL bootstrap.'
           }
           "principalId=$($principalId.Trim())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "configuredApi=$($configuredApi.ToString().ToLowerInvariant())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - uses: actions/setup-dotnet@v4
@@ -431,8 +460,8 @@ jobs:
             --database hotelbooking `
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
             --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
-
-      - name: Apply managed-identity API configuration while legacy SQL auth remains available
+      - name: Configure initial API after SQL bootstrap
+        if: steps.api-identity.outputs.configuredApi == 'false'
         shell: pwsh
         env:
           AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
@@ -441,7 +470,7 @@ jobs:
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
         run: |
           az deployment group create `
-            --name "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --name "production-initial-api-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
             --resource-group agentic-hotelbookingprod `
             --template-file infra/resource-group.bicep `
             --parameters infra/production.parameters.json `
@@ -455,7 +484,13 @@ jobs:
               "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
             --only-show-errors
           if ($LASTEXITCODE -ne 0) {
-            throw 'The production API managed-identity configuration failed; SQL Entra-only was not enforced.'
+            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+              'legacy' { 'server-side legacy SQL authentication remains enabled' }
+              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+              'initial' { 'the newly created SQL server remains Entra-only' }
+              default { throw 'The pre-existing production SQL authentication mode is invalid.' }
+            }
+            throw "The initial production API configuration failed after SQL identity bootstrap; $sqlState, and the API may be retried as unconfigured."
           }
 
       - name: Index canonical knowledge
@@ -474,24 +509,21 @@ jobs:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: release/api.zip
 
-      - name: Verify managed-identity API readiness before SQL Entra-only
+      - name: Verify migration-disabled API artifact before existing-environment cutover
         shell: pwsh
         run: |
+          $readinessUri = '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels'
           $lastError = ''
           for ($attempt = 1; $attempt -le 12; $attempt++) {
             try {
-              $healthResponse = Invoke-WebRequest `
-                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/health' `
-                -TimeoutSec 15 `
-                -UseBasicParsing
-              $catalogResponse = Invoke-WebRequest `
-                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+              $response = Invoke-WebRequest `
+                -Uri $readinessUri `
                 -TimeoutSec 30 `
                 -UseBasicParsing
-              if ($healthResponse.StatusCode -eq 200 -and $catalogResponse.StatusCode -eq 200) {
+              if ($response.StatusCode -eq 200) {
                 exit 0
               }
-              $lastError = "Health HTTP $($healthResponse.StatusCode); catalog HTTP $($catalogResponse.StatusCode)"
+              $lastError = "HTTP $($response.StatusCode)"
             }
             catch {
               $lastError = $_.Exception.Message
@@ -500,7 +532,111 @@ jobs:
               Start-Sleep -Seconds 10
             }
           }
-          throw "The passwordless API runtime did not become ready; legacy SQL authentication remains available: $lastError"
+          throw "The migration-disabled production API artifact was not ready before managed-identity configuration: $lastError"
+
+      - name: Apply and prove managed-identity API configuration with rollback
+        if: steps.api-identity.outputs.configuredApi == 'true'
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          $previousConnection = az webapp config appsettings list `
+            --resource-group agentic-hotelbookingprod `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --query "[?name=='ConnectionStrings__HotelBooking'].value | [0]" `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousConnection)) {
+            throw 'The configured production API SQL connection could not be captured before cutover.'
+          }
+          try {
+            az deployment group create `
+              --name "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              --resource-group agentic-hotelbookingprod `
+              --template-file infra/resource-group.bicep `
+              --parameters infra/production.parameters.json `
+                "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+                "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+                "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+                "tenantId=$env:AZURE_TENANT_ID" `
+                "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+                configureApi=true `
+                configureSql=false `
+                "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw 'The managed-identity API configuration deployment failed or returned an ambiguous result.'
+            }
+            $lastError = ''
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              try {
+                $healthResponse = Invoke-WebRequest `
+                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/health' `
+                  -TimeoutSec 15 `
+                  -UseBasicParsing
+                $catalogResponse = Invoke-WebRequest `
+                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                  -TimeoutSec 30 `
+                  -UseBasicParsing
+                if ($healthResponse.StatusCode -eq 200 -and $catalogResponse.StatusCode -eq 200) {
+                  exit 0
+                }
+                $lastError = "Health HTTP $($healthResponse.StatusCode); catalog HTTP $($catalogResponse.StatusCode)"
+              }
+              catch {
+                $lastError = $_.Exception.Message
+              }
+              if ($attempt -lt 12) {
+                Start-Sleep -Seconds 10
+              }
+            }
+            throw "The managed-identity SQL-backed readiness proof failed: $lastError"
+          }
+          catch {
+            $cutoverError = $_.Exception.Message
+            az webapp config appsettings set `
+              --resource-group agentic-hotelbookingprod `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --settings "ConnectionStrings__HotelBooking=$previousConnection" `
+              --output none `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw "Production API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+            }
+            $rollbackReady = $false
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              try {
+                $response = Invoke-WebRequest `
+                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                  -TimeoutSec 30 `
+                  -UseBasicParsing
+                if ($response.StatusCode -eq 200) {
+                  $rollbackReady = $true
+                  break
+                }
+              }
+              catch {
+                if ($attempt -eq 12) {
+                  $rollbackError = $_.Exception.Message
+                }
+              }
+              if ($attempt -lt 12) {
+                Start-Sleep -Seconds 10
+              }
+            }
+            if (-not $rollbackReady) {
+              throw "Production API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
+            }
+            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+              'legacy' { 'server-side legacy SQL authentication remains enabled' }
+              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+              default { 'the SQL authentication state remains unchanged' }
+            }
+            throw "Production API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+          }
 
       - name: Enforce SQL Entra-only after managed-identity API readiness
         shell: pwsh

@@ -8,7 +8,27 @@ $cleanup = Get-Content (Join-Path $root 'scripts/Remove-LegacySqlCredential.ps1'
 $indexRetry = Get-Content (Join-Path $root 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1') -Raw
 $routingRetry = Get-Content (Join-Path $root 'scripts/Invoke-RoutingReadinessWithRetry.ps1') -Raw
 $platform = Get-Content (Join-Path $root 'infra/modules/platform.bicep') -Raw
+$program = Get-Content (Join-Path $root 'src/Api/Program.cs') -Raw
 $contract = Get-Content (Join-Path $root 'infra/deployment-contract.json') -Raw | ConvertFrom-Json
+
+function Get-NamedStepBody {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Workflow,
+
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+
+    $escapedName = [Regex]::Escape($Name)
+    $match = [Regex]::Match(
+        $Workflow,
+        "(?ms)^      - name: $escapedName\r?\n(?<body>.*?)(?=^      - (?:name:|uses:)|\z)")
+    if (-not $match.Success) {
+        throw "Workflow step '$Name' is missing."
+    }
+    return $match.Groups['body'].Value
+}
 
 if ($contract.name -ne 'entra-sql-managed-identity' -or $contract.version -ne 1) {
     throw 'The production deployment contract is missing or invalid.'
@@ -31,29 +51,81 @@ foreach ($workflow in @($development, $production)) {
     $foundation = $workflow.IndexOf('configureApi=false')
     $identity = $workflow.IndexOf('Ensure API managed identity exists without changing live configuration')
     $bootstrap = $workflow.IndexOf('Bootstrap API managed identity database role')
-    $apiCutover = $workflow.IndexOf(
-        'Apply managed-identity API configuration while legacy SQL auth remains available')
+    $initialApiConfiguration = $workflow.IndexOf('Configure initial API after SQL bootstrap')
+    $artifactDeploy = if ($workflow -eq $development) {
+        $workflow.IndexOf('- name: Deploy API')
+    }
+    else {
+        $workflow.IndexOf('- name: Deploy API artifact')
+    }
+    $artifactReadiness = $workflow.IndexOf(
+        'Verify migration-disabled API artifact before existing-environment cutover')
+    $apiCutoverName = 'Apply and prove managed-identity API configuration with rollback'
+    $apiCutover = $workflow.IndexOf($apiCutoverName)
     $readiness = if ($workflow -eq $development) {
         $workflow.IndexOf('Verify operations authorization and persistence')
     }
     else {
-        $workflow.IndexOf('Verify managed-identity API readiness before SQL Entra-only')
+        $apiCutover
     }
     $sqlCutover = $workflow.IndexOf('Enforce SQL Entra-only after managed-identity API readiness')
     $postCutoverReadiness = $workflow.IndexOf('Verify API after SQL Entra-only enforcement')
+    $sqlClassificationBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name 'Classify SQL cutover state before infrastructure mutation'
+    $identityBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name 'Ensure API managed identity exists without changing live configuration'
+    $initialConfigurationBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name 'Configure initial API after SQL bootstrap'
+    $apiCutoverBody = Get-NamedStepBody -Workflow $workflow -Name $apiCutoverName
+    $sqlCutoverBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name 'Enforce SQL Entra-only after managed-identity API readiness'
     if ($sqlClassification -lt 0 -or $foundation -lt $sqlClassification -or
         $identity -lt $foundation -or
-        $bootstrap -lt $identity -or $apiCutover -lt $bootstrap -or
+        $bootstrap -lt $identity -or $initialApiConfiguration -lt $bootstrap -or
+        $artifactDeploy -lt $initialApiConfiguration -or
+        $artifactReadiness -lt $artifactDeploy -or $apiCutover -lt $artifactReadiness -or
         $readiness -lt $apiCutover -or $sqlCutover -lt $readiness -or
         $postCutoverReadiness -lt $sqlCutover -or
-        $workflow.IndexOf('configureApi=true', $apiCutover) -lt $apiCutover -or
-        $workflow.IndexOf('configureSql=false', $apiCutover) -lt $apiCutover -or
-        $workflow.IndexOf('configureApi=false', $sqlCutover) -lt $sqlCutover -or
-        $workflow.IndexOf('configureSql=true', $sqlCutover) -lt $sqlCutover -or
+        $initialConfigurationBody -notmatch
+            "if: steps\.api-identity\.outputs\.configuredApi == 'false'" -or
+        $initialConfigurationBody -notmatch 'configureApi=true' -or
+        $initialConfigurationBody -notmatch 'configureSql=false' -or
+        $initialConfigurationBody -notmatch
+            'existingSqlServerName=\$\{\{ steps\.sql-state\.outputs\.sqlServerName \}\}' -or
+        $initialConfigurationBody -notmatch
+            'steps\.sql-state\.outputs\.preExistingSqlAuthMode' -or
+        $initialConfigurationBody -notmatch
+            'server-side legacy SQL authentication remains enabled' -or
+        $initialConfigurationBody -notmatch
+            'SQL was already Entra-only and remains Entra-only' -or
+        $initialConfigurationBody -notmatch
+            'newly created SQL server remains Entra-only' -or
+        $apiCutoverBody -notmatch
+            "if: steps\.api-identity\.outputs\.configuredApi == 'true'" -or
+        $apiCutoverBody -notmatch 'configureApi=true' -or
+        $apiCutoverBody -notmatch 'configureSql=false' -or
+        $apiCutoverBody -notmatch 'previousConnection' -or
+        $apiCutoverBody -notmatch 'webapp config appsettings set' -or
+        $apiCutoverBody -notmatch 'prior app SQL connection was restored and proven ready' -or
+        $sqlCutoverBody -notmatch 'configureApi=false' -or
+        $sqlCutoverBody -notmatch 'configureSql=true' -or
+        $identityBody -notmatch 'webapp config appsettings list' -or
+        $identityBody -notmatch 'configuredApi=' -or
+        $sqlClassificationBody -notmatch 'administrators\.azureADOnlyAuthentication' -or
+        $sqlClassificationBody -notmatch 'preExistingSqlAuthMode=initial' -or
+        $sqlClassificationBody -notmatch 'preExistingSqlAuthMode=\$sqlAuthMode' -or
         $workflow -notmatch 'steps\.sql-state\.outputs\.configureSql' -or
         $workflow -notmatch 'servers\.Count -eq 0' -or
         $workflow -notmatch "'configureSql=true'" -or
         $workflow -notmatch "'configureSql=false'" -or
+        $workflow -notmatch "'existingSql=true'" -or
+        $workflow -notmatch "'existingSql=false'" -or
+        $workflow -notmatch "newly created SQL server remains Entra-only" -or
+        $workflow -notmatch 'already Entra-only and remains Entra-only' -or
         $workflow -notmatch 'sqlServerName=\$\(\$servers\[0\]\.name\)' -or
         $workflow -notmatch 'multiple SQL servers; cutover is blocked before mutation' -or
         $workflow -notmatch 'requires the GitHub deployment principal as Entra administrator before any deployment mutation' -or
@@ -63,6 +135,83 @@ foreach ($workflow in @($development, $production)) {
         $workflow -notmatch 'infra/api-identity\.bicep') {
         throw 'API managed-identity configuration must be applied only after identity creation and SQL bootstrap.'
     }
+}
+$cutoverCases = @(
+    [pscustomobject]@{
+        Name = 'initial-empty'
+        SqlExists = $false
+        ApiConfigured = $false
+        SqlServerName = ''
+        SqlAuthMode = 'initial'
+        ExpectedPath = 'configure-before-artifact'
+        ExpectedFailureState = 'newly-created-entra-only'
+    },
+    [pscustomobject]@{
+        Name = 'partial-initial-retry-default-server'
+        SqlExists = $true
+        ApiConfigured = $false
+        SqlServerName = 'ahb-dev-default-sql'
+        SqlAuthMode = 'entraOnly'
+        ExpectedPath = 'configure-before-artifact'
+        ExpectedFailureState = 'existing-entra-only'
+    },
+    [pscustomobject]@{
+        Name = 'partial-initial-retry-adopted-legacy-server'
+        SqlExists = $true
+        ApiConfigured = $false
+        SqlServerName = 'adopted-nondefault-sql'
+        SqlAuthMode = 'legacy'
+        ExpectedPath = 'configure-before-artifact'
+        ExpectedFailureState = 'legacy-enabled'
+    },
+    [pscustomobject]@{
+        Name = 'legacy-old-binary-upgrade'
+        SqlExists = $true
+        ApiConfigured = $true
+        SqlServerName = 'legacy-sql'
+        SqlAuthMode = 'legacy'
+        ExpectedPath = 'artifact-before-configure'
+        ExpectedFailureState = 'legacy-enabled'
+    },
+    [pscustomobject]@{
+        Name = 'entra-only-replacement-upgrade'
+        SqlExists = $true
+        ApiConfigured = $true
+        SqlServerName = 'compliant-sql'
+        SqlAuthMode = 'entraOnly'
+        ExpectedPath = 'artifact-before-configure'
+        ExpectedFailureState = 'existing-entra-only'
+    }
+)
+foreach ($case in $cutoverCases) {
+    $actual = if ($case.ApiConfigured) {
+        [pscustomobject]@{
+            Path = 'artifact-before-configure'
+            ForwardedSqlServerName = $case.SqlServerName
+        }
+    }
+    else {
+        [pscustomobject]@{
+            Path = 'configure-before-artifact'
+            ForwardedSqlServerName = $case.SqlServerName
+        }
+    }
+    $actualFailureState = switch ($case.SqlAuthMode) {
+        'initial' { 'newly-created-entra-only' }
+        'legacy' { 'legacy-enabled' }
+        'entraOnly' { 'existing-entra-only' }
+        default { 'invalid' }
+    }
+    if ($actual.Path -ne $case.ExpectedPath -or
+        $actual.ForwardedSqlServerName -ne $case.SqlServerName -or
+        $actualFailureState -ne $case.ExpectedFailureState) {
+        throw "Cutover state '$($case.Name)' did not preserve its path, exact SQL server, and authentication state."
+    }
+}
+if ($program -notmatch 'ShouldApplyDatabaseMigrations' -or
+    $program -notmatch 'Database:ApplyMigrations' -or
+    $platform -notmatch "name: 'Database__ApplyMigrations'\s+value: 'false'") {
+    throw 'The replacement API must disable startup migrations before any runtime-only identity cutover.'
 }
 if (-not $platform.Contains(
         "resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = if (configureSql) {") -or
