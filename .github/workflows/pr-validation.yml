@@ -98,6 +98,11 @@ jobs:
       - name: Test legacy SQL credential cleanup
         shell: pwsh
         run: ./scripts/Test-Remove-LegacySqlCredential.ps1
+
+      - name: Test Azure SQL authentication classification
+        shell: pwsh
+        run: ./scripts/Test-Get-AzureSqlAuthenticationMode.ps1
+
       - name: Test Search RBAC propagation retries
         shell: pwsh
         run: ./scripts/Test-Invoke-KnowledgeIndexerWithRetry.ps1

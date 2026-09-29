@@ -5,6 +5,8 @@ $production = Get-Content (Join-Path $root '.github/workflows/deploy-production.
 $release = Get-Content (Join-Path $root '.github/workflows/release-proposal.yml') -Raw
 $contractAssertion = Get-Content (Join-Path $root 'scripts/Assert-ProductionDeploymentContract.ps1') -Raw
 $cleanup = Get-Content (Join-Path $root 'scripts/Remove-LegacySqlCredential.ps1') -Raw
+$sqlAuthentication = Get-Content `
+    (Join-Path $root 'scripts/Get-AzureSqlAuthenticationMode.ps1') -Raw
 $indexRetry = Get-Content (Join-Path $root 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1') -Raw
 $routingRetry = Get-Content (Join-Path $root 'scripts/Invoke-RoutingReadinessWithRetry.ps1') -Raw
 $platform = Get-Content (Join-Path $root 'infra/modules/platform.bicep') -Raw
@@ -115,7 +117,8 @@ foreach ($workflow in @($development, $production)) {
         $sqlCutoverBody -notmatch 'configureSql=true' -or
         $identityBody -notmatch 'webapp config appsettings list' -or
         $identityBody -notmatch 'configuredApi=' -or
-        $sqlClassificationBody -notmatch 'administrators\.azureADOnlyAuthentication' -or
+        $sqlClassificationBody -notmatch 'Get-AzureSqlAuthenticationMode\.ps1' -or
+        $sqlClassificationBody -match 'administrators\.azureADOnlyAuthentication' -or
         $sqlClassificationBody -notmatch 'preExistingSqlAuthMode=initial' -or
         $sqlClassificationBody -notmatch 'preExistingSqlAuthMode=\$sqlAuthMode' -or
         $workflow -notmatch 'steps\.sql-state\.outputs\.configureSql' -or
@@ -134,6 +137,16 @@ foreach ($workflow in @($development, $production)) {
         $workflow -notmatch 'webapp identity assign' -or
         $workflow -notmatch 'infra/api-identity\.bicep') {
         throw 'API managed-identity configuration must be applied only after identity creation and SQL bootstrap.'
+    }
+    if (-not $sqlAuthentication.Contains('az sql server ad-only-auth get') -or
+        -not $sqlAuthentication.Contains('--name $ServerName') -or
+        -not $sqlAuthentication.Contains('--query azureAdOnlyAuthentication') -or
+        $sqlAuthentication.Contains('--server-name') -or
+        $sqlAuthentication.Contains('azureADOnlyAuthentication') -or
+        $sqlAuthentication -notmatch "'true'" -or
+        $sqlAuthentication -notmatch "'false'" -or
+        $sqlAuthentication -notmatch 'invalid Entra-only authentication value') {
+        throw 'SQL authentication classification must use the dedicated child resource and fail closed.'
     }
 }
 $cutoverCases = @(
