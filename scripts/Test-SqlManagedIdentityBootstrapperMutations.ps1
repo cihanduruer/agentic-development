@@ -120,8 +120,21 @@ $mutations = @(
         Replacements = @(
             @{
                 Pattern =
-                    "(?s)(            IF )\(\r?\n                SELECT COUNT_BIG\(\*\).*?\r?\n               \)(?=\r?\n            BEGIN\r?\n                THROW 51007,)"
+                    "(?s)(            IF )\(\r?\n                SELECT COUNT_BIG\(\*\).*?\r?\n               \)(?=\r?\n            BEGIN\r?\n                DECLARE @ActualApiAuthenticationType)"
                 Value = '${1}1 = 0'
+            }
+        )
+    },
+    @{
+        Name = 'misreport-api-authentication-type'
+        TestProject = $integrationTestProject
+        Filter =
+            'FullyQualifiedName~ExistingApiPrincipalIdentityMismatchFailsClosed'
+        Replacements = @(
+            @{
+                Pattern =
+                    "COALESCE\(@ActualApiAuthenticationType, N'<missing>'\)"
+                Value = '@apiAuthenticationType'
             }
         )
     }

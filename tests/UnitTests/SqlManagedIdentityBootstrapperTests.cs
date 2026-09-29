@@ -89,7 +89,18 @@ public sealed class SqlManagedIdentityBootstrapperTests
 
         Assert.Contains("sys.database_permissions", commandText, StringComparison.Ordinal);
         Assert.Contains("unexpected direct database permissions", commandText, StringComparison.Ordinal);
-        Assert.Contains("name, SID, or type does not match", commandText, StringComparison.Ordinal);
+        Assert.Contains(
+            "name, SID, type, or authentication type does not match",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Expected authentication type:",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "actual authentication type:",
+            commandText,
+            StringComparison.Ordinal);
         Assert.Contains("type = @apiPrincipalType", commandText, StringComparison.Ordinal);
         Assert.Contains(
             "authentication_type_desc = @apiAuthenticationType",
@@ -245,7 +256,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.True(revokeIndex > 0);
         Assert.True(
             commandText.IndexOf(
-                "name, SID, or type does not match",
+                "name, SID, type, or authentication type does not match",
                 StringComparison.Ordinal) < revokeIndex);
         Assert.True(
             commandText.IndexOf(

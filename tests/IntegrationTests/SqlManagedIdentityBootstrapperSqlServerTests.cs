@@ -152,6 +152,14 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                         mutation == "authentication" ? "EXTERNAL" : "INSTANCE"));
 
                 Assert.Equal(51007, exception.Number);
+                if (mutation == "authentication")
+                {
+                    Assert.Contains(
+                        "Expected authentication type: EXTERNAL; " +
+                        "actual authentication type: INSTANCE.",
+                        exception.Message,
+                        StringComparison.Ordinal);
+                }
                 Assert.Equal(before, await ReadDirectPermissions(connection));
                 Assert.Equal(0, await CountRuntimeRoles(connection));
             });

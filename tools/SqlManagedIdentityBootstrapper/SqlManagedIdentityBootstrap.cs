@@ -175,7 +175,19 @@ public static class SqlManagedIdentityBootstrap
                    )
                )
             BEGIN
-                THROW 51007, 'The API principal name, SID, or type does not match the expected identity.', 1;
+                DECLARE @ActualApiAuthenticationType nvarchar(60) = (
+                    SELECT authentication_type_desc
+                    FROM sys.database_principals
+                    WHERE principal_id = @ExistingApiPrincipalId
+                );
+                DECLARE @IdentityMismatchMessage nvarchar(2048) = CONCAT(
+                    N'The API principal name, SID, type, or authentication type does not match the expected identity. ',
+                    N'Expected authentication type: ',
+                    @apiAuthenticationType,
+                    N'; actual authentication type: ',
+                    COALESCE(@ActualApiAuthenticationType, N'<missing>'),
+                    N'.');
+                THROW 51007, @IdentityMismatchMessage, 1;
             END;
 
             IF @ExistingApiPrincipalId IS NOT NULL
