@@ -4,7 +4,7 @@
 **Say:** "A guest requirement becomes code, independently checked evidence, and a
 release proposal. Agents do bounded work; people retain production authority."
 
-**Knowledge revision:** `c6c4e0de0b4e8a21c0db561baea732fd42be73e2`.
+**Knowledge revision:** `32eaca68b80737bd715d928138ee2ca763d022e1`.
 **Sourced** means repository behavior at that revision or the dated evidence below;
 **Derived** means this facilitator sequence. **Assumption:** the facilitator has
 repository/Board read access and an approved disposable local booking environment.
@@ -44,15 +44,16 @@ dashboard, not just HTTP 200. Confirm booking network requests reach the hosted
 API without CORS errors. Record deployment run, source SHA, time, and results.
 **Stop the hosted segment if any check fails; do not deploy to repair a demo.**
 
-**Sourced snapshot, 2026-09-29 09:28 UTC:** hosted health, catalog, and public events
-returned 200; events were empty. Brotli `appsettings.json` still targeted localhost
-and `/operations` returned 404. Development run
-[36548644935](https://github.com/cihanduruer/agentic-development/actions/runs/36548644935)
-published API/web but failed its authenticated-ingestion smoke check; it is not a
-successful deployment. Frontend fix [#21](https://github.com/cihanduruer/agentic-development/pull/21),
-smoke fix [#20](https://github.com/cihanduruer/agentic-development/pull/20), and
-SQL/Search/Prompt Shields work [#12](https://github.com/cihanduruer/agentic-development/pull/12)
-were pending. Recheck their actual merged/deployed evidence before changing this verdict.
+**Sourced snapshot, 2026-09-29 09:39 UTC:** after frontend fix
+[#21](https://github.com/cihanduruer/agentic-development/pull/21), Brotli
+`appsettings.json` returned the hosted API URL and `/operations` returned 200.
+[Development run 36549810300](https://github.com/cihanduruer/agentic-development/actions/runs/36549810300)
+succeeded at the knowledge revision above, including its authorization/persistence
+smoke step. Public history exposed its synthetic event with that revision.
+These checks supersede the earlier localhost/404 failure; repeat the full browser
+preflight for each meeting. Smoke hardening [#20](https://github.com/cihanduruer/agentic-development/pull/20)
+and SQL/Search/Prompt Shields work [#12](https://github.com/cihanduruer/agentic-development/pull/12)
+were still pending; their integration claims require separate evidence.
 
 ## 1. Show the guest outcome (3 minutes)
 
@@ -63,7 +64,7 @@ were pending. Recheck their actual merged/deployed evidence before changing this
 1. In the preflight-approved browser, choose **Canal House**, two guests, and
    future check-in/check-out dates three nights apart. Click **Check availability**.
 2. Select **Canal King** if available. Point to nightly rate **EUR 189**, **3 nights**,
-   and total **EUR 567** before confirmation (the UI uses Dutch euro formatting).
+   and total **EUR 567** before confirmation (check euro amounts, not decimal separators).
    If unavailable, choose another free three-night interval; never erase bookings.
 3. Use a synthetic guest name such as `Showcase Guest 20260929-A`.
    Confirm only in the approved disposable local environment, or with explicit
@@ -118,7 +119,7 @@ The run's workflow SHA can differ from its tested PR SHA: read the artifacts.
 For the no-wait baseline, open successful
 [main validation 36548644968](https://github.com/cihanduruer/agentic-development/actions/runs/36548644968)
 and [QA 36548837929](https://github.com/cihanduruer/agentic-development/actions/runs/36548837929).
-In `qa-result.json`, show `headSha` equal to the knowledge revision above,
+In `qa-result.json`, show `headSha` equal to `c6c4e0de0b4e8a21c0db561baea732fd42be73e2`,
 `status: passed`, and **22/22 tests**. This is later platform evidence for PR #17,
 not a claim that historical PR #6 passed today's gates. Product acceptance fields
 are N/A for that non-product change. The workflow applies the evidence contract;
@@ -138,7 +139,7 @@ automatically transported to this table; show workflow history in Actions.
 
 Use existing test results to explain anonymous writes **401**, a valid identity
 without `Operations.Ingest` **403**, and authorized ingestion **201**. These are
-test expectations, not a claim the deployed writer passed. Public reads remain
+test expectations; the dated hosted smoke above separately proves its writer. Public reads remain
 available. Local Development intentionally bypasses writer authentication, so it
 cannot demonstrate hosted Entra enforcement. Never display tokens or real guest data.
 **Fallback:** show the test/source view if the dashboard or hosted smoke is failing.
