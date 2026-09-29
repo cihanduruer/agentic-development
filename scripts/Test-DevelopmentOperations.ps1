@@ -201,17 +201,31 @@ $restartUri = '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sit
     [Uri]::EscapeDataString($subscriptionId.Trim()), `
     [Uri]::EscapeDataString($ResourceGroup), `
     [Uri]::EscapeDataString($AppName)
-az rest `
-    --method post `
-    --uri $restartUri `
-    --only-show-errors
-if ($LASTEXITCODE -ne 0) {
-    throw 'Synchronous development App Service restart failed.'
+
+$restartDeadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
+$azCommand = Get-Command az -ErrorAction Stop
+$processInfo = [Diagnostics.ProcessStartInfo]::new()
+$processInfo.FileName = $azCommand.Source
+$processInfo.UseShellExecute = $false
+$processInfo.RedirectStandardOutput = $true
+$processInfo.RedirectStandardError = $true
+@('rest', '--method', 'post', '--uri', $restartUri, '--only-show-errors') |
+    ForEach-Object { [void]$processInfo.ArgumentList.Add($_) }
+$restartProcess = [Diagnostics.Process]::Start($processInfo)
+$remainingMilliseconds = [Math]::Max(
+    1,
+    [Math]::Floor(($restartDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds))
+if (-not $restartProcess.WaitForExit($remainingMilliseconds)) {
+    $restartProcess.Kill($true)
+    throw 'Synchronous development App Service restart exceeded the two-minute deadline.'
+}
+if ($restartProcess.ExitCode -ne 0) {
+    $restartError = $restartProcess.StandardError.ReadToEnd().Trim()
+    throw "Synchronous development App Service restart failed: $restartError"
 }
 Write-Output 'Verified synchronous App Service restart completion.'
 
 $healthy = $false
-$restartDeadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
 $attempt = 0
 while ([DateTimeOffset]::UtcNow -lt $restartDeadline) {
     $attempt++
