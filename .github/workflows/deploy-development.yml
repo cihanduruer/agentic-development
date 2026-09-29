@@ -82,16 +82,9 @@ jobs:
               }).Count -ne 1) {
             throw 'Existing development SQL requires the GitHub deployment principal as Entra administrator before any deployment mutation.'
           }
-          $entraOnly = az sql server show `
-            --resource-group agentic-hotelbookingdev `
-            --name $servers[0].name `
-            --query administrators.azureADOnlyAuthentication `
-            --output tsv `
-            --only-show-errors
-          if ($LASTEXITCODE -ne 0 -or $entraOnly -notin @('true', 'false')) {
-            throw 'Unable to classify existing development SQL authentication before mutation.'
-          }
-          $sqlAuthMode = if ($entraOnly -eq 'true') { 'entraOnly' } else { 'legacy' }
+          $sqlAuthMode = ./scripts/Get-AzureSqlAuthenticationMode.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -ServerName $servers[0].name
           'configureSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           'existingSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "preExistingSqlAuthMode=$sqlAuthMode" |
