@@ -260,7 +260,21 @@ $misleadingNotFoundDiagnostics = @(
     "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found.`nAdditional text",
     'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''other-deployment'' could not be found."}}',
     'ERROR: {"error":{"code":"AuthenticationFailed","message":"Deployment ''test-deployment'' could not be found."}}',
-    'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}} trailing text'
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}} trailing text',
+    'ERROR: [{"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}}]',
+    'ERROR: {"error":[{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}]}',
+    'ERROR: {"error":[{"code":"DeploymentNotFound"},{"message":"Deployment ''test-deployment'' could not be found."}]}',
+    'ERROR: {"error":{"code":["DeploymentNotFound"],"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":["Deployment ''test-deployment'' could not be found."]}}',
+    'ERROR: {"error":{"code":true,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":true}}',
+    'ERROR: {"error":{"code":true,"message":true}}',
+    'ERROR: {"error":{"code":1,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":1}}',
+    'ERROR: {"error":{"code":null,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":null}}',
+    'ERROR: {"error":{"code":"ignored","code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"ignored","message":"Deployment ''test-deployment'' could not be found."}}'
 )
 foreach ($diagnostic in $misleadingNotFoundDiagnostics) {
     Invoke-Scenario -Responses @(

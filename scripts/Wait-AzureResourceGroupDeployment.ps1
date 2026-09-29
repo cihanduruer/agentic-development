@@ -40,11 +40,17 @@ while ($true) {
         $jsonDiagnostic = $diagnostic -replace '^ERROR:\s*', ''
         $exactJsonDeploymentNotFound = $false
         try {
-            $jsonError = $jsonDiagnostic | ConvertFrom-Json -ErrorAction Stop
-            $expectedNotFoundMessage = "Deployment '$DeploymentName' could not be found."
-            $exactJsonDeploymentNotFound =
-                $jsonError.error.code -ceq 'DeploymentNotFound' -and
-                $jsonError.error.message -ceq $expectedNotFoundMessage
+            $null = $jsonDiagnostic | ConvertFrom-Json -ErrorAction Stop
+            $expectedNotFoundMessage = [Regex]::Escape(
+                "Deployment '$DeploymentName' could not be found.")
+            $codePropertyPattern = '"code"\s*:\s*"DeploymentNotFound"'
+            $messagePropertyPattern = '"message"\s*:\s*"' + $expectedNotFoundMessage + '"'
+            $jsonDeploymentNotFoundPattern =
+                '^\{\s*"error"\s*:\s*\{\s*(?:' +
+                $codePropertyPattern + '\s*,\s*' + $messagePropertyPattern + '|' +
+                $messagePropertyPattern + '\s*,\s*' + $codePropertyPattern +
+                ')\s*\}\s*\}$'
+            $exactJsonDeploymentNotFound = $jsonDiagnostic -cmatch $jsonDeploymentNotFoundPattern
         } catch {
             $exactJsonDeploymentNotFound = $false
         }
