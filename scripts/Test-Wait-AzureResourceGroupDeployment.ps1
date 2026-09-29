@@ -39,6 +39,9 @@ Invoke-Scenario -Responses @(
     }
 }
 
+$exactJsonNotFound =
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}}'
+
 Invoke-Scenario -Responses @(
     @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' }
 ) -Assertion {
@@ -56,6 +59,258 @@ Invoke-Scenario -Responses @(
         throw 'Failed deployment unexpectedly succeeded.'
     } catch {
         if ($_.Exception.Message -notmatch "ended in state 'Failed'.*DeploymentFailed") {
+            throw
+        }
+    }
+}
+
+foreach ($terminalState in @('Failed', 'Canceled')) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 0; Body = "{`"provisioningState`":`"$terminalState`"}" }
+    ) -Assertion {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState
+    }
+}
+
+foreach ($terminalState in @('Succeeded', 'Failed', 'Canceled')) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+        @{ ExitCode = 0; Body = "{`"provisioningState`":`"$terminalState`"}" }
+    ) -Assertion {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 5 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+    }
+}
+
+foreach ($terminalState in @('Succeeded', 'Failed', 'Canceled')) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+        @{
+            ExitCode = 1
+            Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+        },
+        @{
+            ExitCode = 1
+            Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+        },
+        @{
+            ExitCode = 1
+            Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+        },
+        @{ ExitCode = 0; Body = "{`"provisioningState`":`"$terminalState`"}" }
+    ) -Assertion {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 5 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+    }
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Succeeded"}' }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 5 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{ ExitCode = 1; Body = $exactJsonNotFound },
+    @{ ExitCode = 1; Body = $exactJsonNotFound },
+    @{ ExitCode = 1; Body = $exactJsonNotFound }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 5 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    }
+) -Assertion {
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 1 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+        throw 'An observed deployment with transient not-found responses unexpectedly proved absence.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'was observed but did not finish') {
+            throw
+        }
+    }
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 5 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Succeeded"}' }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 5 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    }
+) -Assertion {
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+        throw 'A single not-found observation unexpectedly proved absence.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'absence could not be proven') {
+            throw
+        }
+    }
+}
+
+$misleadingNotFoundDiagnostics = @(
+    "(AuthenticationFailed) Selected identity could not be found.",
+    "(ResourceNotFound) Resource 'test-deployment' could not be found.",
+    "(ServiceUnavailable) DeploymentNotFound status could not be confirmed.",
+    "(DeploymentNotFound) Deployment 'other-deployment' could not be found.",
+    "DeploymentNotFound",
+    "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found.`nAdditional text",
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''other-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"AuthenticationFailed","message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}} trailing text',
+    'ERROR: [{"error":{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}}]',
+    'ERROR: {"error":[{"code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}]}',
+    'ERROR: {"error":[{"code":"DeploymentNotFound"},{"message":"Deployment ''test-deployment'' could not be found."}]}',
+    'ERROR: {"error":{"code":["DeploymentNotFound"],"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":["Deployment ''test-deployment'' could not be found."]}}',
+    'ERROR: {"error":{"code":true,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":true}}',
+    'ERROR: {"error":{"code":true,"message":true}}',
+    'ERROR: {"error":{"code":1,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":1}}',
+    'ERROR: {"error":{"code":null,"message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":null}}',
+    'ERROR: {"error":{"code":"ignored","code":"DeploymentNotFound","message":"Deployment ''test-deployment'' could not be found."}}',
+    'ERROR: {"error":{"code":"DeploymentNotFound","message":"ignored","message":"Deployment ''test-deployment'' could not be found."}}'
+)
+foreach ($diagnostic in $misleadingNotFoundDiagnostics) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 1; Body = $diagnostic }
+    ) -Assertion {
+        try {
+            & $scriptPath `
+                -ResourceGroup test-rg `
+                -DeploymentName test-deployment `
+                -TimeoutSeconds 0 `
+                -PollIntervalSeconds 0 `
+                -AllowFailedTerminalState `
+                -AllowNotFound
+            throw 'A misleading not-found diagnostic was accepted.'
+        } catch {
+            if ($_.Exception.Message -notmatch 'Unable to read deployment') {
+                throw
+            }
+        }
+    }
+}
+
+Invoke-Scenario -Responses @(
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' }
+) -Assertion {
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+        throw 'A running deployment unexpectedly reached a terminal state.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'did not finish') {
             throw
         }
     }

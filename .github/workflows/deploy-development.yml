@@ -7,6 +7,10 @@ on:
         description: Type DELETE-ACTIVE-LEGACY-SQL-SECRET to remove the active legacy credential after readiness checks
         required: false
         type: string
+      stranded_managed_identity_recovery_confirmation:
+        description: Type RECOVER-STRANDED-MANAGED-IDENTITY to repair a catalog-failing managed-identity setting
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -17,6 +21,10 @@ on:
       - 'scripts/Remove-LegacySqlCredential.ps1'
       - 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1'
       - 'scripts/Invoke-RoutingReadinessWithRetry.ps1'
+      - 'scripts/Get-AppSqlConfigurationState.ps1'
+      - 'scripts/Resolve-DevelopmentPreCutoverState.ps1'
+      - 'scripts/Protect-DeploymentSecretFile.ps1'
+      - 'scripts/Remove-DeploymentSecretFiles.ps1'
       - 'docs/knowledge/**'
       - 'tools/KnowledgeIndexer/**'
       - 'tools/SqlManagedIdentityBootstrapper/**'
@@ -199,6 +207,7 @@ jobs:
             --only-show-errors 2>&1
           $appLookupExitCode = $LASTEXITCODE
           $configuredApi = $false
+          $configuredSqlMode = 'unconfigured'
           if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
             throw "Unable to determine whether the development API exists: $appId"
           }
@@ -213,6 +222,15 @@ jobs:
               throw 'Unable to classify whether the existing development API has runtime SQL configuration.'
             }
             $configuredApi = -not [string]::IsNullOrWhiteSpace($configuredConnection)
+            $env:APP_SQL_CONNECTION_STRING = $configuredConnection
+            try {
+              $configuredSqlMode = ./scripts/Get-AppSqlConfigurationState.ps1 `
+                -ExpectedServer '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
+                -ExpectedDatabase hotelbooking
+            }
+            finally {
+              Remove-Item Env:\APP_SQL_CONNECTION_STRING -ErrorAction SilentlyContinue
+            }
             $principalId = az webapp identity show `
               --resource-group agentic-hotelbookingdev `
               --name '${{ steps.infrastructure.outputs.apiAppName }}' `
@@ -247,6 +265,8 @@ jobs:
           "principalId=$($principalId.Trim())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "configuredApi=$($configuredApi.ToString().ToLowerInvariant())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "configuredSqlMode=$configuredSqlMode" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/setup-dotnet@v4
         with:
@@ -347,10 +367,14 @@ jobs:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: artifacts/api
       - name: Verify migration-disabled API artifact before existing-environment cutover
+        id: pre-cutover-readiness
         shell: pwsh
+        env:
+          RECOVERY_CONFIRMATION: ${{ inputs.stranded_managed_identity_recovery_confirmation }}
         run: |
           $readinessUri = '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels'
           $lastError = ''
+          $catalogReady = $false
           for ($attempt = 1; $attempt -le 12; $attempt++) {
             try {
               $response = Invoke-WebRequest `
@@ -358,7 +382,8 @@ jobs:
                 -TimeoutSec 30 `
                 -UseBasicParsing
               if ($response.StatusCode -eq 200) {
-                exit 0
+                $catalogReady = $true
+                break
               }
               $lastError = "HTTP $($response.StatusCode)"
             }
@@ -369,9 +394,24 @@ jobs:
               Start-Sleep -Seconds 10
             }
           }
-          throw "The migration-disabled development API artifact was not ready before managed-identity configuration: $lastError"
-      - name: Apply and prove managed-identity API configuration with rollback
+          $state = ./scripts/Resolve-DevelopmentPreCutoverState.ps1 `
+            -ConfiguredSqlMode '${{ steps.api-identity.outputs.configuredSqlMode }}' `
+            -CatalogReady $catalogReady `
+            -EventName '${{ github.event_name }}' `
+            -RecoveryConfirmation $env:RECOVERY_CONFIRMATION `
+            -FailureDiagnostic $lastError
+          "state=$state" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Refresh Azure login immediately before managed-identity API cutover
         if: steps.api-identity.outputs.configuredApi == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Apply managed-identity API configuration
+        id: api-cutover
+        if: steps.api-identity.outputs.configuredApi == 'true'
+        continue-on-error: true
         shell: pwsh
         env:
           AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
@@ -388,6 +428,12 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousConnection)) {
             throw 'The configured development API SQL connection could not be captured before cutover.'
           }
+          Set-Content `
+            -Path (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt') `
+            -Value $previousConnection `
+            -NoNewline
+          ./scripts/Protect-DeploymentSecretFile.ps1 `
+            -Path (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt')
           try {
             az deployment group create `
               --name "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
@@ -407,69 +453,135 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw 'The managed-identity API configuration deployment failed or returned an ambiguous result.'
             }
-            $lastError = ''
-            for ($attempt = 1; $attempt -le 12; $attempt++) {
-              try {
-                $response = Invoke-WebRequest `
-                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
-                  -TimeoutSec 30 `
-                  -UseBasicParsing
-                if ($response.StatusCode -eq 200) {
-                  exit 0
-                }
-                $lastError = "HTTP $($response.StatusCode)"
-              }
-              catch {
-                $lastError = $_.Exception.Message
-              }
-              if ($attempt -lt 12) {
-                Start-Sleep -Seconds 10
-              }
-            }
-            throw "The managed-identity SQL-backed readiness proof failed: $lastError"
           }
           catch {
-            $cutoverError = $_.Exception.Message
-            az webapp config appsettings set `
-              --resource-group agentic-hotelbookingdev `
-              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
-              --settings "ConnectionStrings__HotelBooking=$previousConnection" `
-              --output none `
-              --only-show-errors
-            if ($LASTEXITCODE -ne 0) {
-              throw "Development API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
-            }
-            $rollbackReady = $false
-            for ($attempt = 1; $attempt -le 12; $attempt++) {
-              try {
-                $response = Invoke-WebRequest `
-                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
-                  -TimeoutSec 30 `
-                  -UseBasicParsing
-                if ($response.StatusCode -eq 200) {
-                  $rollbackReady = $true
-                  break
-                }
-              }
-              catch {
-                if ($attempt -eq 12) {
-                  $rollbackError = $_.Exception.Message
-                }
-              }
-              if ($attempt -lt 12) {
-                Start-Sleep -Seconds 10
-              }
-            }
-            if (-not $rollbackReady) {
-              throw "Development API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
-            }
-            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
-              'legacy' { 'server-side legacy SQL authentication remains enabled' }
-              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
-              default { 'the SQL authentication state remains unchanged' }
-            }
-            throw "Development API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+            Set-Content `
+              -Path (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt') `
+              -Value $_.Exception.Message `
+              -NoNewline
+            throw
           }
+      - name: Prove managed-identity SQL-backed API readiness
+        id: api-cutover-readiness
+        if: steps.api-cutover.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $lastError = ''
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              $response = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                exit 0
+              }
+              $lastError = "HTTP $($response.StatusCode)"
+            }
+            catch {
+              $lastError = $_.Exception.Message
+            }
+            if ($attempt -lt 12) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          Set-Content `
+            -Path (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt') `
+            -Value "The managed-identity SQL-backed readiness proof failed: $lastError" `
+            -NoNewline
+          throw "The managed-identity SQL-backed readiness proof failed: $lastError"
+      - name: Refresh Azure login for managed-identity API rollback
+        id: api-rollback-login
+        if: >-
+          always() &&
+          steps.api-identity.outputs.configuredApi == 'true' &&
+          (steps.api-cutover.outcome == 'failure' ||
+          steps.api-cutover.outcome == 'cancelled' ||
+          steps.api-cutover-readiness.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'cancelled')
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Restore and prove prior API SQL configuration
+        if: >-
+          always() &&
+          steps.api-rollback-login.outcome == 'success' &&
+          (steps.api-cutover.outcome == 'failure' ||
+          steps.api-cutover.outcome == 'cancelled' ||
+          steps.api-cutover-readiness.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'cancelled')
+        shell: pwsh
+        run: |
+          $previousConnectionPath = Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt'
+          $cutoverErrorPath = Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt'
+          if (-not (Test-Path $previousConnectionPath)) {
+            throw 'Development API cutover failed before the prior SQL connection was captured. SQL-only enforcement and cleanup remain blocked.'
+          }
+          $previousConnection = Get-Content $previousConnectionPath -Raw
+          $cutoverError = if (Test-Path $cutoverErrorPath) {
+            Get-Content $cutoverErrorPath -Raw
+          }
+          else {
+            'The managed-identity API cutover failed without a captured diagnostic.'
+          }
+          if ('${{ steps.api-cutover.outcome }}' -in @('failure', 'cancelled')) {
+            ./scripts/Wait-AzureResourceGroupDeployment.ps1 `
+              -ResourceGroup agentic-hotelbookingdev `
+              -DeploymentName "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              -TimeoutSeconds 2400 `
+              -AllowFailedTerminalState `
+              -AllowNotFound
+          }
+          az webapp config appsettings set `
+            --resource-group agentic-hotelbookingdev `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --settings "ConnectionStrings__HotelBooking=$previousConnection" `
+            --output none `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw "Development API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+          }
+          $rollbackReady = $false
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              $response = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                $rollbackReady = $true
+                break
+              }
+            }
+            catch {
+              if ($attempt -eq 12) {
+                $rollbackError = $_.Exception.Message
+              }
+            }
+            if ($attempt -lt 12) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not $rollbackReady) {
+            throw "Development API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
+          }
+          $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+            'legacy' { 'server-side legacy SQL authentication remains enabled' }
+            'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+            default { 'the SQL authentication state remains unchanged' }
+          }
+          throw "Development API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+      - name: Remove captured prior API SQL configuration
+        if: always() && steps.api-identity.outputs.configuredApi == 'true'
+        shell: pwsh
+        run: |
+          ./scripts/Remove-DeploymentSecretFiles.ps1 -Path @(
+            (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt'),
+            (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt')
+          )
       - name: Publish web
         run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release -o artifacts/web
       - name: Configure web API endpoint
@@ -558,8 +670,19 @@ jobs:
             -LegacyVaultName '${{ steps.infrastructure.outputs.legacyKeyVaultName }}' `
             -Approved `
             -RuntimeReadinessVerified
-      - name: Remove deployment runner SQL firewall rule
+      - name: Refresh Azure login for deployment runner SQL firewall cleanup
+        id: sql-firewall-cleanup-login
         if: always() && steps.sql-firewall.outcome == 'success'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Remove deployment runner SQL firewall rule
+        if: >-
+          always() &&
+          steps.sql-firewall.outcome == 'success' &&
+          steps.sql-firewall-cleanup-login.outcome == 'success'
         run: >-
           az sql server firewall-rule delete
           --resource-group agentic-hotelbookingdev

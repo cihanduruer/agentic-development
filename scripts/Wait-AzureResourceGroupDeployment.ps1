@@ -12,10 +12,17 @@ param(
     [ValidateRange(0, 300)]
     [int] $PollIntervalSeconds = 15,
 
-    [switch] $AllowTimeout
+    [switch] $AllowTimeout,
+
+    [switch] $AllowFailedTerminalState,
+
+    [switch] $AllowNotFound
 )
 
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+$notFoundObservations = 0
+$requiredNotFoundObservations = 3
+$deploymentObserved = $false
 
 while ($true) {
     $deploymentJson = az deployment group show `
@@ -23,12 +30,53 @@ while ($true) {
         --name $DeploymentName `
         --query properties `
         --output json `
-        --only-show-errors
+        --only-show-errors 2>&1
 
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deploymentJson)) {
+        $diagnostic = "$deploymentJson".Trim()
+        $escapedDeploymentName = [Regex]::Escape($DeploymentName)
+        $deploymentNotFoundPattern =
+            "^(?:ERROR:\s*)?\(DeploymentNotFound\)\s+Deployment\s+'$escapedDeploymentName'\s+could not be found\.?$"
+        $jsonDiagnostic = $diagnostic -replace '^ERROR:\s*', ''
+        $exactJsonDeploymentNotFound = $false
+        try {
+            $null = $jsonDiagnostic | ConvertFrom-Json -ErrorAction Stop
+            $expectedNotFoundMessage = [Regex]::Escape(
+                "Deployment '$DeploymentName' could not be found.")
+            $codePropertyPattern = '"code"\s*:\s*"DeploymentNotFound"'
+            $messagePropertyPattern = '"message"\s*:\s*"' + $expectedNotFoundMessage + '"'
+            $jsonDeploymentNotFoundPattern =
+                '^\{\s*"error"\s*:\s*\{\s*(?:' +
+                $codePropertyPattern + '\s*,\s*' + $messagePropertyPattern + '|' +
+                $messagePropertyPattern + '\s*,\s*' + $codePropertyPattern +
+                ')\s*\}\s*\}$'
+            $exactJsonDeploymentNotFound = $jsonDiagnostic -cmatch $jsonDeploymentNotFoundPattern
+        } catch {
+            $exactJsonDeploymentNotFound = $false
+        }
+        if ($AllowNotFound -and
+            ($diagnostic -match $deploymentNotFoundPattern -or $exactJsonDeploymentNotFound)) {
+            if (-not $deploymentObserved) {
+                $notFoundObservations++
+                if ($notFoundObservations -ge $requiredNotFoundObservations) {
+                    Write-Output "Deployment '$DeploymentName' was not submitted after $notFoundObservations consecutive observations."
+                    return
+                }
+            }
+            if ([DateTimeOffset]::UtcNow -ge $deadline) {
+                if ($deploymentObserved) {
+                    throw "Deployment '$DeploymentName' was observed but did not finish within $TimeoutSeconds seconds."
+                }
+                throw "Deployment '$DeploymentName' absence could not be proven within $TimeoutSeconds seconds."
+            }
+            Start-Sleep -Seconds $PollIntervalSeconds
+            continue
+        }
         throw "Unable to read deployment '$DeploymentName' in resource group '$ResourceGroup'."
     }
 
+    $notFoundObservations = 0
+    $deploymentObserved = $true
     $deployment = $deploymentJson | ConvertFrom-Json
     switch ($deployment.provisioningState) {
         'Succeeded' {
@@ -39,6 +87,10 @@ while ($true) {
             return
         }
         { $_ -in @('Canceled', 'Failed') } {
+            if ($AllowFailedTerminalState) {
+                Write-Output "Deployment '$DeploymentName' reached terminal state '$($_)'."
+                return
+            }
             $errorDetail = if ($null -eq $deployment.error) {
                 'Azure returned no error detail.'
             } else {

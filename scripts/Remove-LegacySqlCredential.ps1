@@ -57,8 +57,21 @@ $connectionString = Invoke-AzTsv @(
     '--name', $ApiAppName,
     '--query', "[?name=='ConnectionStrings__HotelBooking'].value | [0]"
 )
-if ([string]::IsNullOrWhiteSpace($connectionString) -or
-    $connectionString -notmatch 'Authentication=Active Directory Default' -or
+$env:APP_SQL_CONNECTION_STRING = $connectionString
+try {
+    try {
+        $configurationState = & (Join-Path $PSScriptRoot 'Get-AppSqlConfigurationState.ps1') `
+            -ExpectedServer "$SqlServerName.database.windows.net" `
+            -ExpectedDatabase hotelbooking
+    }
+    catch {
+        throw "App Service '$ApiAppName' does not have the expected passwordless SQL connection."
+    }
+}
+finally {
+    Remove-Item Env:\APP_SQL_CONNECTION_STRING -ErrorAction SilentlyContinue
+}
+if ($configurationState -ne 'managedIdentityExplicit' -or
     $connectionString -match '(?i)Password=|User ID=|@Microsoft\.KeyVault') {
     throw "App Service '$ApiAppName' does not have the expected passwordless SQL connection."
 }
