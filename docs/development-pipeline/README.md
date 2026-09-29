@@ -179,6 +179,7 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 4. Publish the Blazor WebAssembly client.
 5. Inject the deployed API endpoint into the web configuration.
 6. Deploy the client to Azure Static Web Apps.
+7. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.
 
 The development topology is:
 
@@ -249,9 +250,11 @@ The Bicep deployment derives the authority from the subscription tenant, configu
 
 The development environment registration, `Operations.Ingest` assignment for the GitHub OIDC workload, and `OPERATIONS_API_AUDIENCE` environment variable were configured and verified on 2026-09-29. No additional Entra setup remains for development; other environments require their own workload assignments and audience configuration.
 
+Every development deployment runs `scripts/Test-DevelopmentOperations.ps1`. The script obtains a short-lived token for `OPERATIONS_API_AUDIENCE` from the existing OIDC Azure CLI session, masks it, submits a uniquely correlated event, restarts the API, and verifies the event remains publicly readable afterward. It also fails the deployment if public reads stop working or either protected endpoint accepts an anonymous valid request.
+
 ## Grounding note
 
-- **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, and `.github/workflows/deploy-development.yml`.
+- **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, `.github/workflows/deploy-development.yml`, and `scripts/Test-DevelopmentOperations.ps1`.
 - **Derived:** Entra registration and role assignment are managed outside this ARM deployment through Azure CLI/Microsoft Graph automation or administrator action.
 - **Knowledge revision:** `2dc64f51b643ebe8a8e0a90d56ebb522c8a30728`.
 

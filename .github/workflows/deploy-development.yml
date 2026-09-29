@@ -8,10 +8,15 @@ on:
       - 'src/**'
       - 'infra/**'
       - '.github/workflows/deploy-development.yml'
+      - 'scripts/Test-DevelopmentOperations.ps1'
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -59,3 +64,13 @@ jobs:
           app_location: artifacts/web/wwwroot
           output_location: ''
           skip_app_build: true
+      - name: Verify operations authorization and persistence
+        shell: pwsh
+        env:
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          ./scripts/Test-DevelopmentOperations.ps1 `
+            -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
+            -Audience $env:OPERATIONS_API_AUDIENCE `
+            -ResourceGroup 'agentic-hotelbookingdev' `
+            -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
