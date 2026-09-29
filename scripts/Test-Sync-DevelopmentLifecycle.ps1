@@ -101,6 +101,17 @@ $arguments = @{
 $evidence = Resolve-LifecycleEvidence @arguments
 Assert-True ($evidence.WorkItemId -eq 959) "The trusted AB#959 evidence should resolve."
 
+$laterReviewRun = $reviewRun.PSObject.Copy()
+$laterReviewRun.created_at = "2026-09-29T08:01:00Z"
+$laterReviewRun.updated_at = "2026-09-29T08:02:00Z"
+$laterReviewRun.html_url = "https://github.com/$repository/actions/runs/104"
+$repeatedReviewArguments = $arguments.Clone()
+$repeatedReviewArguments.ReviewRuns = @($reviewRun, $laterReviewRun)
+$repeatedReviewEvidence = Resolve-LifecycleEvidence @repeatedReviewArguments
+Assert-True (
+    $repeatedReviewEvidence.ReviewUrl -eq $reviewRun.html_url
+) "Review evidence should select a run containing the exact-head review."
+
 $staleDeployment = $deployment.PSObject.Copy()
 $staleDeployment.head_sha = "c" * 40
 $staleArguments = $arguments.Clone()

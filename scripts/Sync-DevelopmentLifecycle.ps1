@@ -138,21 +138,24 @@ function Resolve-LifecycleEvidence {
         throw "Evidence pending: no successful unexpired QA evidence exists for exact deployed SHA '$ExpectedSha'."
     }
 
-    $reviewRun = @($ReviewRuns | Where-Object {
+    $eligibleReviewRuns = @($ReviewRuns | Where-Object {
         $_.conclusion -eq "success" -and
         $_.path -eq ".github/workflows/hotel-code-review.yml" -and
         @($_.pull_requests | Where-Object { $_.number -eq $pull.number }).Count -gt 0
-    } | Sort-Object created_at -Descending | Select-Object -First 1)
-    $copilotReview = @($Reviews | Where-Object {
+    })
+    $exactHeadReviews = @($Reviews | Where-Object {
         $_.user.login -eq $script:CopilotReviewer -and
         $_.commit_id -eq $pull.head.sha
-    } | Sort-Object submitted_at -Descending | Select-Object -First 1)
-    if ($reviewRun.Count -ne 1 -or $copilotReview.Count -ne 1) {
-        throw "Evidence pending: no successful Copilot review evidence exists for exact pull request head '$($pull.head.sha)'."
-    }
-    if ([DateTimeOffset]$reviewRun[0].created_at -gt [DateTimeOffset]$copilotReview[0].submitted_at -or
-        [DateTimeOffset]$reviewRun[0].updated_at -lt [DateTimeOffset]$copilotReview[0].submitted_at) {
-        throw "Successful review workflow does not contain the exact-head Copilot review."
+    })
+    $reviewRun = @($eligibleReviewRuns | Where-Object {
+        $run = $_
+        @($exactHeadReviews | Where-Object {
+            [DateTimeOffset]$run.created_at -le [DateTimeOffset]$_.submitted_at -and
+            [DateTimeOffset]$run.updated_at -ge [DateTimeOffset]$_.submitted_at
+        }).Count -gt 0
+    } | Sort-Object created_at -Descending | Select-Object -First 1)
+    if ($reviewRun.Count -ne 1) {
+        throw "Evidence pending: no successful review workflow contains a Copilot review for exact pull request head '$($pull.head.sha)'."
     }
 
     return [pscustomobject]@{

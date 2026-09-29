@@ -54,6 +54,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
+      issues: read
       pull-requests: read
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -171,16 +171,19 @@ jobs:
                   && (!open || Number(open[1]) === 0)) {
                 return false;
               }
+              const recommendsChanges = /\bchanges?\s+recommended\b/i.test(body)
+                && !/\bno changes?\s+recommended\b/i.test(body);
               return (findings && Number(findings[1]) > 0)
                 || (open && Number(open[1]) > 0)
-                || /\bchanges?\s+recommended\b/i.test(body);
+                || recommendsChanges;
             };
             const findingsRegressions = [
               ['Findings: 0', false],
               ['Findings: 0\n<summary><strong>Open (0)</strong></summary>', false],
               ['Findings: 1', true],
               ['<summary><strong>Open (2)</strong></summary>', true],
-              ['Changes recommended', true]
+              ['Changes recommended', true],
+              ['No changes recommended', false]
             ];
             for (const [sample, expected] of findingsRegressions) {
               if (reportsFindings(sample) !== expected) {
