@@ -257,6 +257,9 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
     {
         Assert.Equal("dbo", await ReadRuntimeRoleOwner(connection));
         Assert.Equal(7, await CountRuntimeRolePermissions(connection));
+        Assert.Equal(
+            ExpectedRuntimePermissionRows,
+            await ReadRuntimeRolePermissions(connection));
 
         await using var command = connection.CreateCommand();
         command.CommandText =
@@ -329,6 +332,38 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             WHERE principals.name = N'hotel_booking_runtime';
             """;
         return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string[]> ReadRuntimeRolePermissions(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT CONCAT(
+                permissions.class, N':',
+                OBJECT_SCHEMA_NAME(permissions.major_id), N'.',
+                OBJECT_NAME(permissions.major_id), N':',
+                permissions.permission_name, N':',
+                permissions.minor_id, N':',
+                permissions.state)
+            FROM sys.database_permissions AS permissions
+            INNER JOIN sys.database_principals AS principals
+                ON principals.principal_id = permissions.grantee_principal_id
+            WHERE principals.name = N'hotel_booking_runtime'
+            ORDER BY
+                OBJECT_SCHEMA_NAME(permissions.major_id),
+                OBJECT_NAME(permissions.major_id),
+                permissions.permission_name;
+            """;
+        var permissions = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            permissions.Add(reader.GetString(0));
+        }
+
+        return [.. permissions];
     }
 
     private static async Task<long> CountRuntimeRoleMembers(
@@ -427,6 +462,17 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [agentic-api];
         GRANT SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents TO [agentic-api];
         """;
+
+    private static readonly string[] ExpectedRuntimePermissionRows =
+    [
+        "1:dbo.AgentEvents:DELETE:0:G",
+        "1:dbo.AgentEvents:INSERT:0:G",
+        "1:dbo.AgentEvents:SELECT:0:G",
+        "1:dbo.Hotels:SELECT:0:G",
+        "1:dbo.Reservations:INSERT:0:G",
+        "1:dbo.Reservations:SELECT:0:G",
+        "1:dbo.Rooms:SELECT:0:G",
+    ];
 }
 
 public sealed class SqlServerFactAttribute : FactAttribute

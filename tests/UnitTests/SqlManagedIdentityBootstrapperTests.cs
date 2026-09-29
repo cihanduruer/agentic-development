@@ -110,10 +110,15 @@ public sealed class SqlManagedIdentityBootstrapperTests
 
         Assert.Contains("permissions.state = N'G'", commandText, StringComparison.Ordinal);
         Assert.Equal(
-            2,
+            4,
             CountOccurrences(
                 commandText,
                 "permissions.permission_name COLLATE DATABASE_DEFAULT"));
+        Assert.Equal(
+            4,
+            CountOccurrences(
+                commandText,
+                "permissions.state COLLATE DATABASE_DEFAULT"));
         Assert.Contains("permissions.minor_id = 0", commandText, StringComparison.Ordinal);
         Assert.Contains("member_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
         Assert.Contains("role_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
@@ -179,7 +184,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     [Fact]
-    public void CommandRevokesOnlyTheHistoricalGrantsAndVerifiesRemoval()
+    public void CommandRevokesOnlyTheExactRuntimeContractAndVerifiesRemoval()
     {
         var commandText = SqlManagedIdentityBootstrap.CommandText;
 
@@ -188,7 +193,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
             commandText,
             StringComparison.Ordinal);
         Assert.Contains("@ExistingDirectPermissionCount <> 7", commandText, StringComparison.Ordinal);
-        Assert.Equal(2, CountOccurrences(commandText, "EXCEPT"));
+        Assert.Equal(4, CountOccurrences(commandText, "EXCEPT"));
         Assert.Contains("permissions.class = 1", commandText, StringComparison.Ordinal);
         Assert.Contains("permissions.minor_id = 0", commandText, StringComparison.Ordinal);
         Assert.Contains("permissions.state = N'G'", commandText, StringComparison.Ordinal);

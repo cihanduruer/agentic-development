@@ -335,20 +335,29 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51008, 'The expected runtime database objects do not all exist.', 1;
             END;
 
-            DECLARE @RecoverableDirectPermissions TABLE (
+            DECLARE @ExpectedRuntimePermissions TABLE (
+                class tinyint NOT NULL,
                 major_id int NOT NULL,
+                minor_id int NOT NULL,
                 permission_name nvarchar(128) NOT NULL,
-                PRIMARY KEY (major_id, permission_name)
+                state char(1) NOT NULL,
+                PRIMARY KEY (class, major_id, minor_id, permission_name, state)
             );
-            INSERT INTO @RecoverableDirectPermissions (major_id, permission_name)
+            INSERT INTO @ExpectedRuntimePermissions (
+                class,
+                major_id,
+                minor_id,
+                permission_name,
+                state
+            )
             VALUES
-                (OBJECT_ID(N'dbo.Hotels'), N'SELECT'),
-                (OBJECT_ID(N'dbo.Rooms'), N'SELECT'),
-                (OBJECT_ID(N'dbo.Reservations'), N'SELECT'),
-                (OBJECT_ID(N'dbo.Reservations'), N'INSERT'),
-                (OBJECT_ID(N'dbo.AgentEvents'), N'SELECT'),
-                (OBJECT_ID(N'dbo.AgentEvents'), N'INSERT'),
-                (OBJECT_ID(N'dbo.AgentEvents'), N'DELETE');
+                (1, OBJECT_ID(N'dbo.Hotels'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Rooms'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Reservations'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Reservations'), 0, N'INSERT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'INSERT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'DELETE', N'G');
 
             DECLARE @ExistingDirectPermissionCount bigint = (
                 SELECT COUNT_BIG(*)
@@ -360,29 +369,39 @@ public static class SqlManagedIdentityBootstrap
                 IF @ExistingDirectPermissionCount <> 7
                    OR EXISTS (
                        SELECT
+                           permissions.class,
                            permissions.major_id,
-                           permissions.permission_name COLLATE DATABASE_DEFAULT
+                           permissions.minor_id,
+                           permissions.permission_name COLLATE DATABASE_DEFAULT,
+                           permissions.state COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
-                         AND permissions.class = 1
-                         AND permissions.minor_id = 0
-                         AND permissions.state = N'G'
-                       EXCEPT
-                       SELECT major_id, permission_name
-                       FROM @RecoverableDirectPermissions
-                   )
-                   OR EXISTS (
-                       SELECT major_id, permission_name
-                       FROM @RecoverableDirectPermissions
                        EXCEPT
                        SELECT
+                           class,
+                           major_id,
+                           minor_id,
+                           permission_name,
+                           state
+                       FROM @ExpectedRuntimePermissions
+                   )
+                   OR EXISTS (
+                       SELECT
+                           class,
+                           major_id,
+                           minor_id,
+                           permission_name,
+                           state
+                       FROM @ExpectedRuntimePermissions
+                       EXCEPT
+                       SELECT
+                           permissions.class,
                            permissions.major_id,
-                           permissions.permission_name COLLATE DATABASE_DEFAULT
+                           permissions.minor_id,
+                           permissions.permission_name COLLATE DATABASE_DEFAULT,
+                           permissions.state COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
-                         AND permissions.class = 1
-                         AND permissions.minor_id = 0
-                         AND permissions.state = N'G'
                    )
                 BEGIN
                     THROW 51000, 'The API principal has unexpected direct database permissions.', 1;
@@ -454,10 +473,43 @@ public static class SqlManagedIdentityBootstrap
                 SELECT COUNT_BIG(*)
                 FROM sys.database_permissions AS permissions
                 WHERE permissions.grantee_principal_id = @RuntimeRoleId
-                  AND permissions.class = 1
-                  AND permissions.minor_id = 0
-                  AND permissions.state = N'G'
             ) <> 7
+               OR EXISTS (
+                   SELECT
+                       permissions.class,
+                       permissions.major_id,
+                       permissions.minor_id,
+                       permissions.permission_name COLLATE DATABASE_DEFAULT,
+                       permissions.state COLLATE DATABASE_DEFAULT
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.grantee_principal_id = @RuntimeRoleId
+                   EXCEPT
+                   SELECT
+                       class,
+                       major_id,
+                       minor_id,
+                       permission_name,
+                       state
+                   FROM @ExpectedRuntimePermissions
+               )
+               OR EXISTS (
+                   SELECT
+                       class,
+                       major_id,
+                       minor_id,
+                       permission_name,
+                       state
+                   FROM @ExpectedRuntimePermissions
+                   EXCEPT
+                   SELECT
+                       permissions.class,
+                       permissions.major_id,
+                       permissions.minor_id,
+                       permissions.permission_name COLLATE DATABASE_DEFAULT,
+                       permissions.state COLLATE DATABASE_DEFAULT
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.grantee_principal_id = @RuntimeRoleId
+               )
             BEGIN
                 THROW 51006, 'The runtime role does not have the exact expected permission set.', 1;
             END;
