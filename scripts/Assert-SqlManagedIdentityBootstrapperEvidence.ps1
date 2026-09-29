@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedTotal = 22
+$expectedTotal = 23
 
 if (-not (Test-Path -LiteralPath $TrxPath -PathType Leaf)) {
     throw "SQL bootstrapper TRX '$TrxPath' does not exist."
@@ -94,6 +94,7 @@ $expectedIdentities = @(
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"G`", granteeType: `"role`")"
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"user`")"
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"role`")"
+    "${testClassPrefix}IndirectApiMembershipDoesNotSatisfyDirectMembershipContract"
     "${testClassPrefix}FailureImmediatelyBeforeCommitRollsBackEveryMutation"
 )
 $expectedIdentitySet =

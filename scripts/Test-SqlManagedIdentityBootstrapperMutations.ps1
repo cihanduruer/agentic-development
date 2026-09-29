@@ -59,6 +59,15 @@ $mutations = @(
         )
     },
     @{
+        Name = 'accept-effective-instead-of-direct-membership'
+        Replacements = @(
+            @{
+                Pattern = "(?s)               OR NOT EXISTS \(\r?\n                   SELECT 1\r?\n                   FROM sys\.database_role_members\r?\n                   WHERE role_principal_id = @RuntimeRoleId\r?\n                     AND member_principal_id = @ExistingApiPrincipalId\r?\n               \)"
+                Value = "               OR COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1"
+            }
+        )
+    },
+    @{
         Name = 'skip-runtime-role-grant-postcheck'
         Replacements = @(
             @{

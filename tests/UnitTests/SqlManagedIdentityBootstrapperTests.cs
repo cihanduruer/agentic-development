@@ -140,6 +140,15 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "runtime role does not have the exact expected membership",
             commandText,
             StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            CountOccurrences(
+                commandText,
+                "member_principal_id = @ExistingApiPrincipalId"));
+        Assert.DoesNotContain(
+            "IS_ROLEMEMBER",
+            commandText,
+            StringComparison.Ordinal);
     }
 
     [Fact]

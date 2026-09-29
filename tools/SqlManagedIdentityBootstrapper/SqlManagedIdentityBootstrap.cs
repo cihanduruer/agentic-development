@@ -464,6 +464,9 @@ public static class SqlManagedIdentityBootstrap
                 EXEC sys.sp_executesql @Command;
             END;
 
+            SET @ExistingApiPrincipalId =
+                DATABASE_PRINCIPAL_ID(@apiPrincipalName);
+
             IF NOT EXISTS (
                 SELECT 1
                 FROM sys.database_principals
@@ -536,7 +539,12 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51006, 'The runtime role does not have the exact expected permission set.', 1;
             END;
 
-            IF COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.database_role_members
+                WHERE role_principal_id = @RuntimeRoleId
+                  AND member_principal_id = @ExistingApiPrincipalId
+            )
             BEGIN
                 SET @Command =
                     N'ALTER ROLE [hotel_booking_runtime] ADD MEMBER ' +
@@ -549,7 +557,12 @@ public static class SqlManagedIdentityBootstrap
                 FROM sys.database_role_members
                 WHERE role_principal_id = @RuntimeRoleId
             ) <> 1
-               OR COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1
+               OR NOT EXISTS (
+                   SELECT 1
+                   FROM sys.database_role_members
+                   WHERE role_principal_id = @RuntimeRoleId
+                     AND member_principal_id = @ExistingApiPrincipalId
+               )
             BEGIN
                 THROW 51013, 'The runtime role does not have the exact expected membership.', 1;
             END;

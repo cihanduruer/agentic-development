@@ -101,6 +101,33 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             });
     }
 
+    [SqlServerFact]
+    public async Task IndirectApiMembershipDoesNotSatisfyDirectMembershipContract()
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    """
+                    CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
+                    CREATE ROLE [intermediary] AUTHORIZATION [dbo];
+                    ALTER ROLE [intermediary] ADD MEMBER [agentic-api];
+                    ALTER ROLE [hotel_booking_runtime] ADD MEMBER [intermediary];
+                    """);
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51012, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+                Assert.Equal(1, await CountRuntimeRoleMembers(connection));
+            });
+    }
+
     [SqlServerTheory]
     [MemberData(nameof(DelegatedRuntimeRolePermissionStates))]
     public async Task DelegatedRuntimeRolePermissionFailsClosed(

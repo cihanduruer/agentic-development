@@ -29,6 +29,7 @@ $expectedNames = @(
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"G`", granteeType: `"role`")"
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"user`")"
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"role`")"
+    "${testClassPrefix}IndirectApiMembershipDoesNotSatisfyDirectMembershipContract"
     "${testClassPrefix}FailureImmediatelyBeforeCommitRollsBackEveryMutation"
 )
 
@@ -100,9 +101,9 @@ function New-TestTrx {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 22,
-        [int] $Executed = 22,
-        [int] $Passed = 22,
+        [int] $Total = 23,
+        [int] $Executed = 23,
+        [int] $Passed = 23,
         [int] $NotExecuted = 0
     )
 
@@ -175,9 +176,9 @@ function Assert-Rejected {
     param(
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 22,
-        [int] $Executed = 22,
-        [int] $Passed = 22,
+        [int] $Total = 23,
+        [int] $Executed = 23,
+        [int] $Passed = 23,
         [int] $NotExecuted = 0
     )
 
@@ -232,7 +233,7 @@ try {
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases | ForEach-Object { $_.Outcome = 'NotExecuted' }
-    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 22
+    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 23
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases[10].ResultName = $cases[9].ResultName
@@ -253,7 +254,7 @@ try {
         @{ Name = '08-wrong-owner'; Index = 6; Old = 'ownerType: "user"'; New = 'ownerType: "attacker"' }
         @{ Name = '09-wrong-mutation'; Index = 1; Old = 'mutation: "subset"'; New = 'mutation: "prefix"' }
         @{ Name = '10-wrong-casing'; Index = 9; Old = 'permissionName: "ALTER"'; New = 'permissionName: "alter"' }
-        @{ Name = '11-suffixed-method'; Index = 21; Old = 'EveryMutation'; New = 'EveryMutationDisabled' }
+        @{ Name = '11-suffixed-method'; Index = 22; Old = 'EveryMutation'; New = 'EveryMutationDisabled' }
         @{ Name = '12-extra-argument-space'; Index = 9; Old = ', state:'; New = ' , state:' }
     )) {
         $cases = @(Copy-CaseSet $baseCases)
@@ -360,10 +361,28 @@ try {
         $cases[$challenge.Index].DefinitionName = $cases[$challenge.Index].ResultName
         Assert-Rejected -Name $challenge.Name -Cases $cases
     }
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].ResultTestId = 'linked-invalid-test-id'
+    $cases[0].DefinitionTestId = 'linked-invalid-test-id'
+    $cases[0].EntryTestId = 'linked-invalid-test-id'
+    Assert-Rejected -Name '39-linked-invalid-test-guid' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].ResultExecutionId = 'linked-invalid-execution-id'
+    $cases[0].DefinitionExecutionId = 'linked-invalid-execution-id'
+    $cases[0].EntryExecutionId = 'linked-invalid-execution-id'
+    Assert-Rejected -Name '40-linked-invalid-execution-guid' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $firstDefinitionName = $cases[9].DefinitionName
+    $cases[9].DefinitionName = $cases[10].DefinitionName
+    $cases[10].DefinitionName = $firstDefinitionName
+    Assert-Rejected -Name '41-swapped-same-method-definitions' -Cases $cases
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
 }
 
-Write-Host 'SQL bootstrapper evidence assertion tests passed: 3 valid variants and 38 challenges.'
+Write-Host 'SQL bootstrapper evidence assertion tests passed: 3 valid variants and 41 challenges.'
 exit 0

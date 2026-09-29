@@ -73,6 +73,26 @@ $mutations = @(
                     '$$definition.TestMethod.className -ne ''AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests'''
             }
         )
+    },
+    @{
+        Name = 'disable-guid-parsing'
+        Replacements = @(
+            @{
+                Pattern =
+                    "(?s)    \`$parsed = \[guid\]::Empty\r?\n    if \(-not \[guid\]::TryParse\(\`$Value, \[ref\] \`$parsed\)\) \{.*?\r?\n    \}\r?\n\r?\n    return \`$parsed\.ToString\('D'\)"
+                Value = '    return $Value'
+            }
+        )
+    },
+    @{
+        Name = 'remove-result-definition-name-link'
+        Replacements = @(
+            @{
+                Pattern =
+                    "(?s)\r?\n    if \(-not \[string\]::Equals\(\r?\n            \[string\] \`$definitionLink\.Definition\.name,\r?\n            \[string\] \`$result\.testName,\r?\n            \[StringComparison\]::Ordinal\)\) \{\r?\n        throw .*?\r?\n    \}"
+                Value = ''
+            }
+        )
     }
 )
 
