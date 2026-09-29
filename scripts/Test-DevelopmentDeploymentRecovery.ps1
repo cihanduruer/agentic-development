@@ -32,63 +32,69 @@ try {
     if ((Get-State 'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Encrypt=True;') -ne 'managedIdentityExplicit') {
         throw 'The explicit managed-identity setting was not classified for recovery.'
     }
-    try {
-        Get-State 'Server=tcp:other.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Default;'
-        throw 'An unexpected SQL target was accepted.'
-    }
-    catch {
-        if ($_.Exception.Message -notmatch 'expected server and database') { throw }
-    }
-    try {
-        Get-State 'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Default;User ID=legacy;'
-        throw 'An ambiguous mixed authentication setting was accepted.'
-    }
-    catch {
-        if ($_.Exception.Message -notmatch 'ambiguously combines') { throw }
-    }
-
-    if ((& $resolve `
-            -ConfiguredSqlMode legacy `
-            -CatalogReady $true `
-            -EventName push) -ne 'ready') {
-        throw 'A healthy legacy upgrade did not retain the normal guarded path.'
-    }
-    if ((& $resolve `
-            -ConfiguredSqlMode unconfigured `
-            -CatalogReady $true `
-            -EventName push) -ne 'ready') {
-        throw 'A healthy fresh environment did not retain the normal path.'
-    }
-    foreach ($mode in @('managedIdentityDefault', 'managedIdentityExplicit')) {
-        if ((& $resolve `
-                -ConfiguredSqlMode $mode `
-                -CatalogReady $false `
-                -EventName workflow_dispatch `
-                -RecoveryConfirmation RECOVER-STRANDED-MANAGED-IDENTITY) -ne
-            'approvedRecovery') {
-            throw "The approved stranded state '$mode' was not recoverable."
-        }
+    $invalidManagedIdentitySettings = @(
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Server=other.database.windows.net;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Data Source=other.database.windows.net;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Database=other;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Authentication=Active Directory Interactive;',
+        'Authentication=Active Directory Interactive;Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Integrated Security=True;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;malformed-tail',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;User=fixture;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Encrypt=True;Encrypt=False;',
+        'Server=tcp:test.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Connection Timeout=invalid;'
+    )
+    foreach ($invalidSetting in $invalidManagedIdentitySettings) {
         try {
-            & $resolve `
-                -ConfiguredSqlMode $mode `
-                -CatalogReady $false `
-                -EventName push
-            throw "The stranded state '$mode' was recovered without manual approval."
+            Get-State $invalidSetting
+            throw "An ambiguous managed-identity SQL setting was accepted: $invalidSetting"
         }
         catch {
-            if ($_.Exception.Message -notmatch 'explicitly confirmed') { throw }
+            if ($_.Exception.Message -match
+                '^An ambiguous managed-identity SQL setting was accepted:') {
+                throw
+            }
         }
     }
-    try {
-        & $resolve `
-            -ConfiguredSqlMode legacy `
-            -CatalogReady $false `
-            -EventName workflow_dispatch `
-            -RecoveryConfirmation RECOVER-STRANDED-MANAGED-IDENTITY
-        throw 'An unhealthy legacy state bypassed the existing readiness guard.'
+    if ((Get-State 'database=hotelbooking;authentication=active directory managed identity;server=TCP:test.database.windows.net,1433;encrypt=TRUE;trustservercertificate=FALSE;') -ne 'managedIdentityExplicit') {
+        throw 'A valid managed-identity setting with alternate order and casing was rejected.'
     }
-    catch {
-        if ($_.Exception.Message -notmatch 'explicitly confirmed') { throw }
+
+    $modes = @('unconfigured', 'legacy', 'managedIdentityDefault', 'managedIdentityExplicit')
+    $catalogStates = @($false, $true)
+    $events = @('push', 'workflow_dispatch')
+    $confirmations = @('', 'RECOVER-STRANDED-MANAGED-IDENTITY', 'recover-stranded-managed-identity')
+    foreach ($mode in $modes) {
+        foreach ($catalogReady in $catalogStates) {
+            foreach ($eventName in $events) {
+                foreach ($confirmation in $confirmations) {
+                    $expected = if ($catalogReady) {
+                        'ready'
+                    }
+                    elseif ($mode -in @('managedIdentityDefault', 'managedIdentityExplicit') -and
+                        $eventName -eq 'workflow_dispatch' -and
+                        $confirmation -ceq 'RECOVER-STRANDED-MANAGED-IDENTITY') {
+                        'approvedRecovery'
+                    }
+                    else {
+                        'blocked'
+                    }
+                    try {
+                        $actual = & $resolve `
+                            -ConfiguredSqlMode $mode `
+                            -CatalogReady $catalogReady `
+                            -EventName $eventName `
+                            -RecoveryConfirmation $confirmation
+                        if ($expected -eq 'blocked' -or $actual -ne $expected) {
+                            throw "Recovery matrix mismatch for $mode/$catalogReady/$eventName/$confirmation."
+                        }
+                    }
+                    catch {
+                        if ($expected -ne 'blocked') { throw }
+                    }
+                }
+            }
+        }
     }
 
     $protected = Join-Path $temp 'protected.txt'
