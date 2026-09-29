@@ -275,7 +275,7 @@ jobs:
             --database hotelbooking `
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
             --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
-      - name: Apply managed-identity API configuration after SQL bootstrap
+      - name: Apply managed-identity API configuration while legacy SQL auth remains available
         shell: pwsh
         env:
           AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
@@ -295,11 +295,11 @@ jobs:
               "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
               "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
               configureApi=true `
-              configureSql=true `
+              configureSql=false `
               "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
             --only-show-errors
           if ($LASTEXITCODE -ne 0) {
-            throw 'The development API managed-identity configuration cutover failed.'
+            throw 'The development API managed-identity configuration failed; SQL Entra-only was not enforced.'
           }
       - name: Index canonical knowledge
         shell: pwsh
@@ -339,12 +339,53 @@ jobs:
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
           OPERATIONS_API_RESOURCE: ${{ vars.OPERATIONS_API_RESOURCE }}
         run: |
-          ./scripts/Test-DevelopmentOperations.ps1 `
-            -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
-            -TokenResource $env:OPERATIONS_API_RESOURCE `
-            -TokenAudience $env:OPERATIONS_API_AUDIENCE `
-            -ResourceGroup 'agentic-hotelbookingdev' `
-            -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
+          try {
+            ./scripts/Test-DevelopmentOperations.ps1 `
+              -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
+              -TokenResource $env:OPERATIONS_API_RESOURCE `
+              -TokenAudience $env:OPERATIONS_API_AUDIENCE `
+              -ResourceGroup 'agentic-hotelbookingdev' `
+              -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
+          }
+          catch {
+            throw "Managed-identity API readiness failed before SQL Entra-only enforcement; legacy SQL authentication remains available. $($_.Exception.Message)"
+          }
+      - name: Enforce SQL Entra-only after managed-identity API readiness
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "development-sql-entra-only-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingdev `
+            --template-file infra/resource-group.bicep `
+            --parameters `
+              environment=dev `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=false `
+              configureSql=true `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'SQL Entra-only enforcement failed after the API proved managed-identity readiness; legacy credential cleanup remains blocked.'
+          }
+      - name: Verify API after SQL Entra-only enforcement
+        shell: pwsh
+        run: |
+          $response = Invoke-WebRequest `
+            -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+            -TimeoutSec 30 `
+            -UseBasicParsing
+          if ($response.StatusCode -ne 200) {
+            throw "The development API returned HTTP $($response.StatusCode) after SQL Entra-only enforcement."
+          }
       - name: Remove approved active legacy SQL administrator credential
         if: >-
           github.event_name == 'workflow_dispatch' &&

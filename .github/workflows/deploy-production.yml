@@ -432,7 +432,7 @@ jobs:
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
             --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
 
-      - name: Apply managed-identity API configuration after SQL bootstrap
+      - name: Apply managed-identity API configuration while legacy SQL auth remains available
         shell: pwsh
         env:
           AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
@@ -451,11 +451,11 @@ jobs:
               "tenantId=$env:AZURE_TENANT_ID" `
               "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
               configureApi=true `
-              configureSql=true `
+              configureSql=false `
               "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
             --only-show-errors
           if ($LASTEXITCODE -ne 0) {
-            throw 'The production API managed-identity configuration cutover failed.'
+            throw 'The production API managed-identity configuration failed; SQL Entra-only was not enforced.'
           }
 
       - name: Index canonical knowledge
@@ -474,7 +474,7 @@ jobs:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: release/api.zip
 
-      - name: Verify API runtime readiness
+      - name: Verify managed-identity API readiness before SQL Entra-only
         shell: pwsh
         run: |
           $lastError = ''
@@ -500,7 +500,57 @@ jobs:
               Start-Sleep -Seconds 10
             }
           }
-          throw "The passwordless API runtime did not become ready: $lastError"
+          throw "The passwordless API runtime did not become ready; legacy SQL authentication remains available: $lastError"
+
+      - name: Enforce SQL Entra-only after managed-identity API readiness
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "production-sql-entra-only-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingprod `
+            --template-file infra/resource-group.bicep `
+            --parameters infra/production.parameters.json `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              configureApi=false `
+              configureSql=true `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'SQL Entra-only enforcement failed after the API proved managed-identity readiness; legacy credential cleanup remains blocked.'
+          }
+
+      - name: Verify API after SQL Entra-only enforcement
+        shell: pwsh
+        run: |
+          $lastError = ''
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            try {
+              $catalogResponse = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($catalogResponse.StatusCode -eq 200) {
+                exit 0
+              }
+              $lastError = "Catalog HTTP $($catalogResponse.StatusCode)"
+            }
+            catch {
+              $lastError = $_.Exception.Message
+            }
+            if ($attempt -lt 6) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          throw "The API failed after SQL Entra-only enforcement: $lastError"
 
       - name: Remove approved active legacy SQL administrator credential
         shell: pwsh

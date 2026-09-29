@@ -104,6 +104,16 @@ function Invoke-RoutingReadinessWithRetry {
             "HTTP 200; worker='$($decision.effectiveWorker)'; model='$($decision.model)'; " +
             "reason='$($decision.reason)'; revision='$ExpectedRevision'; " +
             "correlation='$($request.correlationId)'")
+        $reasonCodeMatch = [regex]::Match(
+            [string]$decision.reason,
+            '\((?<code>[a-z][a-z0-9_]*)\)\s*$',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        $reasonCode = if ($reasonCodeMatch.Success) {
+            $reasonCodeMatch.Groups['code'].Value
+        }
+        else {
+            ''
+        }
         if ($decision.effectiveWorker -eq 'qa-agent' -and
             $decision.model -match '^policy:') {
             if ([double](& $ElapsedSecondsProvider) -lt $MaximumWaitSeconds) {
@@ -116,7 +126,7 @@ function Invoke-RoutingReadinessWithRetry {
             $lastDiagnostic = "$lastDiagnostic; qa-agent arrived after the overall deadline"
         }
         elseif ($decision.effectiveWorker -ne 'human_review' -or
-            $decision.reason -notmatch '(^|[;:_])evaluation_error($|[;:_])') {
+            $reasonCode -ne 'evaluation_error') {
             throw "Routing readiness encountered a non-transient decision. $lastDiagnostic"
         }
 

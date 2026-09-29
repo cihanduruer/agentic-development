@@ -15,7 +15,7 @@ $delayedSuccess = {
     if ($script:attempts -lt 3) {
         return [pscustomobject]@{
             StatusCode = 200
-            Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"evaluation_error"}'
+            Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"Microsoft safety or grounding evaluation failed. (evaluation_error)"}'
         }
     }
     [pscustomobject]@{
@@ -51,7 +51,7 @@ try {
             $script:persistentAttempts++
             [pscustomobject]@{
                 StatusCode = 200
-                Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"evaluation_error"}'
+                Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"Microsoft safety or grounding evaluation failed. (evaluation_error)"}'
             }
         } `
         -ElapsedSecondsProvider { $script:simulatedElapsed } `
@@ -63,7 +63,8 @@ catch {
 if ($timeoutMessage -notmatch 'within 600 second' -or
     $timeoutMessage -notmatch 'exact revision' -or
     $timeoutMessage -notmatch "worker='human_review'" -or
-    $timeoutMessage -notmatch "reason='evaluation_error'" -or
+    -not $timeoutMessage.Contains(
+        "reason='Microsoft safety or grounding evaluation failed. (evaluation_error)'") -or
     $timeoutMessage -notmatch "correlation='deployment-readiness'" -or
     $persistentAttempts -ne 40) {
     throw "Routing readiness timeout diagnostics were incomplete: $timeoutMessage"
@@ -83,7 +84,7 @@ $nearDeadline = Invoke-RoutingReadinessWithRetry `
         if ($script:nearDeadlineAttempts -lt 40) {
             return [pscustomobject]@{
                 StatusCode = 200
-                Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"evaluation_error"}'
+                Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"Microsoft safety or grounding evaluation failed. (evaluation_error)"}'
             }
         }
         [pscustomobject]@{
@@ -164,6 +165,28 @@ catch {
 if ($nonTransientMessage -notmatch 'non-transient decision' -or
     $nonTransientMessage -notmatch "reason='prompt_attack'") {
     throw "Routing readiness retried or misdiagnosed a non-transient guardrail decision: $nonTransientMessage"
+}
+
+$bareSyntheticMessage = ''
+try {
+    Invoke-RoutingReadinessWithRetry `
+        -Uri 'https://example.invalid/api/orchestration/route' `
+        -Body $body `
+        -Headers $headers `
+        -ExpectedRevision $revision `
+        -MaximumWaitSeconds 600 `
+        -RequestInvoker {
+            [pscustomobject]@{
+                StatusCode = 200
+                Content = '{"effectiveWorker":"human_review","model":"policy:deterministic","reason":"evaluation_error"}'
+            }
+        }
+}
+catch {
+    $bareSyntheticMessage = $_.Exception.Message
+}
+if ($bareSyntheticMessage -notmatch 'non-transient decision') {
+    throw 'Routing readiness accepted the old synthetic reason instead of the router reason-code contract.'
 }
 
 $script:simulatedElapsed = 599.0

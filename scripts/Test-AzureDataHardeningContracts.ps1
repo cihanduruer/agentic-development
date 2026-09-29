@@ -31,12 +31,25 @@ foreach ($workflow in @($development, $production)) {
     $foundation = $workflow.IndexOf('configureApi=false')
     $identity = $workflow.IndexOf('Ensure API managed identity exists without changing live configuration')
     $bootstrap = $workflow.IndexOf('Bootstrap API managed identity database role')
-    $cutover = $workflow.IndexOf('Apply managed-identity API configuration after SQL bootstrap')
+    $apiCutover = $workflow.IndexOf(
+        'Apply managed-identity API configuration while legacy SQL auth remains available')
+    $readiness = if ($workflow -eq $development) {
+        $workflow.IndexOf('Verify operations authorization and persistence')
+    }
+    else {
+        $workflow.IndexOf('Verify managed-identity API readiness before SQL Entra-only')
+    }
+    $sqlCutover = $workflow.IndexOf('Enforce SQL Entra-only after managed-identity API readiness')
+    $postCutoverReadiness = $workflow.IndexOf('Verify API after SQL Entra-only enforcement')
     if ($sqlClassification -lt 0 -or $foundation -lt $sqlClassification -or
         $identity -lt $foundation -or
-        $bootstrap -lt $identity -or $cutover -lt $bootstrap -or
-        $workflow.IndexOf('configureApi=true', $cutover) -lt $cutover -or
-        $workflow.IndexOf('configureSql=true', $cutover) -lt $cutover -or
+        $bootstrap -lt $identity -or $apiCutover -lt $bootstrap -or
+        $readiness -lt $apiCutover -or $sqlCutover -lt $readiness -or
+        $postCutoverReadiness -lt $sqlCutover -or
+        $workflow.IndexOf('configureApi=true', $apiCutover) -lt $apiCutover -or
+        $workflow.IndexOf('configureSql=false', $apiCutover) -lt $apiCutover -or
+        $workflow.IndexOf('configureApi=false', $sqlCutover) -lt $sqlCutover -or
+        $workflow.IndexOf('configureSql=true', $sqlCutover) -lt $sqlCutover -or
         $workflow -notmatch 'steps\.sql-state\.outputs\.configureSql' -or
         $workflow -notmatch 'servers\.Count -eq 0' -or
         $workflow -notmatch "'configureSql=true'" -or
@@ -62,13 +75,13 @@ if ($development -notmatch 'Test-DevelopmentOperations\.ps1' -or
     $routingRetry -notmatch 'MaximumWaitSeconds = 600' -or
     $routingRetry -notmatch 'exact knowledge revision' -or
     $routingRetry -notmatch "effectiveWorker -eq 'qa-agent'" -or
-    $routingRetry -notmatch "reason -notmatch.*evaluation_error") {
+    $routingRetry -notmatch "reasonCode -ne 'evaluation_error'") {
     throw 'Development routing readiness must retry qa-agent for the exact indexed revision with a bounded deadline.'
 }
 if ($development.IndexOf('Remove approved active legacy SQL administrator credential') -lt
-        $development.IndexOf('Verify operations authorization and persistence') -or
+        $development.IndexOf('Verify API after SQL Entra-only enforcement') -or
     $production.IndexOf('Remove approved active legacy SQL administrator credential') -lt
-        $production.IndexOf('Verify API runtime readiness') -or
+        $production.IndexOf('Verify API after SQL Entra-only enforcement') -or
     $development -notmatch 'DELETE-ACTIVE-LEGACY-SQL-SECRET' -or
     $production -notmatch 'DELETE-ACTIVE-LEGACY-SQL-SECRET' -or
     $cleanup -notmatch 'Explicit human approval' -or
