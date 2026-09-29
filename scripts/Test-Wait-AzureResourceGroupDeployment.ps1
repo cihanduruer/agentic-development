@@ -75,3 +75,4 @@ Invoke-Scenario -Responses @(
 }
 
 Write-Output 'Azure resource-group deployment wait tests passed.'
+exit 0

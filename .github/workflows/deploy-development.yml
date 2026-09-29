@@ -11,6 +11,7 @@ on:
       - 'scripts/Wait-AzureResourceGroupDeployment.ps1'
       - 'docs/knowledge/**'
       - 'tools/KnowledgeIndexer/**'
+      - 'tools/SqlManagedIdentityBootstrapper/**'
       - '.github/workflows/deploy-development.yml'
       - 'scripts/Test-DevelopmentOperations.ps1'
 
@@ -159,19 +160,21 @@ jobs:
       - name: Bootstrap API managed identity database role
         shell: pwsh
         run: |
-          $env:SQLCMDACCESS_TOKEN = az account get-access-token `
+          $env:AZURE_SQL_ACCESS_TOKEN = az account get-access-token `
             --resource https://database.windows.net/ `
             --query accessToken `
             --output tsv
-          sqlcmd `
-            -S '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
-            -d hotelbooking `
-            -G `
-            -C `
-            -b `
-            -i infra/scripts/bootstrap-sql-managed-identity.sql `
-            -v ApiPrincipalName='${{ steps.infrastructure.outputs.apiName }}' `
-               ApiPrincipalObjectId='${{ steps.infrastructure.outputs.apiPrincipalId }}'
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($env:AZURE_SQL_ACCESS_TOKEN)) {
+            throw 'Unable to acquire an Azure SQL access token.'
+          }
+          dotnet run `
+            --project tools/SqlManagedIdentityBootstrapper/SqlManagedIdentityBootstrapper.csproj `
+            --no-restore `
+            -- `
+            --server '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
+            --database hotelbooking `
+            --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
+            --principal-object-id '${{ steps.infrastructure.outputs.apiPrincipalId }}'
       - name: Index canonical knowledge
         run: |
           for attempt in {1..12}; do

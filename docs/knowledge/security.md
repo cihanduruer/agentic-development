@@ -24,7 +24,7 @@ The SQL server's Microsoft Entra administrator must be the GitHub OIDC deploymen
 Each development deployment then performs the repeatable data-plane sequence:
 
 1. Apply EF migrations as the Entra deployment principal.
-2. Run `infra/scripts/bootstrap-sql-managed-identity.sql` with the App Service name and principal object ID emitted by Bicep.
+2. Acquire an Azure SQL access token and run the repository-built `tools/SqlManagedIdentityBootstrapper` with the App Service name and principal object ID emitted by Bicep. The tool uses `Microsoft.Data.SqlClient` token authentication and parameterized inputs, so deployment does not depend on runner-provided SQL tooling or SQLCMD variable preprocessing.
 3. Grant membership only in `hotel_booking_runtime`.
 4. Remove the temporary GitHub runner firewall rule.
 
