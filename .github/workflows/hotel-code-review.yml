@@ -86,6 +86,20 @@ jobs:
             const repo = context.repo.repo;
             const pull = context.payload.pull_request;
             const reviewer = 'copilot-pull-request-reviewer[bot]';
+            const reviewerGraphql = 'copilot-pull-request-reviewer';
+            const isCopilotReviewer = login =>
+              login === reviewer || login === reviewerGraphql;
+            const reviewerIdentityRegressions = [
+              [reviewer, true],
+              [reviewerGraphql, true],
+              ['unrelated-bot[bot]', false]
+            ];
+            for (const [login, expected] of reviewerIdentityRegressions) {
+              if (isCopilotReviewer(login) !== expected) {
+                core.setFailed(`Reviewer identity regression for '${login}'.`);
+                return;
+              }
+            }
             const existingReviewIds = new Set(
               '${{ steps.request-review.outputs.existing_review_ids }}'
                 .split(',')
@@ -93,7 +107,7 @@ jobs:
                 .map(Number));
             const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
             const isNewCurrentHeadReview = review =>
-              review.user?.login === reviewer
+              isCopilotReviewer(review.user?.login)
               && review.commit_id === pull.head.sha
               && !existingReviewIds.has(review.id);
             const freshnessRegressions = [
@@ -210,6 +224,9 @@ jobs:
                 || (open && Number(open[1]) > 0)
                 || recommendsChanges;
             };
+            const activeReviewBody = body => body.replace(
+              /<details>\s*<summary><strong>\s*resolved since last review[\s\S]*?<\/details>/gi,
+              '');
             const findingsRegressions = [
               ['Findings: 0', false],
               ['Findings: 0\n<summary><strong>Open (0)</strong></summary>', false],
@@ -224,14 +241,28 @@ jobs:
                 return;
               }
             }
+            const reviewHistoryRegression = [
+              '**Findings:** None',
+              '<details><summary><strong>Resolved since last review (2)</strong></summary>',
+              '<img alt="High severity"> fixed finding',
+              '</details>',
+              '<details><summary><strong>Previously missed (1)</strong></summary>',
+              '<img alt="Medium severity"> active finding',
+              '</details>'
+            ].join('\n');
+            if (severity(activeReviewBody(reviewHistoryRegression)) !== 'medium'
+                || reportsFindings(activeReviewBody(reviewHistoryRegression))) {
+              core.setFailed('Resolved review-history regression.');
+              return;
+            }
 
-            const reviewBody = currentReview.body || '';
+            const reviewBody = activeReviewBody(currentReview.body || '');
             const reviewBodySeverity = severity(reviewBody);
             const reviewBodyReportsFindings = reportsFindings(reviewBody);
             const unresolved = connection.nodes
               .filter(thread => !thread.isResolved)
               .flatMap(thread => thread.comments.nodes)
-              .filter(comment => comment.author?.login === reviewer)
+              .filter(comment => isCopilotReviewer(comment.author?.login))
               .map(comment => ({ ...comment, severity: severity(comment.body) }));
             const blocking = unresolved.filter(comment =>
               comment.severity === 'high' || comment.severity === 'unknown');

@@ -159,6 +159,32 @@ Assert-True (
     $historicalReferenceResult.Action -eq "Skipped"
 ) "A platform/N/A PR must not treat a historical AB reference as delivery scope."
 
+$conflictingIdentityPull = $pull.PSObject.Copy()
+$conflictingIdentityPull.title = "Platform delivery"
+$conflictingIdentityPull.body = @"
+- Platform change: true
+- Azure Boards: N/A
+- Azure Boards: AB#959
+"@
+$conflictingIdentityArguments = $arguments.Clone()
+$conflictingIdentityArguments.PullRequests = @($conflictingIdentityPull)
+$conflictingValues = @(
+    Get-PullRequestAzureBoardsValues -Body $conflictingIdentityPull.body
+)
+Assert-True (
+    @($conflictingValues | Where-Object {
+        $_ -match '^N/A(?:\s*[.;]|$)'
+    }).Count -eq 1
+) "The conflict fixture should declare Azure Boards N/A."
+Assert-True (
+    @(Get-PullRequestAbIds `
+        -Title $conflictingIdentityPull.title `
+        -Body $conflictingIdentityPull.body).Count -eq 1
+) "The conflict fixture should declare one explicit AB identity."
+Assert-Throws {
+    Resolve-LifecycleEvidence @conflictingIdentityArguments
+} "conflicting Azure Boards N/A and AB identity declarations"
+
 $untrackedPull = $pull.PSObject.Copy()
 $untrackedPull.title = "Change delivery behavior"
 $untrackedPull.body = "- Platform change: false"

@@ -30,6 +30,17 @@ function Get-AbIds {
     )
 }
 
+function Get-PullRequestAzureBoardsValues {
+    param([AllowEmptyString()][string]$Body)
+
+    return @(
+        [regex]::Matches(
+            $Body,
+            '(?im)^\s*-\s*Azure Boards:\s*(?<value>[^\r\n]*)\r?$') |
+            ForEach-Object { $_.Groups["value"].Value.Trim() }
+    )
+}
+
 function Get-PullRequestAbIds {
     param(
         [AllowEmptyString()][string]$Title,
@@ -37,11 +48,8 @@ function Get-PullRequestAbIds {
     )
 
     $trackingValues = @(
-        [regex]::Matches(
-            $Body,
-            '(?im)^\s*-\s*Azure Boards:\s*(?<value>[^\r\n]*)$') |
-            ForEach-Object { $_.Groups["value"].Value } |
-            Where-Object { $_ -notmatch '^\s*N/A(?:\s*[.;]|$)' }
+        Get-PullRequestAzureBoardsValues -Body $Body |
+            Where-Object { $_ -notmatch '^N/A(?:\s*[.;]|$)' }
     )
     return @(Get-AbIds -Text "$Title`n$($trackingValues -join "`n")")
 }
@@ -105,7 +113,14 @@ function Resolve-LifecycleEvidence {
 
     $pullBody = [string]$pull.body
     $isPlatformChange = $pullBody -match '(?im)^\s*-\s*Platform change:\s*true\s*$'
-    $boardsNotApplicable = $pullBody -match '(?im)^\s*(?:-\s*)?Azure Boards:\s*N/A(?:\s*[.;].*)?$'
+    $boardsValues = @(Get-PullRequestAzureBoardsValues -Body $pullBody)
+    $boardsNotApplicable = @(
+        $boardsValues | Where-Object { $_ -match '^N/A(?:\s*[.;]|$)' }
+    ).Count -gt 0
+    $ids = @(Get-PullRequestAbIds -Title ([string]$pull.title) -Body $pullBody)
+    if ($boardsNotApplicable -and $ids.Count -gt 0) {
+        throw "Pull request #$($pull.number) has conflicting Azure Boards N/A and AB identity declarations."
+    }
     if ($isPlatformChange -and $boardsNotApplicable) {
         return [pscustomobject]@{
             Action = "Skipped"
@@ -113,7 +128,6 @@ function Resolve-LifecycleEvidence {
         }
     }
 
-    $ids = @(Get-PullRequestAbIds -Title ([string]$pull.title) -Body $pullBody)
     if ($ids.Count -eq 0) {
         if (-not $isPlatformChange) {
             throw "Merged PR #$($pull.number) has no Azure Boards identity and is not explicitly marked as a platform change."
