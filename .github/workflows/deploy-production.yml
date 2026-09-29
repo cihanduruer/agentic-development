@@ -251,9 +251,9 @@ jobs:
         shell: pwsh
         run: |
           Expand-Archive release/web.zip deployed-web
-          @{ ApiBaseUrl = '${{ steps.infrastructure.outputs.apiUrl }}/' } |
-            ConvertTo-Json |
-            Set-Content deployed-web/wwwroot/appsettings.json
+          ./scripts/Set-WebApiConfiguration.ps1 `
+            -WebRoot deployed-web/wwwroot `
+            -ApiBaseUrl '${{ steps.infrastructure.outputs.apiUrl }}'
 
       - name: Deploy web artifact
         uses: Azure/static-web-apps-deploy@v1
