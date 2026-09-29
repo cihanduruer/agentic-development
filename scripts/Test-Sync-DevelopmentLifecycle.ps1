@@ -452,6 +452,24 @@ function Invoke-GitHubApi {
     param([string]$Uri)
     $script:pageRequestCount++
     return [pscustomobject]@{
+        total_count = 1
+        incomplete_results = $false
+        items = @(
+            [pscustomobject]@{ id = 1; number = 1 }
+            [pscustomobject]@{ id = 2; number = 2 }
+        )
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned more unique results than total_count"
+Assert-True ($script:pageRequestCount -eq 1) "Over-complete search results must fail immediately."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
         total_count = 101
         incomplete_results = $false
         items = @(1..100 | ForEach-Object { [pscustomobject]@{

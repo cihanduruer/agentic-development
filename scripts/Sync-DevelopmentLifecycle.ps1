@@ -394,14 +394,17 @@ function Get-CanonicalIssueCandidates {
                 }
                 $issues.Add($issue)
             }
-            if ($seenIssueIds.Count -ge $expectedCount) {
+            if ($seenIssueIds.Count -gt $expectedCount) {
+                throw "GitHub issue search for AB#$id returned more unique results than total_count."
+            }
+            if ($seenIssueIds.Count -eq $expectedCount) {
                 break
             }
             if ($batch.Count -eq 0) {
                 throw "GitHub issue search for AB#$id returned truncated results."
             }
         }
-        if ($seenIssueIds.Count -lt $expectedCount) {
+        if ($seenIssueIds.Count -ne $expectedCount) {
             throw "GitHub issue search for AB#$id did not return all $expectedCount results."
         }
     }
