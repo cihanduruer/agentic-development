@@ -145,6 +145,10 @@ $platformArguments = $arguments.Clone()
 $platformArguments.PullRequests = @($platformPull)
 $platformResult = Resolve-LifecycleEvidence @platformArguments
 Assert-True ($platformResult.Action -eq "Skipped") "A non-AB platform PR should skip clearly."
+Assert-True (
+    $platformResult.PullRequestNumber -eq $platformPull.number -and
+    $platformResult.DeployedSha -eq $deployedSha
+) "Every skipped result should retain PR and deployed-SHA provenance."
 
 $historicalReferencePull = $pull.PSObject.Copy()
 $historicalReferencePull.title = "Document the development pipeline"
@@ -208,7 +212,7 @@ $closedItem = [pscustomobject]@{
     rev = 4
     fields = [pscustomobject]@{
         "System.State" = "Closed"
-        "System.Tags" = "github-synced; ready-for-triage"
+        "System.Tags" = "github-synced; ready-for-triage; github-synced"
         "System.TeamProject" = "sample-project"
         "System.WorkItemType" = "User Story"
     }
@@ -221,6 +225,10 @@ Assert-True (-not ($patch.path -contains "/fields/System.State")) "Lifecycle syn
 Assert-True (
     ($patch | Where-Object path -eq "/fields/System.Tags").value -eq
         "github-synced; delivery-evidence") "Tag hygiene should remove ready-for-triage."
+Assert-True (Test-CommitOnMain -ComparisonStatus "identical") "The exact main tip should be accepted."
+Assert-True (Test-CommitOnMain -ComparisonStatus "behind") "A deployed main ancestor should be accepted."
+Assert-True (-not (Test-CommitOnMain -ComparisonStatus "ahead")) "A commit ahead of main must fail closed."
+Assert-True (-not (Test-CommitOnMain -ComparisonStatus "diverged")) "A diverged commit must fail closed."
 
 $existingRelations = @(
     $evidence.PullRequestUrl,
@@ -271,6 +279,11 @@ function Invoke-GitHubApi {
             path = ".github/workflows/qa-evidence.yml"
         }
     }
+    if ($Uri -match '/search/issues\?q=') {
+        return [pscustomobject]@{
+            items = @([pscustomobject]@{ number = 5 })
+        }
+    }
     if ($Uri -match 'page=1') {
         return ,@(
             [pscustomobject]@{ number = 5 },
@@ -287,5 +300,10 @@ $script:pageRequestCount = 0
 $targetedQa = @(Get-QaEvidenceRuns -Repository $repository -ExpectedSha $deployedSha)
 Assert-True ($targetedQa.Count -eq 1) "Exact-name QA artifact lookup should return its workflow run."
 Assert-True ($script:pageRequestCount -eq 2) "QA lookup should use one artifact and one run request."
+
+$script:pageRequestCount = 0
+$targetedIssues = @(Get-CanonicalIssueCandidates -Repository $repository -Ids @(959))
+Assert-True ($targetedIssues.Count -eq 1) "Targeted AB issue lookup should return search candidates."
+Assert-True ($script:pageRequestCount -eq 1) "AB issue lookup should use one targeted search request."
 
 Write-Output "Development lifecycle synchronization tests passed."

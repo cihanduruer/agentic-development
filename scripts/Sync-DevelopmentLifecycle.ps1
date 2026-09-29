@@ -125,6 +125,8 @@ function Resolve-LifecycleEvidence {
         return [pscustomobject]@{
             Action = "Skipped"
             Reason = "Merged PR #$($pull.number) explicitly declares a platform change with Azure Boards not applicable."
+            PullRequestNumber = [int]$pull.number
+            DeployedSha = $ExpectedSha
         }
     }
 
@@ -221,14 +223,17 @@ function New-WorkItemEvidencePatch {
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ }
     )
-    $updatedTags = @(
-        $tags |
-            Where-Object { $_ -ne "ready-for-triage" }
-    )
-    if ("delivery-evidence" -notin $updatedTags) {
-        $updatedTags += "delivery-evidence"
+    $tagSet = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $updatedTags = [Collections.Generic.List[string]]::new()
+    foreach ($tag in $tags) {
+        if ($tag -ne "ready-for-triage" -and $tagSet.Add($tag)) {
+            $updatedTags.Add($tag)
+        }
     }
-    $updatedTags = @($updatedTags | Select-Object -Unique)
+    if ($tagSet.Add("delivery-evidence")) {
+        $updatedTags.Add("delivery-evidence")
+    }
 
     $existingUrls = @($WorkItem.relations | Where-Object {
         $_.rel -eq "Hyperlink"
@@ -380,6 +385,29 @@ function Get-QaEvidenceRuns {
     return $runs.ToArray()
 }
 
+function Get-CanonicalIssueCandidates {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][AllowEmptyCollection()][int[]]$Ids
+    )
+
+    $issues = [Collections.Generic.List[object]]::new()
+    foreach ($id in $Ids) {
+        $query = [uri]::EscapeDataString("repo:$Repository is:issue `"AB#$id`"")
+        $response = Invoke-GitHubApi -Uri (
+            "https://api.github.com/search/issues?q=$query&per_page=100")
+        foreach ($issue in @($response.items)) {
+            $issues.Add($issue)
+        }
+    }
+    return $issues.ToArray()
+}
+
+function Test-CommitOnMain {
+    param([Parameter(Mandatory)][string]$ComparisonStatus)
+    return $ComparisonStatus -in @("identical", "behind")
+}
+
 function Invoke-DevelopmentLifecycleSync {
     param(
         [string]$Organization,
@@ -402,13 +430,21 @@ function Invoke-DevelopmentLifecycleSync {
     $comparison = Invoke-GitHubApi -Uri (
         "https://api.github.com/repos/$Repository/compare/$DeployedSha...main")
     $deployment | Add-Member -NotePropertyName on_main -NotePropertyValue (
-        $comparison.status -in @("identical", "ahead")) -Force
+        Test-CommitOnMain -ComparisonStatus $comparison.status) -Force
 
     $pulls = @(Get-GitHubPages -Uri (
         "https://api.github.com/repos/$Repository/commits/$DeployedSha/pulls"))
-    $issues = @(Get-GitHubPages -Uri (
-        "https://api.github.com/repos/$Repository/issues?state=all"))
     $candidatePulls = @($pulls | Where-Object { $_.merge_commit_sha -eq $DeployedSha })
+    $candidateIds = if ($candidatePulls.Count -eq 1) {
+        @(Get-PullRequestAbIds `
+            -Title ([string]$candidatePulls[0].title) `
+            -Body ([string]$candidatePulls[0].body))
+    } else {
+        @()
+    }
+    $issues = @(Get-CanonicalIssueCandidates `
+        -Repository $Repository `
+        -Ids $candidateIds)
     $evidence = $null
     for ($attempt = 1; $attempt -le $EvidenceWaitAttempts; $attempt++) {
         $validationRuns = @(Get-WorkflowRuns `
