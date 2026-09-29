@@ -92,6 +92,9 @@ jobs:
       - name: Test web deployment configuration
         shell: pwsh
         run: ./scripts/Test-Set-WebApiConfiguration.ps1
+      - name: Test long Azure deployment polling
+        shell: pwsh
+        run: ./scripts/Test-Wait-AzureResourceGroupDeployment.ps1
       - name: Format
         run: dotnet format --verify-no-changes --no-restore
       - name: Build

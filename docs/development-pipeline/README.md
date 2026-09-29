@@ -183,7 +183,7 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 `.github/workflows/deploy-development.yml` runs after relevant changes reach `main` or through manual dispatch:
 
 1. Authenticate to Azure with GitHub OIDC.
-2. Deploy Bicep to `agentic-hotelbookingdev`.
+2. Start the Bicep deployment asynchronously and poll it in bounded intervals, refreshing the GitHub OIDC Azure login before a long-running ARM operation can outlive its original token.
 3. Apply EF migrations as the SQL Entra administrator and idempotently grant the API managed identity its custom runtime role.
 4. Index the exact Git commit of `docs/knowledge` into Azure AI Search.
 5. Publish and deploy the ASP.NET Core API to App Service.
