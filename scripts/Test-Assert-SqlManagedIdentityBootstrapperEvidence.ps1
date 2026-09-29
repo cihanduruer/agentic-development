@@ -62,13 +62,22 @@ function Invoke-Assertion {
     }
 }
 
+$testClassPrefix =
+    'AgenticHotelBooking.IntegrationTests.' +
+    'SqlManagedIdentityBootstrapperSqlServerTests.'
 $testNames = @(
-    'ExactDirectPermissionContractMigratesAndRerunsIdempotently'
-    1..5 | ForEach-Object { "MutatedDirectPermissionStateFailsClosed($_)" }
-    1..2 | ForEach-Object { "UnexpectedRuntimeRoleOwnerFailsClosed($_)" }
-    'UnexpectedRuntimeRoleMemberFailsClosed'
-    1..12 | ForEach-Object { "DelegatedRuntimeRolePermissionFailsClosed($_)" }
-    'FailureImmediatelyBeforeCommitRollsBackEveryMutation'
+    "${testClassPrefix}ExactDirectPermissionContractMigratesAndRerunsIdempotently"
+    1..5 | ForEach-Object {
+        "${testClassPrefix}MutatedDirectPermissionStateFailsClosed($_)"
+    }
+    1..2 | ForEach-Object {
+        "${testClassPrefix}UnexpectedRuntimeRoleOwnerFailsClosed($_)"
+    }
+    "${testClassPrefix}UnexpectedRuntimeRoleMemberFailsClosed"
+    1..12 | ForEach-Object {
+        "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed($_)"
+    }
+    "${testClassPrefix}FailureImmediatelyBeforeCommitRollsBackEveryMutation"
 )
 
 New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -119,3 +128,4 @@ finally {
 }
 
 Write-Host 'SQL bootstrapper evidence assertion tests passed.'
+exit 0

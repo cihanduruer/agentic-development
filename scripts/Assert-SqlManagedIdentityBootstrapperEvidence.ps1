@@ -1,12 +1,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string] $TrxPath,
-
-    [int] $ExpectedTotal = 22
+    [string] $TrxPath
 )
 
 $ErrorActionPreference = 'Stop'
+$expectedTotal = 22
 
 if (-not (Test-Path -LiteralPath $TrxPath -PathType Leaf)) {
     throw "SQL bootstrapper TRX '$TrxPath' does not exist."
@@ -30,9 +29,9 @@ function Get-Counter {
 }
 
 $requiredCounters = @{
-    total = $ExpectedTotal
-    executed = $ExpectedTotal
-    passed = $ExpectedTotal
+    total = $expectedTotal
+    executed = $expectedTotal
+    passed = $expectedTotal
     failed = 0
     error = 0
     timeout = 0
@@ -55,8 +54,8 @@ foreach ($entry in $requiredCounters.GetEnumerator()) {
 }
 
 $results = @($trx.TestRun.Results.UnitTestResult)
-if ($results.Count -ne $ExpectedTotal) {
-    throw "SQL bootstrapper TRX contains $($results.Count) results; expected $ExpectedTotal."
+if ($results.Count -ne $expectedTotal) {
+    throw "SQL bootstrapper TRX contains $($results.Count) results; expected $expectedTotal."
 }
 if (@($results | Where-Object { $_.outcome -ne 'Passed' }).Count -gt 0) {
     throw 'SQL bootstrapper TRX contains a result that is not Passed.'
@@ -70,14 +69,38 @@ $expectedGroups = [ordered] @{
     DelegatedRuntimeRolePermissionFailsClosed = 12
     FailureImmediatelyBeforeCommitRollsBackEveryMutation = 1
 }
+$testClassPrefix =
+    'AgenticHotelBooking.IntegrationTests.' +
+    'SqlManagedIdentityBootstrapperSqlServerTests.'
+$methodPattern =
+    '^' +
+    [regex]::Escape($testClassPrefix) +
+    '(?<Method>[A-Za-z_][A-Za-z0-9_]*)(?:\(.*\))?$'
+$methodNames = foreach ($result in $results) {
+    if ($result.testName -notmatch $methodPattern) {
+        throw "SQL bootstrapper TRX contains unexpected test name '$($result.testName)'."
+    }
+
+    $Matches.Method
+}
+$actualGroups = @($methodNames | Group-Object)
+if ($actualGroups.Count -ne $expectedGroups.Count) {
+    throw "SQL bootstrapper TRX has $($actualGroups.Count) method groups; expected $($expectedGroups.Count)."
+}
 foreach ($entry in $expectedGroups.GetEnumerator()) {
-    $actual = @(
-        $results |
-            Where-Object { $_.testName -like "*$($entry.Key)*" }
-    ).Count
+    $matchingGroups = @(
+        $actualGroups |
+            Where-Object { $_.Name -eq $entry.Key }
+    )
+    $actual = if ($matchingGroups.Count -eq 1) {
+        [int] $matchingGroups[0].Count
+    }
+    else {
+        0
+    }
     if ($actual -ne $entry.Value) {
         throw "SQL bootstrapper TRX group '$($entry.Key)' has $actual results; expected $($entry.Value)."
     }
 }
 
-Write-Host "SQL bootstrapper evidence passed: $ExpectedTotal exact tests executed and passed."
+Write-Host "SQL bootstrapper evidence passed: $expectedTotal exact tests executed and passed."
