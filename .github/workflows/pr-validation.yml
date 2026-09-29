@@ -30,14 +30,6 @@ jobs:
           MSSQL_SA_PASSWORD: LocalSql-2026-Bootstrap!
         ports:
           - 1433:1433
-    env:
-      SQL_BOOTSTRAP_TEST_CONNECTION: >-
-        Server=localhost,1433;
-        Initial Catalog=master;
-        User ID=sa;
-        Password=LocalSql-2026-Bootstrap!;
-        Encrypt=False;
-        TrustServerCertificate=True
     steps:
       - name: Verify manually requested pull request head
         if: github.event_name == 'workflow_dispatch'
@@ -143,6 +135,21 @@ jobs:
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Test SQL bootstrapper against SQL Server
+        env:
+          SQL_BOOTSTRAP_TEST_CONNECTION: >-
+            Server=localhost,1433;
+            Initial Catalog=master;
+            User ID=sa;
+            Password=LocalSql-2026-Bootstrap!;
+            Encrypt=False;
+            TrustServerCertificate=True
+        run: >-
+          dotnet test tests/IntegrationTests/AgenticHotelBooking.IntegrationTests.csproj
+          --no-build
+          --filter FullyQualifiedName~SqlManagedIdentityBootstrapperSqlServerTests
+          --logger "trx;LogFileName=sql-bootstrapper.trx"
+          --results-directory TestResults
       - name: Routing evaluation evidence
         run: >-
           dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj
