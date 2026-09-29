@@ -14,10 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  package:
-    name: Build immutable release evidence
+  source:
+    name: Resolve tested source
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      on-main: ${{ steps.source.outputs.on-main }}
+      sha: ${{ steps.source.outputs.sha }}
     steps:
       - name: Download QA result
         uses: actions/download-artifact@v4
@@ -35,7 +38,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const qa = JSON.parse(fs.readFileSync('qa/qa-result.json', 'utf8'));
+            const qa = JSON.parse(fs.readFileSync('qa/QaEvidence/qa-result.json', 'utf8'));
             if (qa.status !== 'passed' || !/^[0-9a-f]{40}$/.test(qa.headSha)) {
               core.setFailed('QA artifact does not identify a successful tested commit.');
               return;
@@ -52,14 +55,22 @@ jobs:
               head: branch.data.commit.sha
             });
             if (!['identical', 'ahead'].includes(comparison.data.status)) {
-              core.setFailed('QA source commit is not contained in main history.');
+              core.notice('QA source commit is not in main; no release proposal will be built.');
+              core.setOutput('on-main', 'false');
               return;
             }
             core.setOutput('sha', qa.headSha);
+            core.setOutput('on-main', 'true');
 
+  package:
+    name: Build immutable release evidence
+    needs: source
+    if: needs.source.outputs.on-main == 'true'
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v4
@@ -80,7 +91,7 @@ jobs:
       - name: Package release and evidence
         shell: pwsh
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
           QA_RUN_ID: ${{ github.event.workflow_run.id }}
           REPOSITORY: ${{ github.repository }}
         run: |
@@ -117,7 +128,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ steps.source.outputs.sha }}
+          name: release-${{ needs.source.outputs.sha }}
           path: release
           if-no-files-found: error
           retention-days: 90

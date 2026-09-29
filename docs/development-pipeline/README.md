@@ -80,7 +80,7 @@ The product owner uses GitHub Copilot Desktop to refine a hotel requirement befo
 
 `.github/agents/hotel-qa.agent.md` defines an independent evidence role. It does not accept the developer's claims without proof and reports each acceptance criterion as passed, failed, or unverified. Reservation changes require negative-path and concurrency coverage.
 
-GitHub currently exposes no supported pull-request check API that dispatches this repository custom agent. `.github/workflows/qa-evidence.yml` therefore does not claim to run `hotel-qa`. It applies the contract independently after validation and review, reruns build and tests, compiles Bicep, validates pull-request acceptance and negative-path evidence, and uploads `qa-result.json`, `qa-result.md`, and TRX files. The JSON records the custom-agent execution as `not-run`. Agent judgment remains a separate manual invocation.
+GitHub currently exposes no supported pull-request check API that dispatches this repository custom agent. `.github/workflows/qa-evidence.yml` therefore does not claim to run `hotel-qa`. It applies the contract independently after validation and review, waits for PR validation to finish, reruns build and tests, compiles Bicep, validates pull-request acceptance and negative-path evidence, and uploads `qa-result.json`, `qa-result.md`, and TRX files. The evidence policy script is checked out separately from the default branch with persisted credentials disabled, so pull-request code cannot weaken its own QA gate. The JSON records the custom-agent execution as `not-run`. Agent judgment remains a separate manual invocation.
 
 ### Parallel work
 

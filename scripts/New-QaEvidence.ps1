@@ -57,6 +57,9 @@ if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
     $acceptanceEvidence -notmatch '(?im)^\s*-\s*\[[xX]\]\s+\S') {
     $failures.Add('Acceptance criteria evidence must contain at least one completed checklist item.')
 }
+if ($acceptanceEvidence -match '(?im)^\s*-\s*\[\s\]\s+\S') {
+    $failures.Add('Every listed acceptance criterion must be completed before QA can pass.')
+}
 
 if ([string]::IsNullOrWhiteSpace($negativeEvidence) -or
     $negativeEvidence -notmatch '(?im)^\s*-\s+\S') {
