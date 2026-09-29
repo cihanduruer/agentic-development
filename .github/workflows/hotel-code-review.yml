@@ -134,18 +134,42 @@ jobs:
 
             const severity = body => {
               const normalized = body.replace(/[*_`#<>"]/g, ' ');
-              if (/\bseverity\s*:?\s*high\b/i.test(normalized) || /^\s*high\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*high\b/i.test(normalized)
+                  || /\bhigh\s+severity\b/i.test(normalized)
+                  || /^\s*high\s*$/im.test(normalized)) {
                 return 'high';
               }
-              if (/\bseverity\s*:?\s*medium\b/i.test(normalized) || /^\s*medium\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*medium\b/i.test(normalized)
+                  || /\bmedium\s+severity\b/i.test(normalized)
+                  || /^\s*medium\s*$/im.test(normalized)) {
                 return 'medium';
               }
-              if (/\bseverity\s*:?\s*low\b/i.test(normalized) || /^\s*low\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*low\b/i.test(normalized)
+                  || /\blow\s+severity\b/i.test(normalized)
+                  || /^\s*low\s*$/im.test(normalized)) {
                 return 'low';
               }
               return 'unknown';
             };
+            const severityRegressions = [
+              ['<img alt="High severity">', 'high'],
+              ['Severity: Medium', 'medium'],
+              ['low severity', 'low'],
+              ['Changes recommended', 'unknown']
+            ];
+            for (const [sample, expected] of severityRegressions) {
+              if (severity(sample) !== expected) {
+                core.setFailed(`Severity parser regression for '${sample}'.`);
+                return;
+              }
+            }
 
+            const reviewBody = currentReview.body || '';
+            const reviewBodySeverity = severity(reviewBody);
+            const reviewBodyReportsFindings =
+              /\bchanges?\s+recommended\b/i.test(reviewBody)
+              || /\bfindings?\s*:/i.test(reviewBody)
+              || /<summary>\s*<strong>\s*open\s*\(/i.test(reviewBody);
             const unresolved = connection.nodes
               .filter(thread => !thread.isResolved)
               .flatMap(thread => thread.comments.nodes)
@@ -153,6 +177,14 @@ jobs:
               .map(comment => ({ ...comment, severity: severity(comment.body) }));
             const blocking = unresolved.filter(comment =>
               comment.severity === 'high' || comment.severity === 'unknown');
+            if (reviewBodySeverity === 'high'
+                || (reviewBodyReportsFindings && reviewBodySeverity === 'unknown')) {
+              blocking.unshift({
+                url: currentReview.html_url || pull.html_url,
+                severity: reviewBodySeverity,
+                body: reviewBody
+              });
+            }
 
             const label = 'development-required';
             if (blocking.length > 0) {
