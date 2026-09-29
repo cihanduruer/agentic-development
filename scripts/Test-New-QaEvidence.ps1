@@ -510,6 +510,11 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
             SemanticExtraRun = $true
         },
         @{
+            Name = 'hyphen-anchored-run-key'
+            Old = '      - name: Build Bicep'
+            New = "      - &-extra run: `"dotnet\u0020test Other.slnx`"`n`n      - name: Build Bicep"
+        },
+        @{
             Name = 'nested-anchored-run-key'
             Old = '      - name: Build Bicep'
             New = "      - name: Extra anchored run`n        &extra run: dotnet test Other.slnx`n`n      - name: Build Bicep"
