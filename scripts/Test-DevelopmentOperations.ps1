@@ -6,7 +6,7 @@ param(
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [string]$Audience,
+    [string]$TokenResource,
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
@@ -117,7 +117,7 @@ Assert-Status -Response $anonymousRoute -Expected 401 -Operation 'Anonymous orch
 Write-Output 'Verified anonymous orchestration routing rejection: HTTP 401.'
 
 $token = az account get-access-token `
-    --resource $Audience `
+    --resource $TokenResource `
     --query accessToken `
     --output tsv `
     --only-show-errors

@@ -247,14 +247,14 @@ Tenant-scoped Microsoft Entra application registrations and app-role assignments
 
 1. Create or select an API application registration, set an Application ID URI, configure `api.requestedAccessTokenVersion` to `2`, and define an application role with value `Operations.Ingest` and allowed member type `Applications`.
 2. Create or select each calling workload identity and assign that service principal the API's `Operations.Ingest` app role. Grant tenant admin consent where required.
-3. Set the development GitHub Environment variable `OPERATIONS_API_AUDIENCE` to the API Application ID URI (for example, `api://<application-client-id>`).
-4. Have callers request an application token for `<application-id-uri>/.default` and send it as a bearer token. Do not provision an API key or client secret solely for operations ingestion; use workload identity federation or managed identity.
+3. Set `OPERATIONS_API_AUDIENCE` to the API application client ID because Entra v2 access tokens emit that value in `aud`.
+4. Set `OPERATIONS_API_RESOURCE` to the API Application ID URI (for example, `api://<application-client-id>`), and have callers request an application token for that resource's `.default` scope. Do not provision an API key or client secret solely for operations ingestion; use workload identity federation or managed identity.
 
 The Bicep deployment derives the authority from the subscription tenant, configures the audience and required role on App Service, and fails if the audience variable is absent or empty at runtime.
 
-The development environment registration (including v2 access tokens), `Operations.Ingest` assignment for the GitHub OIDC workload, and `OPERATIONS_API_AUDIENCE` environment variable were configured and verified on 2026-09-29. No additional Entra setup remains for development; other environments require their own workload assignments, v2 token configuration, and audience configuration.
+The development environment registration (including v2 access tokens), `Operations.Ingest` assignment for the GitHub OIDC workload, and separate `OPERATIONS_API_AUDIENCE`/`OPERATIONS_API_RESOURCE` environment variables were configured and verified on 2026-09-29. No additional Entra setup remains for development; other environments require their own workload assignments, v2 token configuration, client-ID audience, and token-request resource.
 
-Every development deployment runs `scripts/Test-DevelopmentOperations.ps1`. The script obtains a short-lived token for `OPERATIONS_API_AUDIENCE` from the existing OIDC Azure CLI session, masks it, submits a uniquely correlated event, restarts the API, and verifies the event remains publicly readable afterward. It also fails the deployment if public reads stop working or either protected endpoint accepts an anonymous valid request.
+Every development deployment runs `scripts/Test-DevelopmentOperations.ps1`. The script obtains a short-lived token for `OPERATIONS_API_RESOURCE` from the existing OIDC Azure CLI session, masks it, submits a uniquely correlated event, restarts the API, and verifies the event remains publicly readable afterward. It also fails the deployment if public reads stop working or either protected endpoint accepts an anonymous valid request.
 
 ## Grounding note
 

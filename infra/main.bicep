@@ -16,7 +16,7 @@ param sqlAdminPassword string
 @description('SQL administrator login.')
 param sqlAdminLogin string = 'hoteladmin'
 
-@description('Application ID URI exposed by the Entra operations API registration.')
+@description('Client ID of the Entra operations API registration, used as the v2 access-token audience.')
 param operationsApiAudience string
 
 var tags = {
