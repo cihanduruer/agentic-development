@@ -1,6 +1,7 @@
 using AgenticHotelBooking.Application;
 using AgenticHotelBooking.Infrastructure;
 using Azure.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Text.Json;
 
@@ -115,6 +116,30 @@ public sealed class RoutingEvaluationTests
     }
 
     [Fact]
+    public async Task NonBooleanPromptShieldResultRoutesToHumanReview()
+    {
+        await AssertPromptShieldFailureRoutesToHumanReview(
+            HttpStatusCode.OK,
+            """{"userPromptAnalysis":{"attackDetected":"false"},"documentsAnalysis":[{"attackDetected":false},{"attackDetected":false}]}""");
+    }
+
+    [Fact]
+    public async Task PromptShieldDocumentCountMismatchRoutesToHumanReview()
+    {
+        await AssertPromptShieldFailureRoutesToHumanReview(
+            HttpStatusCode.OK,
+            """{"userPromptAnalysis":{"attackDetected":false},"documentsAnalysis":[{"attackDetected":false}]}""");
+    }
+
+    [Fact]
+    public async Task PromptShieldHttpFailureRoutesToHumanReview()
+    {
+        await AssertPromptShieldFailureRoutesToHumanReview(
+            HttpStatusCode.BadGateway,
+            """{"error":{"code":"upstream_unavailable"}}""");
+    }
+
+    [Fact]
     public void GroundingQueryUsesOnlyLiteralTermsAndRequiresContext()
     {
         var query = AzureSearchGroundingEvaluator.BuildGroundingQuery(
@@ -200,6 +225,41 @@ public sealed class RoutingEvaluationTests
             promptShield,
             grounding);
 
+    private static async Task AssertPromptShieldFailureRoutesToHumanReview(
+        HttpStatusCode statusCode,
+        string responseBody)
+    {
+        var grounding = new FakeGroundingEvaluator(true);
+        var shield = new AzurePromptShield(
+            new RoutingEvaluationOptions(
+                true,
+                "https://example.cognitiveservices.azure.com/",
+                "https://example.search.windows.net/",
+                "knowledge"),
+            new StubTokenCredential(),
+            new HttpClient(new StubHttpMessageHandler(_ =>
+                new HttpResponseMessage(statusCode)
+                {
+                    Content = new StringContent(responseBody)
+                })));
+        var router = new MicrosoftAgentRouter(
+            new MicrosoftRouterOptions(
+                false,
+                0.8,
+                "gpt-4.1-mini",
+                null,
+                "test"),
+            CreateGate(shield, grounding),
+            new UnexpectedResolver(),
+            NullLogger<MicrosoftAgentRouter>.Instance);
+
+        var decision = await router.RouteAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.Equal("human_review", decision.EffectiveWorker);
+        Assert.Contains("evaluation_error", decision.Reason, StringComparison.Ordinal);
+        Assert.Equal(0, grounding.CallCount);
+    }
+
     private static RoutingRequest CreateRequest() =>
         new(
             "route-42",
@@ -234,6 +294,15 @@ public sealed class RoutingEvaluationTests
             CallCount++;
             return Task.FromResult(grounded);
         }
+
+    }
+
+    private sealed class UnexpectedResolver : IAmbiguousRouteResolver
+    {
+        public Task<ModelRoutingSuggestion> ResolveAsync(
+            RoutingRequest request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The resolver must not run after an evaluation failure.");
     }
 
     private sealed class StubTokenCredential : TokenCredential
