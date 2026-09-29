@@ -52,6 +52,7 @@ if (!builder.Environment.IsDevelopment())
         .AddPolicy(operationsWriterPolicy, policy =>
             policy.RequireAuthenticatedUser().RequireRole(requiredRole));
 }
+builder.Services.AddHttpClient();
 var routerOptions = new MicrosoftRouterOptions(
     builder.Configuration.GetValue("MicrosoftRouting:ModelEnabled", false),
     builder.Configuration.GetValue("MicrosoftRouting:MinimumConfidence", 0.8),
@@ -59,6 +60,16 @@ var routerOptions = new MicrosoftRouterOptions(
     builder.Configuration["MicrosoftRouting:Endpoint"],
     builder.Configuration["MicrosoftRouting:PolicyVersion"] ?? "2026-09-29");
 builder.Services.AddSingleton(routerOptions);
+var evaluationOptions = new RoutingEvaluationOptions(
+    builder.Configuration.GetValue("RoutingEvaluation:Enabled", false),
+    builder.Configuration["RoutingEvaluation:ContentSafetyEndpoint"],
+    builder.Configuration["RoutingEvaluation:SearchEndpoint"],
+    builder.Configuration["RoutingEvaluation:SearchIndex"] ?? "knowledge");
+builder.Services.AddSingleton(evaluationOptions);
+builder.Services.AddSingleton<Azure.Core.TokenCredential, Azure.Identity.DefaultAzureCredential>();
+builder.Services.AddSingleton<IPromptShield, AzurePromptShield>();
+builder.Services.AddSingleton<IKnowledgeGroundingEvaluator, AzureSearchGroundingEvaluator>();
+builder.Services.AddSingleton<IRoutingEvaluationGate, MicrosoftRoutingEvaluationGate>();
 builder.Services.AddSingleton<IAmbiguousRouteResolver, MicrosoftAgentFrameworkRouteResolver>();
 builder.Services.AddSingleton<IAgentRouter, MicrosoftAgentRouter>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -69,8 +80,11 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 
 var app = builder.Build();
 
-await using (var scope = app.Services.CreateAsyncScope())
+if (Program.ShouldApplyDatabaseMigrations(
+        app.Environment.IsDevelopment(),
+        builder.Configuration.GetValue("Database:ApplyMigrations", false)))
 {
+    await using var scope = app.Services.CreateAsyncScope();
     var database = scope.ServiceProvider.GetRequiredService<HotelBookingDbContext>();
     if (database.Database.IsRelational())
     {
@@ -183,4 +197,8 @@ app.MapHub<OperationsHub>("/hubs/operations");
 
 app.Run();
 
-public partial class Program;
+public partial class Program
+{
+    public static bool ShouldApplyDatabaseMigrations(bool isDevelopment, bool configured) =>
+        isDevelopment && configured;
+}

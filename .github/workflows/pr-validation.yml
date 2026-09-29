@@ -92,12 +92,53 @@ jobs:
       - name: Test web deployment configuration
         shell: pwsh
         run: ./scripts/Test-Set-WebApiConfiguration.ps1
+      - name: Test long Azure deployment polling
+        shell: pwsh
+        run: ./scripts/Test-Wait-AzureResourceGroupDeployment.ps1
+      - name: Test legacy SQL credential cleanup
+        shell: pwsh
+        run: ./scripts/Test-Remove-LegacySqlCredential.ps1
+      - name: Test Search RBAC propagation retries
+        shell: pwsh
+        run: ./scripts/Test-Invoke-KnowledgeIndexerWithRetry.ps1
+      - name: Test routing RBAC propagation retries
+        shell: pwsh
+        run: ./scripts/Test-Invoke-RoutingReadinessWithRetry.ps1
+      - name: Test Azure data hardening contracts
+        shell: pwsh
+        run: ./scripts/Test-AzureDataHardeningContracts.ps1
+      - name: Test production deployment contract
+        shell: pwsh
+        run: ./scripts/Test-ProductionDeploymentContract.ps1
       - name: Format
         run: dotnet format --verify-no-changes --no-restore
       - name: Build
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Routing evaluation evidence
+        run: >-
+          dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj
+          --no-build
+          --filter "FullyQualifiedName~RoutingEvaluationTests|FullyQualifiedName~KnowledgeDocumentChunkerTests"
+          --logger "trx;LogFileName=grounding-evaluation.trx"
+          --results-directory EvaluationResults
+      - name: Vulnerability scan
+        shell: pwsh
+        run: |
+          dotnet list package --vulnerable --include-transitive --format json |
+            Set-Content vulnerabilities.json
+          $report = Get-Content vulnerabilities.json -Raw | ConvertFrom-Json
+          $findings = @(
+            $report.projects.frameworks.topLevelPackages |
+              Where-Object { $_.vulnerabilities.Count -gt 0 }
+            $report.projects.frameworks.transitivePackages |
+              Where-Object { $_.vulnerabilities.Count -gt 0 }
+          )
+          if ($findings.Count -gt 0) {
+            $findings | ConvertTo-Json -Depth 10
+            throw "NuGet vulnerability scan found $($findings.Count) vulnerable package entries."
+          }
       - name: Build Bicep
         uses: azure/cli@v2
         with:
@@ -127,3 +168,8 @@ jobs:
         with:
           name: test-results
           path: TestResults
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: routing-evaluation-evidence
+          path: EvaluationResults

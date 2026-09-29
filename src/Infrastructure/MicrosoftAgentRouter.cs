@@ -30,6 +30,7 @@ public interface IAmbiguousRouteResolver
 
 public sealed partial class MicrosoftAgentRouter(
     MicrosoftRouterOptions options,
+    IRoutingEvaluationGate evaluationGate,
     IAmbiguousRouteResolver resolver,
     ILogger<MicrosoftAgentRouter> logger) : IAgentRouter
 {
@@ -49,6 +50,22 @@ public sealed partial class MicrosoftAgentRouter(
         if (RequiresHumanApproval(request.Risk))
         {
             return HumanDecision("risk_policy", "Risk policy requires human approval.");
+        }
+
+        RoutingEvaluationResult evaluation;
+        try
+        {
+            evaluation = await evaluationGate.EvaluateAsync(request, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogEvaluationFailure(logger, exception, request.CorrelationId);
+            return HumanDecision("evaluation_error", "Microsoft safety or grounding evaluation failed.");
+        }
+
+        if (!evaluation.Passed)
+        {
+            return HumanDecision(evaluation.ReasonCode, evaluation.Reason);
         }
 
         var workers = request.AvailableWorkers.Keys
@@ -97,7 +114,7 @@ public sealed partial class MicrosoftAgentRouter(
                 options.Deployment,
                 reason);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             LogModelRoutingFailure(logger, exception, request.CorrelationId);
             return HumanDecision("model_error", "Model-assisted routing failed; human review is required.");
@@ -109,6 +126,15 @@ public sealed partial class MicrosoftAgentRouter(
         Level = LogLevel.Error,
         Message = "Model-assisted routing failed for {CorrelationId}")]
     private static partial void LogModelRoutingFailure(
+        ILogger logger,
+        Exception exception,
+        string correlationId);
+
+    [LoggerMessage(
+        EventId = 1002,
+        Level = LogLevel.Error,
+        Message = "Safety or grounding evaluation failed for {CorrelationId}")]
+    private static partial void LogEvaluationFailure(
         ILogger logger,
         Exception exception,
         string correlationId);

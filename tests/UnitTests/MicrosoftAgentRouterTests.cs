@@ -86,9 +86,38 @@ public sealed class MicrosoftAgentRouterTests
         Assert.Contains("model_error", decision.Reason);
     }
 
-    private static MicrosoftAgentRouter CreateRouter(IAmbiguousRouteResolver resolver) =>
+    [Fact]
+    public async Task RoutesEvaluationFailureToHumanReviewWithoutCallingModel()
+    {
+        var resolver = new FakeResolver();
+        var router = CreateRouter(resolver, new ThrowingEvaluationGate());
+
+        var decision = await router.RouteAsync(CreateAmbiguousRequest(), CancellationToken.None);
+
+        Assert.Equal("human_review", decision.EffectiveWorker);
+        Assert.Contains("evaluation_error", decision.Reason);
+        Assert.Equal(0, resolver.CallCount);
+    }
+
+    [Fact]
+    public async Task RoutesEvaluationTimeoutToHumanReviewWhenCallerDidNotCancel()
+    {
+        var resolver = new FakeResolver();
+        var router = CreateRouter(resolver, new TimeoutEvaluationGate());
+
+        var decision = await router.RouteAsync(CreateAmbiguousRequest(), CancellationToken.None);
+
+        Assert.Equal("human_review", decision.EffectiveWorker);
+        Assert.Contains("evaluation_error", decision.Reason);
+        Assert.Equal(0, resolver.CallCount);
+    }
+
+    private static MicrosoftAgentRouter CreateRouter(
+        IAmbiguousRouteResolver resolver,
+        IRoutingEvaluationGate? evaluationGate = null) =>
         new(
             new MicrosoftRouterOptions(true, 0.8, "gpt-4.1-mini", "https://example.openai.azure.com", "test"),
+            evaluationGate ?? new AllowEvaluationGate(),
             resolver,
             NullLogger<MicrosoftAgentRouter>.Instance);
 
@@ -129,5 +158,30 @@ public sealed class MicrosoftAgentRouterTests
                 ? Task.FromResult(result ?? new ModelRoutingSuggestion("human_review", 1, "default"))
                 : Task.FromException<ModelRoutingSuggestion>(exception);
         }
+
+    }
+
+    private sealed class AllowEvaluationGate : IRoutingEvaluationGate
+    {
+        public Task<RoutingEvaluationResult> EvaluateAsync(
+            RoutingRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(RoutingEvaluationResult.Allow());
+    }
+
+    private sealed class ThrowingEvaluationGate : IRoutingEvaluationGate
+    {
+        public Task<RoutingEvaluationResult> EvaluateAsync(
+            RoutingRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromException<RoutingEvaluationResult>(new HttpRequestException("Unavailable"));
+    }
+
+    private sealed class TimeoutEvaluationGate : IRoutingEvaluationGate
+    {
+        public Task<RoutingEvaluationResult> EvaluateAsync(
+            RoutingRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromException<RoutingEvaluationResult>(new TaskCanceledException("Service timeout"));
     }
 }

@@ -6,15 +6,29 @@ param location string = resourceGroup().location
 @description('Deployment environment tag.')
 param environment string = 'dev'
 
-@secure()
-@description('SQL administrator password stored in Key Vault.')
-param sqlAdminPassword string
+@description('Display name of the Microsoft Entra principal that administers Azure SQL.')
+param sqlEntraAdminLogin string
 
-@description('SQL administrator login.')
-param sqlAdminLogin string = 'hoteladmin'
+@description('Object ID of the Microsoft Entra principal that administers Azure SQL.')
+param sqlEntraAdminObjectId string
+
+@description('Tenant ID containing the SQL administrator and workload identities.')
+param tenantId string = subscription().tenantId
+
+@description('Object ID of the GitHub OIDC deployment principal used for knowledge indexing.')
+param deploymentPrincipalObjectId string
 
 @description('Client ID of the Entra operations API registration, used as the v2 access-token audience.')
 param operationsApiAudience string
+
+@description('Apply the API configuration and workload RBAC only after its SQL identity has been bootstrapped.')
+param configureApi bool = true
+
+@description('Create or enforce the Entra-only SQL server only when the environment is new or runtime readiness is complete.')
+param configureSql bool = true
+
+@description('Existing SQL server name adopted during a staged upgrade; empty for an initial deployment.')
+param existingSqlServerName string = ''
 
 var tags = {
   application: 'agentic-hotelbooking'
@@ -27,9 +41,14 @@ module platform 'modules/platform.bicep' = {
   params: {
     environment: environment
     location: location
-    sqlAdminLogin: sqlAdminLogin
-    sqlAdminPassword: sqlAdminPassword
+    sqlEntraAdminLogin: sqlEntraAdminLogin
+    sqlEntraAdminObjectId: sqlEntraAdminObjectId
+    tenantId: tenantId
+    deploymentPrincipalObjectId: deploymentPrincipalObjectId
     operationsApiAudience: operationsApiAudience
+    configureApi: configureApi
+    configureSql: configureSql
+    existingSqlServerName: existingSqlServerName
     tags: tags
   }
 }
@@ -41,3 +60,8 @@ output routingDeploymentName string = platform.outputs.routingDeploymentName
 output staticWebAppName string = platform.outputs.staticWebAppName
 output searchServiceName string = platform.outputs.searchServiceName
 output sqlServerName string = platform.outputs.sqlServerName
+output apiName string = platform.outputs.apiName
+output apiPrincipalId string = platform.outputs.apiPrincipalId
+output appServicePlanName string = platform.outputs.appServicePlanName
+output searchEndpoint string = platform.outputs.searchEndpoint
+output legacyKeyVaultName string = platform.outputs.legacyKeyVaultName

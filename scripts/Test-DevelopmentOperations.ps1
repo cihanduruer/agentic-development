@@ -22,6 +22,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Invoke-RoutingReadinessWithRetry.ps1')
 $api = $ApiUrl.TrimEnd('/')
 $correlationId = "deployment-smoke-$([Guid]::NewGuid().ToString('N'))"
 
@@ -176,18 +177,12 @@ $authorizedEvent = Invoke-ApiRequest `
 Assert-Status -Response $authorizedEvent -Expected 201 -Operation 'Authorized operations ingestion'
 Write-Output "Verified OIDC-authorized operations ingestion: HTTP 201 for '$correlationId'."
 
-$authorizedRoute = Invoke-ApiRequest `
-    -Method POST `
+Invoke-RoutingReadinessWithRetry `
     -Uri "$api/api/orchestration/route" `
     -Body $routeBody `
-    -Headers $authorizedHeaders
-Assert-Status -Response $authorizedRoute -Expected 200 -Operation 'Authorized orchestration routing'
-$routeDecision = $authorizedRoute.Content | ConvertFrom-Json
-if ($routeDecision.effectiveWorker -ne 'qa-agent' -or
-    $routeDecision.model -notmatch '^policy:') {
-    throw "Authorized routing returned an unexpected deterministic decision."
-}
-Write-Output "Verified OIDC-authorized deterministic routing: HTTP 200; worker=$($routeDecision.effectiveWorker); model=$($routeDecision.model)."
+    -Headers $authorizedHeaders `
+    -ExpectedRevision $env:GITHUB_SHA `
+    -MaximumWaitSeconds 600
 
 $token = $null
 $authorizedHeaders.Clear()

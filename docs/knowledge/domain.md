@@ -1,3 +1,7 @@
+---
+owner: Domain owner
+last_reviewed: 2026-09-29
+---
 # Domain rules
 
 ## Language

@@ -7,9 +7,6 @@
     },
     "environment": {
       "value": "prod"
-    },
-    "sqlAdminLogin": {
-      "value": "hoteladmin"
     }
   }
 }

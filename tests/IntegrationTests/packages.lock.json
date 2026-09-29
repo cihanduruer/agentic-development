@@ -68,6 +68,14 @@
           "Microsoft.Identity.Client.Extensions.Msal": "4.78.0"
         }
       },
+      "Azure.Search.Documents": {
+        "type": "Transitive",
+        "resolved": "11.7.0",
+        "contentHash": "48yBLnsf8SSgowe/OQDCNg9+G9WjzRmLX6Bghjlshxu+5Mhh4maTXvSWKi4o568ZqV6GoOYhiKPbCm/QYoufwA==",
+        "dependencies": {
+          "Azure.Core": "1.49.0"
+        }
+      },
       "Google.Protobuf": {
         "type": "Transitive",
         "resolved": "3.30.2",
@@ -817,6 +825,7 @@
           "AgenticHotelBooking.Application": "[1.0.0, )",
           "AgenticHotelBooking.Domain": "[1.0.0, )",
           "Azure.Identity": "[1.18.0, )",
+          "Azure.Search.Documents": "[11.7.0, )",
           "Microsoft.Agents.AI.OpenAI": "[1.22.0, )",
           "Microsoft.EntityFrameworkCore.InMemory": "[10.0.4, )",
           "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.4, )"

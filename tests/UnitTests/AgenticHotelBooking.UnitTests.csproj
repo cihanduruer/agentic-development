@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Domain\AgenticHotelBooking.Domain.csproj" />
     <ProjectReference Include="..\..\src\Application\AgenticHotelBooking.Application.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\AgenticHotelBooking.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\tools\SqlManagedIdentityBootstrapper\SqlManagedIdentityBootstrapper.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,12 +2,24 @@ name: Deploy development
 
 on:
   workflow_dispatch:
+    inputs:
+      legacy_sql_secret_cleanup_confirmation:
+        description: Type DELETE-ACTIVE-LEGACY-SQL-SECRET to remove the active legacy credential after readiness checks
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
       - 'src/**'
       - 'infra/**'
       - 'scripts/Set-WebApiConfiguration.ps1'
+      - 'scripts/Wait-AzureResourceGroupDeployment.ps1'
+      - 'scripts/Remove-LegacySqlCredential.ps1'
+      - 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1'
+      - 'scripts/Invoke-RoutingReadinessWithRetry.ps1'
+      - 'docs/knowledge/**'
+      - 'tools/KnowledgeIndexer/**'
+      - 'tools/SqlManagedIdentityBootstrapper/**'
       - '.github/workflows/deploy-development.yml'
       - 'scripts/Test-DevelopmentOperations.ps1'
 
@@ -30,18 +42,310 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Deploy infrastructure
-        id: infrastructure
-        uses: azure/arm-deploy@v2
+      - name: Classify SQL cutover state before infrastructure mutation
+        id: sql-state
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+        run: |
+          $serversJson = az sql server list `
+            --resource-group agentic-hotelbookingdev `
+            --query '[].{name:name}' `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($serversJson)) {
+            throw 'Unable to classify the development SQL state before infrastructure mutation.'
+          }
+          $servers = @($serversJson | ConvertFrom-Json)
+          if ($servers.Count -gt 1) {
+            throw 'The development resource group contains multiple SQL servers; cutover is blocked before mutation.'
+          }
+          if ($servers.Count -eq 0) {
+            'configureSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'sqlServerName=' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'existingSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'preExistingSqlAuthMode=initial' |
+              Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            exit 0
+          }
+          $administratorsJson = az sql server ad-admin list `
+            --resource-group agentic-hotelbookingdev `
+            --server-name $servers[0].name `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($administratorsJson)) {
+            throw 'Unable to verify the existing development SQL Entra administrator before mutation.'
+          }
+          $administrators = @($administratorsJson | ConvertFrom-Json)
+          if (@($administrators | Where-Object {
+                $_.sid -eq $env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID
+              }).Count -ne 1) {
+            throw 'Existing development SQL requires the GitHub deployment principal as Entra administrator before any deployment mutation.'
+          }
+          $entraOnly = az sql server show `
+            --resource-group agentic-hotelbookingdev `
+            --name $servers[0].name `
+            --query administrators.azureADOnlyAuthentication `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or $entraOnly -notin @('true', 'false')) {
+            throw 'Unable to classify existing development SQL authentication before mutation.'
+          }
+          $sqlAuthMode = if ($entraOnly -eq 'true') { 'entraOnly' } else { 'legacy' }
+          'configureSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          'existingSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "preExistingSqlAuthMode=$sqlAuthMode" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sqlServerName=$($servers[0].name)" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Start infrastructure deployment
+        id: deployment
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+          RESOURCE_GROUP: agentic-hotelbookingdev
+        run: |
+          $requiredValues = @(
+            'AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID',
+            'AZURE_SQL_ENTRA_ADMIN_NAME',
+            'AZURE_TENANT_ID',
+            'OPERATIONS_API_AUDIENCE'
+          )
+          foreach ($name in $requiredValues) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "The development $name environment variable is required."
+            }
+          }
+          $deploymentName = "development-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          az deployment group create `
+            --name $deploymentName `
+            --resource-group $env:RESOURCE_GROUP `
+            --template-file infra/resource-group.bicep `
+            --parameters `
+              environment=dev `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=false `
+              "configureSql=${{ steps.sql-state.outputs.configureSql }}" `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --no-wait `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to start the development infrastructure deployment.'
+          }
+          "name=$deploymentName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Wait for infrastructure with initial Azure login
+        id: initial-infrastructure-wait
+        shell: pwsh
+        run: |
+          ./scripts/Wait-AzureResourceGroupDeployment.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -DeploymentName '${{ steps.deployment.outputs.name }}' `
+            -TimeoutSeconds 2400 `
+            -AllowTimeout
+      - name: Refresh Azure login for long infrastructure deployment
+        if: steps.initial-infrastructure-wait.outputs.complete != 'true'
+        uses: azure/login@v2
         with:
-          scope: resourcegroup
-          resourceGroupName: agentic-hotelbookingdev
-          template: infra/resource-group.bicep
-          parameters: environment=dev sqlAdminPassword=${{ secrets.SQL_ADMIN_PASSWORD }} operationsApiAudience=${{ vars.OPERATIONS_API_AUDIENCE }}
-          failOnStdErr: false
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Finish waiting for infrastructure
+        if: steps.initial-infrastructure-wait.outputs.complete != 'true'
+        shell: pwsh
+        run: |
+          ./scripts/Wait-AzureResourceGroupDeployment.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -DeploymentName '${{ steps.deployment.outputs.name }}' `
+            -TimeoutSeconds 2400
+      - name: Read infrastructure outputs
+        id: infrastructure
+        shell: pwsh
+        run: |
+          $outputsJson = az deployment group show `
+            --resource-group agentic-hotelbookingdev `
+            --name '${{ steps.deployment.outputs.name }}' `
+            --query properties.outputs `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($outputsJson)) {
+            throw 'Development infrastructure deployment did not return outputs.'
+          }
+          $outputs = $outputsJson | ConvertFrom-Json
+          $requiredOutputs = @(
+            'apiAppName',
+            'apiName',
+            'apiUrl',
+            'appServicePlanName',
+            'legacyKeyVaultName',
+            'searchEndpoint',
+            'sqlServerName'
+          )
+          foreach ($name in $requiredOutputs) {
+            $value = $outputs.$name.value
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              throw "Development deployment output '$name' is missing."
+            }
+            "$name=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+      - name: Ensure API managed identity exists without changing live configuration
+        id: api-identity
+        shell: pwsh
+        run: |
+          $appId = az webapp show `
+            --resource-group agentic-hotelbookingdev `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --query id `
+            --output tsv `
+            --only-show-errors 2>&1
+          $appLookupExitCode = $LASTEXITCODE
+          $configuredApi = $false
+          if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
+            throw "Unable to determine whether the development API exists: $appId"
+          }
+          if ($appLookupExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($appId)) {
+            $configuredConnection = az webapp config appsettings list `
+              --resource-group agentic-hotelbookingdev `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --query "[?name=='ConnectionStrings__HotelBooking'].value | [0]" `
+              --output tsv `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Unable to classify whether the existing development API has runtime SQL configuration.'
+            }
+            $configuredApi = -not [string]::IsNullOrWhiteSpace($configuredConnection)
+            $principalId = az webapp identity show `
+              --resource-group agentic-hotelbookingdev `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --query principalId `
+              --output tsv `
+              --only-show-errors 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+              $principalId = az webapp identity assign `
+                --resource-group agentic-hotelbookingdev `
+                --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+                --query principalId `
+                --output tsv `
+                --only-show-errors
+            }
+          }
+          else {
+            $principalId = az deployment group create `
+              --name "development-api-identity-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              --resource-group agentic-hotelbookingdev `
+              --template-file infra/api-identity.bicep `
+              --parameters `
+                "appServicePlanName=${{ steps.infrastructure.outputs.appServicePlanName }}" `
+                "apiAppName=${{ steps.infrastructure.outputs.apiAppName }}" `
+                environment=dev `
+              --query properties.outputs.apiPrincipalId.value `
+              --output tsv `
+              --only-show-errors
+          }
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+            throw 'The development API managed identity could not be resolved before SQL bootstrap.'
+          }
+          "principalId=$($principalId.Trim())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "configuredApi=$($configuredApi.ToString().ToLowerInvariant())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Restore
+        run: |
+          dotnet tool restore
+          dotnet restore --locked-mode
+      - name: Allow deployment runner to reach SQL
+        id: sql-firewall
+        shell: pwsh
+        run: |
+          $ip = (Invoke-RestMethod 'https://api.ipify.org').Trim()
+          az sql server firewall-rule create `
+            --resource-group agentic-hotelbookingdev `
+            --server '${{ steps.infrastructure.outputs.sqlServerName }}' `
+            --name github-deployment-runner `
+            --start-ip-address $ip `
+            --end-ip-address $ip
+      - name: Apply database migrations
+        env:
+          ConnectionStrings__HotelBooking: >-
+            Server=tcp:${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net,1433;
+            Initial Catalog=hotelbooking;
+            Authentication=Active Directory Default;
+            Encrypt=True;
+            TrustServerCertificate=False;
+        run: >-
+          dotnet ef database update
+          --project src/Infrastructure/AgenticHotelBooking.Infrastructure.csproj
+          --startup-project src/Api/AgenticHotelBooking.Api.csproj
+          --connection "$ConnectionStrings__HotelBooking"
+      - name: Bootstrap API managed identity database role
+        shell: pwsh
+        run: |
+          $env:AZURE_SQL_ACCESS_TOKEN = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($env:AZURE_SQL_ACCESS_TOKEN)) {
+            throw 'Unable to acquire an Azure SQL access token.'
+          }
+          dotnet run `
+            --project tools/SqlManagedIdentityBootstrapper/SqlManagedIdentityBootstrapper.csproj `
+            --no-restore `
+            -- `
+            --server '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
+            --database hotelbooking `
+            --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
+            --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
+      - name: Configure initial API after SQL bootstrap
+        if: steps.api-identity.outputs.configuredApi == 'false'
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "development-initial-api-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingdev `
+            --template-file infra/resource-group.bicep `
+            --parameters `
+              environment=dev `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=true `
+              configureSql=false `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+              'legacy' { 'server-side legacy SQL authentication remains enabled' }
+              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+              'initial' { 'the newly created SQL server remains Entra-only' }
+              default { throw 'The pre-existing development SQL authentication mode is invalid.' }
+            }
+            throw "The initial development API configuration failed after SQL identity bootstrap; $sqlState, and the API may be retried as unconfigured."
+          }
+      - name: Index canonical knowledge
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-KnowledgeIndexerWithRetry.ps1 `
+            -Root docs/knowledge `
+            -Endpoint '${{ steps.infrastructure.outputs.searchEndpoint }}' `
+            -Revision '${{ github.sha }}' `
+            -Index knowledge `
+            -MaximumWaitSeconds 600
       - name: Publish API
         run: dotnet publish src/Api/AgenticHotelBooking.Api.csproj -c Release -o artifacts/api
       - name: Deploy API
@@ -49,6 +353,130 @@ jobs:
         with:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: artifacts/api
+      - name: Verify migration-disabled API artifact before existing-environment cutover
+        shell: pwsh
+        run: |
+          $readinessUri = '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels'
+          $lastError = ''
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              $response = Invoke-WebRequest `
+                -Uri $readinessUri `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                exit 0
+              }
+              $lastError = "HTTP $($response.StatusCode)"
+            }
+            catch {
+              $lastError = $_.Exception.Message
+            }
+            if ($attempt -lt 12) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          throw "The migration-disabled development API artifact was not ready before managed-identity configuration: $lastError"
+      - name: Apply and prove managed-identity API configuration with rollback
+        if: steps.api-identity.outputs.configuredApi == 'true'
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          $previousConnection = az webapp config appsettings list `
+            --resource-group agentic-hotelbookingdev `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --query "[?name=='ConnectionStrings__HotelBooking'].value | [0]" `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousConnection)) {
+            throw 'The configured development API SQL connection could not be captured before cutover.'
+          }
+          try {
+            az deployment group create `
+              --name "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              --resource-group agentic-hotelbookingdev `
+              --template-file infra/resource-group.bicep `
+              --parameters `
+                environment=dev `
+                "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+                "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+                "tenantId=$env:AZURE_TENANT_ID" `
+                "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+                "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+                configureApi=true `
+                configureSql=false `
+                "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw 'The managed-identity API configuration deployment failed or returned an ambiguous result.'
+            }
+            $lastError = ''
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              try {
+                $response = Invoke-WebRequest `
+                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                  -TimeoutSec 30 `
+                  -UseBasicParsing
+                if ($response.StatusCode -eq 200) {
+                  exit 0
+                }
+                $lastError = "HTTP $($response.StatusCode)"
+              }
+              catch {
+                $lastError = $_.Exception.Message
+              }
+              if ($attempt -lt 12) {
+                Start-Sleep -Seconds 10
+              }
+            }
+            throw "The managed-identity SQL-backed readiness proof failed: $lastError"
+          }
+          catch {
+            $cutoverError = $_.Exception.Message
+            az webapp config appsettings set `
+              --resource-group agentic-hotelbookingdev `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --settings "ConnectionStrings__HotelBooking=$previousConnection" `
+              --output none `
+              --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+              throw "Development API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+            }
+            $rollbackReady = $false
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              try {
+                $response = Invoke-WebRequest `
+                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                  -TimeoutSec 30 `
+                  -UseBasicParsing
+                if ($response.StatusCode -eq 200) {
+                  $rollbackReady = $true
+                  break
+                }
+              }
+              catch {
+                if ($attempt -eq 12) {
+                  $rollbackError = $_.Exception.Message
+                }
+              }
+              if ($attempt -lt 12) {
+                Start-Sleep -Seconds 10
+              }
+            }
+            if (-not $rollbackReady) {
+              throw "Development API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
+            }
+            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+              'legacy' { 'server-side legacy SQL authentication remains enabled' }
+              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+              default { 'the SQL authentication state remains unchanged' }
+            }
+            throw "Development API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+          }
       - name: Publish web
         run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release -o artifacts/web
       - name: Configure web API endpoint
@@ -71,9 +499,76 @@ jobs:
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
           OPERATIONS_API_RESOURCE: ${{ vars.OPERATIONS_API_RESOURCE }}
         run: |
-          ./scripts/Test-DevelopmentOperations.ps1 `
-            -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
-            -TokenResource $env:OPERATIONS_API_RESOURCE `
-            -TokenAudience $env:OPERATIONS_API_AUDIENCE `
-            -ResourceGroup 'agentic-hotelbookingdev' `
-            -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
+          $failureState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+            'legacy' { 'server-side legacy SQL authentication remains enabled' }
+            'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+            'initial' { 'the initial environment remains Entra-only' }
+            default { throw 'The pre-existing development SQL authentication mode is invalid.' }
+          }
+          try {
+            ./scripts/Test-DevelopmentOperations.ps1 `
+              -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
+              -TokenResource $env:OPERATIONS_API_RESOURCE `
+              -TokenAudience $env:OPERATIONS_API_AUDIENCE `
+              -ResourceGroup 'agentic-hotelbookingdev' `
+              -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
+          }
+          catch {
+            throw "Managed-identity API readiness failed before SQL-only enforcement; $failureState. $($_.Exception.Message)"
+          }
+      - name: Enforce SQL Entra-only after managed-identity API readiness
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "development-sql-entra-only-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingdev `
+            --template-file infra/resource-group.bicep `
+            --parameters `
+              environment=dev `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=false `
+              configureSql=true `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'SQL Entra-only enforcement failed after the API proved managed-identity readiness; legacy credential cleanup remains blocked.'
+          }
+      - name: Verify API after SQL Entra-only enforcement
+        shell: pwsh
+        run: |
+          $response = Invoke-WebRequest `
+            -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+            -TimeoutSec 30 `
+            -UseBasicParsing
+          if ($response.StatusCode -ne 200) {
+            throw "The development API returned HTTP $($response.StatusCode) after SQL Entra-only enforcement."
+          }
+      - name: Remove approved active legacy SQL administrator credential
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.legacy_sql_secret_cleanup_confirmation == 'DELETE-ACTIVE-LEGACY-SQL-SECRET'
+        shell: pwsh
+        run: |
+          ./scripts/Remove-LegacySqlCredential.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -SqlServerName '${{ steps.infrastructure.outputs.sqlServerName }}' `
+            -ApiAppName '${{ steps.infrastructure.outputs.apiAppName }}' `
+            -LegacyVaultName '${{ steps.infrastructure.outputs.legacyKeyVaultName }}' `
+            -Approved `
+            -RuntimeReadinessVerified
+      - name: Remove deployment runner SQL firewall rule
+        if: always() && steps.sql-firewall.outcome == 'success'
+        run: >-
+          az sql server firewall-rule delete
+          --resource-group agentic-hotelbookingdev
+          --server '${{ steps.infrastructure.outputs.sqlServerName }}'
+          --name github-deployment-runner

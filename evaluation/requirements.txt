@@ -1,0 +1,2 @@
+azure-ai-evaluation==1.18.7
+azure-identity==1.25.1
