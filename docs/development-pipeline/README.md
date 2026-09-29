@@ -213,7 +213,7 @@ Model-assisted routing is disabled locally by default; deterministic policy rema
 
 ## Entra operations-writer setup
 
-Tenant-scoped Microsoft Entra application registrations and app-role assignments are not ARM resources managed by this repository's resource-group Bicep deployment. An Entra administrator must complete these steps before deploying:
+Tenant-scoped Microsoft Entra application registrations and app-role assignments are not ARM resources managed by this repository's resource-group Bicep deployment. They can be automated separately with Azure CLI and Microsoft Graph when the operator has sufficient directory permissions. Complete these steps for each environment before deploying:
 
 1. Create or select an API application registration, set an Application ID URI, and define an application role with value `Operations.Ingest` and allowed member type `Applications`.
 2. Create or select each calling workload identity and assign that service principal the API's `Operations.Ingest` app role. Grant tenant admin consent where required.
@@ -222,10 +222,12 @@ Tenant-scoped Microsoft Entra application registrations and app-role assignments
 
 The Bicep deployment derives the authority from the subscription tenant, configures the audience and required role on App Service, and fails if the audience variable is absent or empty at runtime.
 
+The development environment registration, `Operations.Ingest` assignment for the GitHub OIDC workload, and `OPERATIONS_API_AUDIENCE` environment variable were configured and verified on 2026-09-29. No additional Entra setup remains for development; other environments require their own workload assignments and audience configuration.
+
 ## Grounding note
 
 - **Sourced:** Runtime and deployment behavior above is defined by `src/Api/Program.cs`, `src/Infrastructure/HotelBookingPersistence.cs`, `infra/modules/platform.bicep`, and `.github/workflows/deploy-development.yml`.
-- **Derived:** The Entra registration and role assignment remain manual because this repository deploys Azure Resource Manager resources and does not manage tenant-scoped Microsoft Graph objects.
+- **Derived:** Entra registration and role assignment are managed outside this ARM deployment through Azure CLI/Microsoft Graph automation or administrator action.
 - **Knowledge revision:** `2dc64f51b643ebe8a8e0a90d56ebb522c8a30728`.
 
 ## Required validation commands

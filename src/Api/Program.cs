@@ -42,6 +42,7 @@ if (!builder.Environment.IsDevelopment())
         {
             options.Authority = authority;
             options.Audience = audience;
+            options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 RoleClaimType = "roles"
