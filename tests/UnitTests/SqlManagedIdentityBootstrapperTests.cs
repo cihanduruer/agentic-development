@@ -123,14 +123,14 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     [Fact]
-    public void LegacyMigrationAllowsOnlyTheHistoricalDirectGrantSet()
+    public void RecoveryAllowsOnlyTheHistoricalRuntimePermissionContract()
     {
-        var permissions = CreateHistoricalLegacyPermissions();
+        var permissions = CreateRecoverableDirectPermissions();
 
         Assert.True(
-            SqlManagedIdentityBootstrap.IsExactLegacyDirectPermissionSet(permissions));
+            SqlManagedIdentityBootstrap.IsExactRecoverableDirectPermissionSet(permissions));
         Assert.Collection(
-            SqlManagedIdentityBootstrap.LegacyDirectPermissions,
+            SqlManagedIdentityBootstrap.RecoverableDirectPermissions,
             permission => Assert.Equal(
                 new SqlObjectGrant("dbo.Hotels", "SELECT"),
                 permission),
@@ -155,12 +155,12 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     [Theory]
-    [MemberData(nameof(RejectedLegacyPermissionStates))]
-    public void LegacyMigrationRejectsMutatedPermissionStates(
+    [MemberData(nameof(RejectedRecoverablePermissionStates))]
+    public void RecoveryRejectsMutatedPermissionStates(
         IReadOnlyList<SqlDatabaseGrant> permissions)
     {
         Assert.False(
-            SqlManagedIdentityBootstrap.IsExactLegacyDirectPermissionSet(permissions));
+            SqlManagedIdentityBootstrap.IsExactRecoverableDirectPermissionSet(permissions));
     }
 
     [Fact]
@@ -235,10 +235,62 @@ public sealed class SqlManagedIdentityBootstrapperTests
             StringComparison.Ordinal);
     }
 
-    public static TheoryData<IReadOnlyList<SqlDatabaseGrant>>
-        RejectedLegacyPermissionStates()
+    [Fact]
+    public void CommandRejectsNullOrUnexpectedRuntimeRoleOwnerBeforeMutation()
     {
-        var exact = CreateHistoricalLegacyPermissions();
+        var commandText = SqlManagedIdentityBootstrap.CommandText;
+        var ownerCheckIndex = commandText.IndexOf(
+            "owning_principal_id IS NULL",
+            StringComparison.Ordinal);
+        var revokeIndex = commandText.IndexOf(
+            "REVOKE SELECT ON OBJECT::dbo.Hotels",
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "DECLARE @DboPrincipalId int",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "owning_principal_id IS NULL",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "owning_principal_id <> @DboPrincipalId",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                commandText,
+                "owning_principal_id <> @DboPrincipalId"));
+        Assert.Contains(
+            "The runtime role has an unexpected owner.",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.True(ownerCheckIndex > 0);
+        Assert.True(ownerCheckIndex < revokeIndex);
+        Assert.Contains(
+            "CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo]",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "owning_principal_id = @DboPrincipalId",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "The runtime role does not have the canonical owner.",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ALTER AUTHORIZATION",
+            commandText,
+            StringComparison.Ordinal);
+    }
+
+    public static TheoryData<IReadOnlyList<SqlDatabaseGrant>>
+        RejectedRecoverablePermissionStates()
+    {
+        var exact = CreateRecoverableDirectPermissions();
         return new TheoryData<IReadOnlyList<SqlDatabaseGrant>>
         {
             exact.Take(exact.Count - 1).ToArray(),
@@ -273,7 +325,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     private static IReadOnlyList<SqlDatabaseGrant>
-        CreateHistoricalLegacyPermissions() =>
+        CreateRecoverableDirectPermissions() =>
         [
             new("dbo.Hotels", "SELECT"),
             new("dbo.Rooms", "SELECT"),

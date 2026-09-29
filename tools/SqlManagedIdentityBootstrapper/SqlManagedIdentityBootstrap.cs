@@ -89,7 +89,7 @@ public sealed record SqlBootstrapOptions(
 
 public static class SqlManagedIdentityBootstrap
 {
-    public static IReadOnlyList<SqlObjectGrant> LegacyDirectPermissions { get; } =
+    public static IReadOnlyList<SqlObjectGrant> RecoverableDirectPermissions { get; } =
         Array.AsReadOnly<SqlObjectGrant>(
         [
             new("dbo.Hotels", "SELECT"),
@@ -101,13 +101,13 @@ public static class SqlManagedIdentityBootstrap
             new("dbo.AgentEvents", "DELETE"),
         ]);
 
-    public static bool IsExactLegacyDirectPermissionSet(
+    public static bool IsExactRecoverableDirectPermissionSet(
         IEnumerable<SqlDatabaseGrant> permissions)
     {
         ArgumentNullException.ThrowIfNull(permissions);
 
         var actual = permissions.ToArray();
-        if (actual.Length != LegacyDirectPermissions.Count
+        if (actual.Length != RecoverableDirectPermissions.Count
             || actual.Any(
                 permission => permission.Class != 1
                     || permission.MinorId != 0
@@ -121,7 +121,7 @@ public static class SqlManagedIdentityBootstrap
                 permission.ObjectName,
                 permission.PermissionName))
             .ToHashSet()
-            .SetEquals(LegacyDirectPermissions);
+            .SetEquals(RecoverableDirectPermissions);
     }
 
     public const string CommandText = """
@@ -214,6 +214,13 @@ public static class SqlManagedIdentityBootstrap
 
             DECLARE @ExistingRuntimeRoleId int =
                 DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            DECLARE @DboPrincipalId int =
+                DATABASE_PRINCIPAL_ID(N'dbo');
+            IF @DboPrincipalId IS NULL
+            BEGIN
+                THROW 51014, 'The canonical dbo database principal does not exist.', 1;
+            END;
+
             IF @ExistingRuntimeRoleId IS NOT NULL
                AND NOT EXISTS (
                    SELECT 1
@@ -223,6 +230,20 @@ public static class SqlManagedIdentityBootstrap
                )
             BEGIN
                 THROW 51011, 'The runtime role name belongs to an unexpected database principal.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_principals
+                   WHERE principal_id = @ExistingRuntimeRoleId
+                     AND (
+                         owning_principal_id IS NULL
+                         OR owning_principal_id <> @DboPrincipalId
+                     )
+               )
+            BEGIN
+                THROW 51015, 'The runtime role has an unexpected owner.', 1;
             END;
 
             IF @ExistingRuntimeRoleId IS NOT NULL
@@ -314,12 +335,12 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51008, 'The expected runtime database objects do not all exist.', 1;
             END;
 
-            DECLARE @ExpectedLegacyDirectPermissions TABLE (
+            DECLARE @RecoverableDirectPermissions TABLE (
                 major_id int NOT NULL,
                 permission_name nvarchar(128) NOT NULL,
                 PRIMARY KEY (major_id, permission_name)
             );
-            INSERT INTO @ExpectedLegacyDirectPermissions (major_id, permission_name)
+            INSERT INTO @RecoverableDirectPermissions (major_id, permission_name)
             VALUES
                 (OBJECT_ID(N'dbo.Hotels'), N'SELECT'),
                 (OBJECT_ID(N'dbo.Rooms'), N'SELECT'),
@@ -348,11 +369,11 @@ public static class SqlManagedIdentityBootstrap
                          AND permissions.state = N'G'
                        EXCEPT
                        SELECT major_id, permission_name
-                       FROM @ExpectedLegacyDirectPermissions
+                       FROM @RecoverableDirectPermissions
                    )
                    OR EXISTS (
                        SELECT major_id, permission_name
-                       FROM @ExpectedLegacyDirectPermissions
+                       FROM @RecoverableDirectPermissions
                        EXCEPT
                        SELECT
                            permissions.major_id,
@@ -408,7 +429,7 @@ public static class SqlManagedIdentityBootstrap
                 WHERE name = N'hotel_booking_runtime'
             )
             BEGIN
-                CREATE ROLE [hotel_booking_runtime];
+                CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
             END;
 
             GRANT SELECT ON OBJECT::dbo.Hotels TO [hotel_booking_runtime];
@@ -418,6 +439,17 @@ public static class SqlManagedIdentityBootstrap
 
             DECLARE @RuntimeRoleId int =
                 DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.database_principals
+                WHERE principal_id = @RuntimeRoleId
+                  AND type = N'R'
+                  AND owning_principal_id = @DboPrincipalId
+            )
+            BEGIN
+                THROW 51016, 'The runtime role does not have the canonical owner.', 1;
+            END;
+
             IF (
                 SELECT COUNT_BIG(*)
                 FROM sys.database_permissions AS permissions
