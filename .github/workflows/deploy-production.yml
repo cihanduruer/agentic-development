@@ -200,6 +200,26 @@ jobs:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: release/api.zip
 
+      - name: Obtain Static Web Apps deployment token
+        id: static-web-token
+        shell: pwsh
+        env:
+          RESOURCE_GROUP: ${{ steps.infrastructure.outputs.resourceGroupName }}
+          STATIC_WEB_APP: ${{ steps.infrastructure.outputs.staticWebAppName }}
+        run: |
+          $token = az staticwebapp secrets list `
+            --name $env:STATIC_WEB_APP `
+            --resource-group $env:RESOURCE_GROUP `
+            --query properties.apiKey `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw 'Azure did not return a Static Web Apps deployment token.'
+          }
+          $token = $token.Trim()
+          Write-Output "::add-mask::$token"
+          "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Prepare web artifact
         shell: pwsh
         run: |
@@ -211,7 +231,7 @@ jobs:
       - name: Deploy web artifact
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure_static_web_apps_api_token: ${{ steps.static-web-token.outputs.token }}
           action: upload
           app_location: deployed-web/wwwroot
           output_location: ''
