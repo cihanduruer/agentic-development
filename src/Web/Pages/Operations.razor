@@ -1,0 +1,130 @@
+@page "/operations"
+@implements IAsyncDisposable
+@using AgenticHotelBooking.Application
+@using Microsoft.AspNetCore.SignalR.Client
+@inject HttpClient Http
+
+<PageTitle>Agent Operations</PageTitle>
+
+<header class="operations-header">
+    <div>
+        <p class="eyebrow">Live control plane</p>
+        <h1>Agent operations</h1>
+        <p>Routing, evidence gates, tool activity, and human checkpoints in real time.</p>
+    </div>
+    <span class="connection @connectionCss">@connectionStatus</span>
+</header>
+
+<div class="metric-grid">
+    <article><span>Events</span><strong>@events.Count</strong></article>
+    <article><span>Routing decisions</span><strong>@events.Count(e => e.Kind == AgentEventKind.RouteDecided)</strong></article>
+    <article><span>Evidence gates</span><strong>@events.Count(e => e.Kind == AgentEventKind.EvidenceChecked)</strong></article>
+    <article><span>Needs human</span><strong>@events.Count(e => e.Kind == AgentEventKind.HumanApprovalRequired)</strong></article>
+</div>
+
+<div class="event-table-wrap">
+    <table class="table event-table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Work item</th>
+                <th>Agent</th>
+                <th>Event</th>
+                <th>Decision</th>
+                <th>Outcome</th>
+                <th>Confidence</th>
+                <th>Latency</th>
+                <th>Knowledge</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in events)
+            {
+                <tr>
+                    <td>@item.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                    <td>@item.WorkItemId</td>
+                    <td>@item.Agent</td>
+                    <td><span class="event-kind">@item.Kind</span><small>@item.Summary</small></td>
+                    <td>@item.Decision</td>
+                    <td>@item.Outcome</td>
+                    <td>@(item.Confidence?.ToString("P0") ?? "—")</td>
+                    <td>@item.DurationMilliseconds ms</td>
+                    <td><code>@ShortRevision(item.KnowledgeRevision)</code></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private readonly List<AgentEvent> events = [];
+    private HubConnection? hubConnection;
+    private string connectionStatus = "Connecting";
+    private string connectionCss = "connecting";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var loaded = await Http.GetFromJsonAsync<AgentEvent[]>("api/operations/events?limit=100") ?? [];
+        events.AddRange(loaded);
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(new Uri(Http.BaseAddress!, "hubs/operations"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<AgentEvent>("AgentEventRecorded", item =>
+        {
+            events.Insert(0, item);
+            if (events.Count > 100)
+            {
+                events.RemoveAt(events.Count - 1);
+            }
+
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.Reconnecting += _ =>
+        {
+            SetConnection("Reconnecting", "connecting");
+            return Task.CompletedTask;
+        };
+        hubConnection.Reconnected += _ =>
+        {
+            SetConnection("Live", "live");
+            return Task.CompletedTask;
+        };
+        hubConnection.Closed += _ =>
+        {
+            SetConnection("Offline", "offline");
+            return Task.CompletedTask;
+        };
+
+        try
+        {
+            await hubConnection.StartAsync();
+            SetConnection("Live", "live");
+        }
+        catch
+        {
+            SetConnection("Offline", "offline");
+        }
+    }
+
+    private void SetConnection(string status, string css)
+    {
+        connectionStatus = status;
+        connectionCss = css;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string ShortRevision(string revision) =>
+        revision.Length > 10 ? revision[..10] : revision;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
