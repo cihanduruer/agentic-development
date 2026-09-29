@@ -50,6 +50,20 @@ function Get-PullRequestMetadataDigest {
     }
 }
 
+function Write-Base64Utf8File {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string] $Base64,
+
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    $content = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Base64))
+    [IO.File]::WriteAllText($Path, $content, [Text.UTF8Encoding]::new($false))
+}
+
 function Get-PullRequestClassification {
     param(
         [Parameter(Mandatory)]

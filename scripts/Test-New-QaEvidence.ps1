@@ -92,13 +92,15 @@ try {
         $productionWorkflow.Contains(
             'artifact.name === `qa-evidence-${process.env.COMMIT_SHA}-${evidence.qaMetadataDigest}`')
     ) $true 'Production preflight must require the digest-bound QA artifact.'
+    Assert-Equal (
+        $qaWorkflow.Contains(
+            "Write-Base64Utf8File -Base64 `$env:BODY_BASE64 -Path 'QaEvidence/pr-body.md'")
+    ) $true 'QA workflow must use the tested body serialization helper.'
 
     $rawBody = "- Azure Boards: N/A`r`n- Platform change: true`r`nCaf$([char]0x00E9)"
     $serializedBodyPath = Join-Path $testRoot 'serialized-body.md'
-    [IO.File]::WriteAllText(
-        $serializedBodyPath,
-        $rawBody,
-        [Text.UTF8Encoding]::new($false))
+    $bodyBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rawBody))
+    Write-Base64Utf8File -Base64 $bodyBase64 -Path $serializedBodyPath
     $serializedBody = [IO.File]::ReadAllText($serializedBodyPath)
     Assert-Equal $serializedBody $rawBody 'Workflow serialization must preserve PR body bytes.'
     Assert-Equal `

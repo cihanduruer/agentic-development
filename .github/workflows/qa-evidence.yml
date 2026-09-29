@@ -236,15 +236,9 @@ jobs:
           FILES_BASE64: ${{ steps.context.outputs.files-base64 }}
         run: |
           New-Item -ItemType Directory -Path QaEvidence -Force | Out-Null
-          $utf8 = [Text.UTF8Encoding]::new($false)
-          [IO.File]::WriteAllText(
-            'QaEvidence/pr-body.md',
-            [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:BODY_BASE64)),
-            $utf8)
-          [IO.File]::WriteAllText(
-            'QaEvidence/changed-files.txt',
-            [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:FILES_BASE64)),
-            $utf8)
+          . ./trusted/scripts/PullRequestClassification.ps1
+          Write-Base64Utf8File -Base64 $env:BODY_BASE64 -Path 'QaEvidence/pr-body.md'
+          Write-Base64Utf8File -Base64 $env:FILES_BASE64 -Path 'QaEvidence/changed-files.txt'
 
       - name: Evaluate QA evidence
         id: evidence
