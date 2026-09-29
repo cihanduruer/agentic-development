@@ -10,6 +10,10 @@ param(
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
+    [string]$TokenAudience,
+
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
     [string]$ResourceGroup,
 
     [Parameter(Mandatory)]
@@ -77,6 +81,27 @@ function Assert-Status {
     }
 }
 
+function ConvertFrom-JwtPayload {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Jwt
+    )
+
+    $segments = $Jwt.Split('.')
+    if ($segments.Count -ne 3) {
+        throw 'Azure CLI returned a malformed access token.'
+    }
+
+    $payload = $segments[1].Replace('-', '+').Replace('_', '/')
+    $payload += '=' * ((4 - ($payload.Length % 4)) % 4)
+    try {
+        [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+    }
+    catch {
+        throw 'Azure CLI returned an access token with an invalid JWT payload.'
+    }
+}
+
 $eventBody = @{
     kind                 = 0
     correlationId        = $correlationId
@@ -116,8 +141,9 @@ $anonymousRoute = Invoke-ApiRequest -Method POST -Uri "$api/api/orchestration/ro
 Assert-Status -Response $anonymousRoute -Expected 401 -Operation 'Anonymous orchestration routing'
 Write-Output 'Verified anonymous orchestration routing rejection: HTTP 401.'
 
+$tokenScope = "$($TokenResource.TrimEnd('/'))/.default"
 $token = az account get-access-token `
-    --resource $TokenResource `
+    --scope $tokenScope `
     --query accessToken `
     --output tsv `
     --only-show-errors
@@ -129,6 +155,18 @@ $token = $token.Trim()
 if ($env:GITHUB_ACTIONS -eq 'true') {
     Write-Output "::add-mask::$token"
 }
+
+$claims = ConvertFrom-JwtPayload -Jwt $token
+$roles = @($claims.roles)
+if ($claims.ver -ne '2.0' -or
+    $claims.aud -ne $TokenAudience -or
+    $claims.iss -notmatch '/v2\.0$' -or
+    $roles -notcontains 'Operations.Ingest') {
+    $safeRoles = $roles -join ','
+    throw "Access token claims are invalid: ver=$($claims.ver); iss=$($claims.iss); aud=$($claims.aud); roles=$safeRoles; azp=$($claims.azp)."
+}
+Write-Output "Verified access token claims: ver=2.0; iss=$($claims.iss); aud=$($claims.aud); roles=$($roles -join ','); azp=$($claims.azp)."
+
 $authorizedHeaders = @{ Authorization = "Bearer $token" }
 $authorizedEvent = Invoke-ApiRequest `
     -Method POST `

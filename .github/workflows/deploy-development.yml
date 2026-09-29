@@ -68,10 +68,12 @@ jobs:
       - name: Verify operations authorization and persistence
         shell: pwsh
         env:
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
           OPERATIONS_API_RESOURCE: ${{ vars.OPERATIONS_API_RESOURCE }}
         run: |
           ./scripts/Test-DevelopmentOperations.ps1 `
             -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
             -TokenResource $env:OPERATIONS_API_RESOURCE `
+            -TokenAudience $env:OPERATIONS_API_AUDIENCE `
             -ResourceGroup 'agentic-hotelbookingdev' `
             -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
