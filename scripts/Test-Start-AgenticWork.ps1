@@ -120,6 +120,31 @@ $untrustedMatch = Select-WorkItemIssue `
     -Id 959
 Assert-True -Condition ($null -eq $untrustedMatch) -Message "An AB#959 issue from an untrusted author must not be selected."
 
+$script:requestedIssueUri = $null
+function Invoke-GitHubRest {
+    param(
+        [string]$Method,
+        [string]$Uri,
+        [object]$Body
+    )
+
+    $script:requestedIssueUri = $Uri
+    return @($linkedIssue)
+}
+
+$repositoryIssues = @(Get-RepositoryIssues -Repository "cihanduruer/agentic-development")
+$selectedFromApi = Select-WorkItemIssue `
+    -Issues $repositoryIssues `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959
+Assert-True `
+    -Condition ($script:requestedIssueUri -notmatch "[?&]labels=") `
+    -Message "Repository issue lookup must not depend on the azure-boards label."
+Assert-True `
+    -Condition ($selectedFromApi.number -eq 5) `
+    -Message "An unlabeled AB-linked issue returned by GitHub must be reused."
+
 Assert-Throws `
     -Action {
         Select-WorkItemIssue `
