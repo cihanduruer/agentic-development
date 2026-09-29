@@ -14,12 +14,50 @@ function Assert-True {
     }
 }
 
+function Assert-Throws {
+    param(
+        [Parameter(Mandatory)]
+        [scriptblock]$Action,
+
+        [Parameter(Mandatory)]
+        [string]$ExpectedMessage
+    )
+
+    try {
+        & $Action
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*$ExpectedMessage*") {
+            throw "Expected error containing '$ExpectedMessage', got '$($_.Exception.Message)'."
+        }
+        return
+    }
+
+    throw "Expected an error containing '$ExpectedMessage', but no error was thrown."
+}
+
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "web-config-$([Guid]::NewGuid())"
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     Set-Content -LiteralPath (Join-Path $testRoot "appsettings.json") -Value '{"ApiBaseUrl":"http://localhost:5224/"}'
     Set-Content -LiteralPath (Join-Path $testRoot "appsettings.json.br") -Value "stale-brotli"
     Set-Content -LiteralPath (Join-Path $testRoot "appsettings.json.gz") -Value "stale-gzip"
+
+    @(
+        "http://api.example.test",
+        "/api",
+        "https://api.example.test?environment=dev",
+        "https://api.example.test#configuration"
+    ) | ForEach-Object {
+        $invalidApiBaseUrl = $_
+        Assert-Throws `
+            -Action {
+                & "$PSScriptRoot/Set-WebApiConfiguration.ps1" `
+                    -WebRoot $testRoot `
+                    -ApiBaseUrl $invalidApiBaseUrl
+            } `
+            -ExpectedMessage "ApiBaseUrl must be an absolute HTTPS URL without a query or fragment."
+    }
 
     & "$PSScriptRoot/Set-WebApiConfiguration.ps1" `
         -WebRoot $testRoot `
