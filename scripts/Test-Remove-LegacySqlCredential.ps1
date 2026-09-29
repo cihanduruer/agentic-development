@@ -14,21 +14,21 @@ if ($command -match 'appsettings list') {
 }
 if ($command -match 'keyvault list') { '1'; exit 0 }
 if ($command -match 'resource show') {
-    $statePath = Join-Path $env:TEMP 'legacy-sql-secret-deleted'
-    if (Test-Path $statePath) { 'ResourceNotFound'; exit 1 }
+    if (Test-Path $global:MockSecretStatePath) { 'ResourceNotFound'; exit 1 }
     '/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-kv/secrets/sql-connection-string'
     exit 0
 }
 if ($command -match 'resource delete') {
-    New-Item -ItemType File -Path (Join-Path $env:TEMP 'legacy-sql-secret-deleted') -Force | Out-Null
+    New-Item -ItemType File -Path $global:MockSecretStatePath -Force | Out-Null
     exit 0
 }
 exit 1
 '@ | Set-Content $azPath
 
-    $statePath = Join-Path $env:TEMP 'legacy-sql-secret-deleted'
+    $statePath = Join-Path ([IO.Path]::GetTempPath()) 'legacy-sql-secret-deleted'
     Remove-Item $statePath -ErrorAction SilentlyContinue
     $global:MockAzPath = $azPath
+    $global:MockSecretStatePath = $statePath
     function global:az {
         & $global:MockAzPath @args
     }
@@ -128,7 +128,8 @@ exit 1
 finally {
     Remove-Item Function:\az -ErrorAction SilentlyContinue
     Remove-Variable MockAzPath -Scope Global -ErrorAction SilentlyContinue
-    Remove-Item (Join-Path $env:TEMP 'legacy-sql-secret-deleted') -ErrorAction SilentlyContinue
+    Remove-Variable MockSecretStatePath -Scope Global -ErrorAction SilentlyContinue
+    Remove-Item $statePath -ErrorAction SilentlyContinue
     Remove-Item $temp -Recurse -Force
 }
 
