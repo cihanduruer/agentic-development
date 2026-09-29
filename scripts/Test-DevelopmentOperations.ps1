@@ -106,12 +106,15 @@ $routeBody = @{
 
 $publicRead = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=1"
 Assert-Status -Response $publicRead -Expected 200 -Operation 'Public operations read'
+Write-Output 'Verified public operations read: HTTP 200.'
 
 $anonymousEvent = Invoke-ApiRequest -Method POST -Uri "$api/api/operations/events" -Body $eventBody
 Assert-Status -Response $anonymousEvent -Expected 401 -Operation 'Anonymous operations ingestion'
+Write-Output 'Verified anonymous operations ingestion rejection: HTTP 401.'
 
 $anonymousRoute = Invoke-ApiRequest -Method POST -Uri "$api/api/orchestration/route" -Body $routeBody
 Assert-Status -Response $anonymousRoute -Expected 401 -Operation 'Anonymous orchestration routing'
+Write-Output 'Verified anonymous orchestration routing rejection: HTTP 401.'
 
 $token = az account get-access-token `
     --resource $Audience `
@@ -133,6 +136,7 @@ $authorizedEvent = Invoke-ApiRequest `
     -Body $eventBody `
     -Headers $authorizedHeaders
 Assert-Status -Response $authorizedEvent -Expected 201 -Operation 'Authorized operations ingestion'
+Write-Output "Verified OIDC-authorized operations ingestion: HTTP 201 for '$correlationId'."
 $token = $null
 $authorizedHeaders.Clear()
 
@@ -152,6 +156,7 @@ az rest `
 if ($LASTEXITCODE -ne 0) {
     throw 'Synchronous development App Service restart failed.'
 }
+Write-Output 'Verified synchronous App Service restart completion.'
 
 $healthy = $false
 $restartDeadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
@@ -183,6 +188,7 @@ while ([DateTimeOffset]::UtcNow -lt $restartDeadline) {
 if (-not $healthy) {
     throw 'Development API did not become healthy within two minutes after restart.'
 }
+Write-Output 'Verified post-restart API health recovery: HTTP 200.'
 
 $persistedResponse = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=500"
 Assert-Status -Response $persistedResponse -Expected 200 -Operation 'Post-restart operations read'
@@ -191,4 +197,5 @@ if (-not ($persistedEvents | Where-Object correlationId -EQ $correlationId)) {
     throw "Authorized event '$correlationId' was not persisted across the App Service restart."
 }
 
-Write-Output "Development operations smoke check passed for correlation '$correlationId'."
+Write-Output "Verified post-restart event persistence for correlation '$correlationId'."
+Write-Output 'Development operations smoke check passed.'
