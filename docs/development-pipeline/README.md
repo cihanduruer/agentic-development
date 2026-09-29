@@ -155,6 +155,8 @@ Outside Development, `POST /api/operations/events` and `POST /api/orchestration/
 
 With GitHub's Copilot cloud-agent workflow approval setting enabled, a Copilot-authored pull request can receive an intentional zero-job `action_required` run. A maintainer can approve it from the merge box or manually dispatch `PR validation` from `main` with the pull request number and exact full head SHA. Manual validation executes the trusted default-branch workflow definition, verifies the live PR repository, open state, `main` base, and exact head SHA, checks out only that commit, and asserts `git rev-parse HEAD` before producing provenance; it does not use `pull_request_target`. Pull-request-triggered validation remains useful CI but is not accepted as trusted downstream QA provenance because its workflow definition is PR-modifiable. Independent QA therefore requires the successful `main` dispatch artifact named for the exact SHA. Repository administrators may disable the Copilot-specific approval setting when policy permits, but automation never changes it.
 
+Freeze the final pull-request title and body before requesting QA because their metadata digest binds the QA evidence to the reviewed declaration. Post run and artifact links as pull-request comments rather than changing that metadata. Any metadata or source change requires fresh exact-head validation, review, and digest-bound QA evidence.
+
 No proof means no completion. A change is not ready to merge without acceptance evidence, required output locations, test results, review status, knowledge updates, citations, unresolved gaps, and security or deployment impact.
 
 ## Copilot review gate
@@ -167,7 +169,7 @@ Repository settings should require `PR validation / validate`, `Hotel code revie
 
 ## Release proposal and production
 
-A successful `QA evidence` run for `main` triggers `.github/workflows/release-proposal.yml`. It publishes API and web packages once, records the exact source commit and QA run, creates SHA-256 checksums, and uploads `release-<commit>` for 90 days. This is evidence, not deployment.
+A successful digest-bound `QA evidence` run for `main` triggers `.github/workflows/release-proposal.yml`. It publishes API and web packages once, records the exact source commit, QA run, and metadata digest, creates SHA-256 checksums, and uploads `release-<commit>` for 90 days. This is evidence, not deployment. Every new promotion requires fresh digest-bound QA and release artifacts; pre-digest artifacts are read-only historical proof and cannot authorize a new production promotion.
 
 Production uses `.github/workflows/deploy-production.yml` and can run only through `workflow_dispatch`. The operator supplies the release workflow run ID, its full commit SHA, and the exact text `DEPLOY-PRODUCTION`. A preflight job verifies the successful `main` release proposal, commit ancestry, checksums, QA artifact, and PR validation before a one-day verified artifact crosses into the separate `production` environment job. The precreated `agentic-hotelbookingprod` resource group is the deployment boundary: Azure CLI deploys `infra/resource-group.bicep` with `infra/production.parameters.json`, so the GitHub service principal needs Contributor and Role Based Access Control Administrator only on that resource group, not the subscription. The OIDC-authenticated Azure CLI obtains and masks the Static Web Apps token after infrastructure exists; no pre-existing token secret is required.
 
