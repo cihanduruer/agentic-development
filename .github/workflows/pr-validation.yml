@@ -56,7 +56,25 @@ jobs:
           }
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checked-out target commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number || github.event.pull_request.number }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $checkedOutSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOutSha -ne $env:TARGET_SHA) {
+            throw "Checked out commit '$checkedOutSha' does not match target '$env:TARGET_SHA'."
+          }
+
+          if ("${{ github.event_name }}" -in @('pull_request', 'workflow_dispatch')) {
+            $pullRequest = gh api "repos/${{ github.repository }}/pulls/$env:PR_NUMBER" | ConvertFrom-Json
+            if ($pullRequest.state -ne "open" -or $pullRequest.head.sha -ne $env:TARGET_SHA) {
+              throw "Pull request #$env:PR_NUMBER no longer has target head '$env:TARGET_SHA'."
+            }
+          }
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -91,6 +109,7 @@ jobs:
             workflow = 'pr-validation.yml'
             event = '${{ github.event_name }}'
             targetSha = $env:TARGET_SHA
+            checkedOutSha = (git rev-parse HEAD).Trim()
             runId = '${{ github.run_id }}'
           } | ConvertTo-Json | Set-Content ValidationEvidence/validation.json
       - name: Upload validation provenance

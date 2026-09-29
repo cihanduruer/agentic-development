@@ -145,29 +145,24 @@ jobs:
                 });
                 const candidates = runs.data.workflow_runs.filter(candidate =>
                   candidate.path === '.github/workflows/pr-validation.yml'
-                  && candidate.conclusion === 'success');
-                validation = candidates.find(candidate =>
-                  candidate.event === 'pull_request' && candidate.head_sha === sourceSha);
-
-                if (!validation) {
-                  for (const candidate of candidates.filter(candidate =>
-                    candidate.event === 'workflow_dispatch'
-                    && candidate.head_branch === 'main')) {
-                    const artifacts = await github.paginate(
-                      github.rest.actions.listWorkflowRunArtifacts,
-                      {
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        run_id: candidate.id,
-                        per_page: 100
-                      }
-                    );
-                    if (artifacts.some(artifact =>
-                      artifact.name === `pr-validation-evidence-${sourceSha}`
-                      && !artifact.expired)) {
-                      validation = candidate;
-                      break;
+                  && candidate.conclusion === 'success'
+                  && candidate.event === 'workflow_dispatch'
+                  && candidate.head_branch === 'main');
+                for (const candidate of candidates) {
+                  const artifacts = await github.paginate(
+                    github.rest.actions.listWorkflowRunArtifacts,
+                    {
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      run_id: candidate.id,
+                      per_page: 100
                     }
+                  );
+                  if (artifacts.some(artifact =>
+                    artifact.name === `pr-validation-evidence-${sourceSha}`
+                    && !artifact.expired)) {
+                    validation = candidate;
+                    break;
                   }
                 }
                 if (validation) {
