@@ -62,6 +62,9 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh
         run: ./scripts/Test-Start-AgenticWork.ps1
+      - name: Test QA evidence script
+        shell: pwsh
+        run: ./scripts/Test-New-QaEvidence.ps1
       - name: Format
         run: dotnet format --verify-no-changes --no-restore
       - name: Build
