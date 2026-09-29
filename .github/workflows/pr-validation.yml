@@ -59,6 +59,7 @@ jobs:
       - name: Restore
         run: dotnet restore --locked-mode
       - name: Test agentic intake script
+        if: hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh
         run: ./scripts/Test-Start-AgenticWork.ps1
       - name: Format

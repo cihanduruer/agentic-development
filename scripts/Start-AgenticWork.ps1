@@ -110,7 +110,7 @@ function Get-RepositoryIssues {
     $page = 1
 
     do {
-        $batch = @(Invoke-GitHubRest -Method Get -Uri "https://api.github.com/repos/$Repository/issues?state=all&labels=azure-boards&per_page=100&page=$page")
+        $batch = @(Invoke-GitHubRest -Method Get -Uri "https://api.github.com/repos/$Repository/issues?state=all&per_page=100&page=$page")
         foreach ($issue in $batch) {
             $issues.Add($issue)
         }

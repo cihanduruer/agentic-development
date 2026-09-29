@@ -48,16 +48,18 @@ Azure Boards deliberately tracks hotel-product work only. Platform automation an
 
 ## Agentic intake
 
-The `.github/workflows/agentic-intake.yml` workflow runs every five minutes and can also be dispatched manually.
+The `.github/workflows/agentic-intake.yml` workflow runs every five minutes and can also be dispatched manually. Manual dispatch requires one Azure Boards ID and processes only that item, which makes partial-failure recovery targeted.
 
 1. GitHub Actions signs in to Azure through workload identity federation.
 2. `scripts/Start-AgenticWork.ps1` obtains an Azure DevOps access token.
 3. It queries `sample-project` for New User Stories and Bugs without the `github-synced` tag.
-4. It creates a linked GitHub issue containing the requirement and agent operating contract.
-5. It assigns `copilot-swe-agent` with the `hotel-developer` custom-agent profile.
-6. It moves the Azure Boards item to Active, adds `github-synced`, and records the GitHub link.
+4. It searches all repository issues for the unique `AB#<id>` title or canonical Azure Boards link and reuses that issue; multiple matches fail closed.
+5. If no issue exists, it creates one containing the requirement and agent operating contract.
+6. It assigns `copilot-swe-agent` with the `hotel-developer` custom-agent profile through GitHub's public-preview issues REST API. `COPILOT_AGENT_TOKEN` is a GitHub user token, not the workflow `GITHUB_TOKEN`.
+7. It validates the stable Copilot bot identity or a documented Copilot login projection.
+8. Only after assignment succeeds, it moves a New Azure Boards item to Active, adds `github-synced`, and records the GitHub link.
 
-The tag and work-item revision test make dispatch idempotent and protect against concurrent updates.
+The AB reference, tag, existing-link check, and work-item revision test make retries idempotent and protect against duplicates and concurrent updates.
 
 ## Agent roles and coordination
 
@@ -139,10 +141,13 @@ Outside Development, `POST /api/operations/events` and `POST /api/orchestration/
 `.github/workflows/pr-validation.yml` runs for every pull request and every push to `main`:
 
 1. Restore NuGet packages in locked mode.
-2. Verify formatting without changing files.
-3. Build the complete .NET solution.
-4. Run unit and integration tests and upload TRX results.
-5. Compile the subscription-scope Bicep entry point.
+2. Run the dependency-free intake response and idempotency harness.
+3. Verify formatting without changing files.
+4. Build the complete .NET solution.
+5. Run unit and integration tests and upload TRX results.
+6. Compile the subscription-scope Bicep entry point.
+
+With GitHub's Copilot cloud-agent workflow approval setting enabled, a Copilot-authored pull request can receive an intentional zero-job `action_required` run. A maintainer can approve it from the merge box or manually dispatch `PR validation` with the pull request number and exact full head SHA. Manual validation verifies the live PR repository, `main` base, and exact head SHA before executing that commit; it does not use `pull_request_target`. Repository administrators may disable the Copilot-specific approval setting when policy permits, but automation never changes it.
 
 No proof means no completion. A change is not ready to merge without acceptance evidence, required output locations, test results, review status, knowledge updates, citations, unresolved gaps, and security or deployment impact.
 
