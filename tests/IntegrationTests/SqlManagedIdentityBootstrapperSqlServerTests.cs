@@ -129,6 +129,35 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
     }
 
     [SqlServerTheory]
+    [InlineData("name")]
+    [InlineData("sid")]
+    [InlineData("type")]
+    [InlineData("authentication")]
+    public async Task ExistingApiPrincipalIdentityMismatchFailsClosed(
+        string mutation)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrapCommand(
+                        connection,
+                        mutation == "sid" ? Guid.NewGuid() : principalObjectId,
+                        SqlManagedIdentityBootstrap.CommandText,
+                        mutation == "name" ? "unexpected-api" : PrincipalName,
+                        mutation == "type" ? "E" : "S",
+                        mutation == "authentication" ? "EXTERNAL" : "INSTANCE"));
+
+                Assert.Equal(51007, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoles(connection));
+            });
+    }
+
+    [SqlServerTheory]
     [MemberData(nameof(DelegatedRuntimeRolePermissionStates))]
     public async Task DelegatedRuntimeRolePermissionFailsClosed(
         string permissionName,
@@ -306,14 +335,17 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
     private static async Task ExecuteBootstrapCommand(
         SqlConnection connection,
         Guid principalObjectId,
-        string commandText)
+        string commandText,
+        string principalName = PrincipalName,
+        string principalType = "S",
+        string authenticationType = "INSTANCE")
     {
         await using var command = connection.CreateCommand();
         command.CommandText = commandText;
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalName", SqlDbType.NVarChar, 128)
             {
-                Value = PrincipalName,
+                Value = principalName,
             });
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
@@ -323,12 +355,12 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
             {
-                Value = "S",
+                Value = principalType,
             });
         command.Parameters.Add(
             new SqlParameter("@apiAuthenticationType", SqlDbType.NVarChar, 60)
             {
-                Value = "INSTANCE",
+                Value = authenticationType,
             });
         await command.ExecuteNonQueryAsync();
     }

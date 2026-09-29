@@ -111,6 +111,19 @@ $mutations = @(
                     'owning_principal_id IS NULL AND owning_principal_id <> @DboPrincipalId'
             }
         )
+    },
+    @{
+        Name = 'semantically-bypass-api-identity-check'
+        TestProject = $integrationTestProject
+        Filter =
+            'FullyQualifiedName~ExistingApiPrincipalIdentityMismatchFailsClosed'
+        Replacements = @(
+            @{
+                Pattern =
+                    "(            IF )\((\r?\n                SELECT COUNT_BIG\(\*\)\r?\n                FROM sys\.database_principals)"
+                Value = '$1 1 = 0 AND ($2'
+            }
+        )
     }
 )
 

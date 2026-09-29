@@ -31,6 +31,10 @@ $expectedNames = @(
     "${testClassPrefix}DelegatedRuntimeRolePermissionFailsClosed(permissionName: `"TAKE OWNERSHIP`", state: `"W`", granteeType: `"role`")"
     "${testClassPrefix}IndirectApiMembershipDoesNotSatisfyDirectMembershipContract"
     "${testClassPrefix}FailureImmediatelyBeforeCommitRollsBackEveryMutation"
+    "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"name`")"
+    "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"sid`")"
+    "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"type`")"
+    "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"authentication`")"
 )
 
 function New-CaseSet {
@@ -101,9 +105,9 @@ function New-TestTrx {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 23,
-        [int] $Executed = 23,
-        [int] $Passed = 23,
+        [int] $Total = 27,
+        [int] $Executed = 27,
+        [int] $Passed = 27,
         [int] $NotExecuted = 0
     )
 
@@ -176,9 +180,9 @@ function Assert-Rejected {
     param(
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 23,
-        [int] $Executed = 23,
-        [int] $Passed = 23,
+        [int] $Total = 27,
+        [int] $Executed = 27,
+        [int] $Passed = 27,
         [int] $NotExecuted = 0
     )
 
@@ -233,7 +237,7 @@ try {
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases | ForEach-Object { $_.Outcome = 'NotExecuted' }
-    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 23
+    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 27
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases[10].ResultName = $cases[9].ResultName
