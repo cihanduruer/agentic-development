@@ -35,7 +35,12 @@ $deployment = [pscustomobject]@{
 $pull = [pscustomobject]@{
     number = 6
     title = "AB#959: Show total stay price"
-    body = "Evidence for AB#959."
+    body = @"
+- Azure Boards: AB#959
+- Platform change: false
+
+Evidence for AB#959.
+"@
     merged_at = "2026-09-29T08:00:00Z"
     merge_commit_sha = $deployedSha
     html_url = "https://github.com/$repository/pull/6"
@@ -103,12 +108,12 @@ Assert-True ($evidence.WorkItemId -eq 959) "The trusted AB#959 evidence should r
 Assert-True (
     @(Get-PullRequestAbIds `
         -Title "Document the pipeline" `
-        -Body "Historical example: AB#959").Count -eq 0
+        -Body "- Platform change: true`nHistorical example: AB#959").Count -eq 0
 ) "Incidental PR body references must not become delivery identity."
 Assert-True (
     @(Get-PullRequestAbIds `
         -Title "Deliver pricing" `
-        -Body "- Azure Boards: AB#959").Count -eq 1
+        -Body "- Azure Boards: AB#959`n- Platform change: false").Count -eq 1
 ) "The explicit Azure Boards tracking field should provide delivery identity."
 
 $laterReviewRun = $reviewRun.PSObject.Copy()
@@ -173,7 +178,9 @@ $conflictingIdentityPull.body = @"
 $conflictingIdentityArguments = $arguments.Clone()
 $conflictingIdentityArguments.PullRequests = @($conflictingIdentityPull)
 $conflictingValues = @(
-    Get-PullRequestAzureBoardsValues -Body $conflictingIdentityPull.body
+    Get-PullRequestFieldValues `
+        -Body $conflictingIdentityPull.body `
+        -Field 'Azure Boards'
 )
 Assert-True (
     @($conflictingValues | Where-Object {
@@ -181,13 +188,29 @@ Assert-True (
     }).Count -eq 1
 ) "The conflict fixture should declare Azure Boards N/A."
 Assert-True (
-    @(Get-PullRequestAbIds `
-        -Title $conflictingIdentityPull.title `
-        -Body $conflictingIdentityPull.body).Count -eq 1
+    @(Get-AbIds -Text $conflictingIdentityPull.body).Count -eq 1
 ) "The conflict fixture should declare one explicit AB identity."
 Assert-Throws {
     Resolve-LifecycleEvidence @conflictingIdentityArguments
 } "conflicting Azure Boards N/A and AB identity declarations"
+
+$contradictoryPlatformPull = $pull.PSObject.Copy()
+$contradictoryPlatformPull.title = "Platform delivery"
+$contradictoryPlatformPull.body = @"
+- Azure Boards: N/A
+- Platform change: false
+- Platform change: true
+"@
+$contradictoryPlatformArguments = $arguments.Clone()
+$contradictoryPlatformArguments.PullRequests = @($contradictoryPlatformPull)
+Assert-Throws {
+    Resolve-LifecycleEvidence @contradictoryPlatformArguments
+} "contradictory Platform change declarations"
+Assert-Throws {
+    Get-PullRequestAbIds `
+        -Title $contradictoryPlatformPull.title `
+        -Body $contradictoryPlatformPull.body
+} "contradictory Platform change declarations"
 
 $untrackedPull = $pull.PSObject.Copy()
 $untrackedPull.title = "Change delivery behavior"
@@ -291,6 +314,8 @@ function Invoke-GitHubApi {
     }
     if ($Uri -match '/search/issues\?q=') {
         return [pscustomobject]@{
+            total_count = 1
+            incomplete_results = $false
             items = @([pscustomobject]@{ number = 5 })
         }
     }
@@ -315,5 +340,35 @@ $script:pageRequestCount = 0
 $targetedIssues = @(Get-CanonicalIssueCandidates -Repository $repository -Ids @(959))
 Assert-True ($targetedIssues.Count -eq 1) "Targeted AB issue lookup should return search candidates."
 Assert-True ($script:pageRequestCount -eq 1) "AB issue lookup should use one targeted search request."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        incomplete_results = $true
+        items = @([pscustomobject]@{ number = 5 })
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "reported incomplete results"
+Assert-True ($script:pageRequestCount -eq 1) "Incomplete search results must fail on the first page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 2
+        incomplete_results = $false
+        items = @()
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned truncated results"
+Assert-True ($script:pageRequestCount -eq 1) "Truncated search results must fail without pointless paging."
 
 Write-Output "Development lifecycle synchronization tests passed."

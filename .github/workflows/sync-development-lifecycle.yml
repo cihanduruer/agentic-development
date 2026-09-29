@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/sync-development-lifecycle.yml'
+      - 'scripts/PullRequestClassification.ps1'
       - 'scripts/Sync-DevelopmentLifecycle.ps1'
       - 'scripts/Test-Sync-DevelopmentLifecycle.ps1'
   workflow_run:

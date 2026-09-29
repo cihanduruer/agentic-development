@@ -27,8 +27,9 @@ function Invoke-Evidence {
         [Parameter(Mandatory)]
         [string] $CaseName,
 
-        [ValidateSet('true', 'false')]
-        [string] $ProductChange = 'true',
+        [string] $Title = 'AB#999 evidence change',
+
+        [string[]] $ChangedFiles = @('src/Api/Program.cs'),
 
         [string] $Counters = 'total="2" executed="2" passed="2" failed="0"'
     )
@@ -38,6 +39,7 @@ function Invoke-Evidence {
     $outputPath = Join-Path $casePath 'QaEvidence'
     New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
     $body | Set-Content (Join-Path $casePath 'body.md')
+    $ChangedFiles | Set-Content (Join-Path $casePath 'changed-files.txt')
     @"
 <?xml version="1.0" encoding="utf-8"?>
 <TestRun>
@@ -51,13 +53,13 @@ function Invoke-Evidence {
     try {
         & "$PSScriptRoot/New-QaEvidence.ps1" `
             -PullRequestNumber 9 `
-            -PullRequestTitle 'AB#999 evidence change' `
+            -PullRequestTitle $Title `
             -PullRequestBodyPath (Join-Path $casePath 'body.md') `
             -HeadSha 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' `
             -TrustedKnowledgeRevision 'dddddddddddddddddddddddddddddddddddddddd' `
             -TestResultsPath $resultsPath `
             -OutputDirectory $outputPath `
-            -ProductChange $ProductChange
+            -ChangedFilesPath (Join-Path $casePath 'changed-files.txt')
     }
     catch {
         $failure = $_
@@ -73,6 +75,11 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) "New-QaEvidence-$([guid]::NewGu
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $valid = Invoke-Evidence -CaseName 'valid' -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: false
+
 ## Acceptance criteria evidence
 
 - [x] QA policy records cited evidence.
@@ -91,6 +98,11 @@ try {
     Assert-Equal $valid.Result.trustedKnowledgeRevision 'dddddddddddddddddddddddddddddddddddddddd' 'The trusted revision should be preserved separately.'
 
     $placeholder = Invoke-Evidence -CaseName 'placeholder' -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: false
+
 ## Acceptance criteria evidence
 
 - [x] Criterion and evidence location
@@ -107,6 +119,11 @@ try {
     Assert-Equal ($null -eq $placeholder.Failure) $false 'Template placeholders must throw.'
 
     $ambiguousRevision = Invoke-Evidence -CaseName 'ambiguous-revision' -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: false
+
 ## Acceptance criteria evidence
 
 - [x] QA policy records cited evidence.
@@ -122,14 +139,67 @@ Compared `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` with `cccccccccccccccccccccc
     Assert-Equal $ambiguousRevision.Result.status 'failed' 'Ambiguous knowledge revisions must fail.'
     Assert-Equal ($null -eq $ambiguousRevision.Failure) $false 'Ambiguous knowledge revisions must throw.'
 
-    $nonProduct = Invoke-Evidence -CaseName 'non-product' -ProductChange false -Body '# Pipeline change'
+    $nonProduct = Invoke-Evidence -CaseName 'non-product' -Title 'Harden platform paths' -Body @'
+## Work tracking
+
+- Azure Boards: N/A
+- Platform change: true
+
+# Pipeline change
+'@
     Assert-Equal $nonProduct.Failure $null 'Non-product evidence should pass without product sections.'
     Assert-Equal $nonProduct.Result.knowledgeRevisionEvidence 'N/A - non-product change.' 'Non-product evidence should record an explicit N/A.'
     Assert-Equal $nonProduct.Result.trustedKnowledgeRevision 'dddddddddddddddddddddddddddddddddddddddd' 'Non-product evidence should retain the trusted revision.'
+    Assert-Equal $nonProduct.Result.classification 'platform' 'Platform src changes should retain truthful platform classification.'
+
+    $missingIdentity = Invoke-Evidence -CaseName 'missing-identity' -Title 'Change product behavior' -Body @'
+## Work tracking
+
+- Platform change: false
+
+## Acceptance criteria evidence
+
+- [x] Product behavior is covered.
+
+## Negative-path evidence
+
+- Missing identity is rejected.
+
+## Knowledge revision
+
+`bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+'@
+    Assert-Equal $missingIdentity.Result.status 'failed' 'Product src changes without AB identity must fail.'
+    Assert-Equal ($null -eq $missingIdentity.Failure) $false 'Missing product identity must throw.'
+
+    $contradictoryPlatform = Invoke-Evidence -CaseName 'contradictory-platform' -Title 'Harden platform paths' -Body @'
+## Work tracking
+
+- Azure Boards: N/A
+- Platform change: false
+- Platform change: true
+'@
+    Assert-Equal $contradictoryPlatform.Result.status 'failed' 'Contradictory platform declarations must fail.'
+    Assert-Equal ($null -eq $contradictoryPlatform.Failure) $false 'Contradictory platform declarations must throw.'
+
+    $conflictingIdentity = Invoke-Evidence -CaseName 'conflicting-identity' -Body @'
+## Work tracking
+
+- Azure Boards: N/A
+- Azure Boards: AB#999
+- Platform change: true
+'@
+    Assert-Equal $conflictingIdentity.Result.status 'failed' 'Azure Boards N/A plus AB identity must fail.'
+    Assert-Equal ($null -eq $conflictingIdentity.Failure) $false 'Conflicting Azure Boards declarations must throw.'
 
     $zeroTests = Invoke-Evidence `
         -CaseName 'zero-tests' `
         -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: false
+
 ## Acceptance criteria evidence
 
 - [x] QA policy records cited evidence.
@@ -149,6 +219,11 @@ Compared `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` with `cccccccccccccccccccccc
     $failedTests = Invoke-Evidence `
         -CaseName 'failed-tests' `
         -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: false
+
 ## Acceptance criteria evidence
 
 - [x] QA policy records cited evidence.
