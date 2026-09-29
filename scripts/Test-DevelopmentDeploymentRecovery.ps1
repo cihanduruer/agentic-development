@@ -79,18 +79,30 @@ try {
                     else {
                         'blocked'
                     }
+                    $actual = $null
+                    $rejected = $false
+                    $rejection = $null
                     try {
                         $actual = & $resolve `
                             -ConfiguredSqlMode $mode `
                             -CatalogReady $catalogReady `
                             -EventName $eventName `
                             -RecoveryConfirmation $confirmation
-                        if ($expected -eq 'blocked' -or $actual -ne $expected) {
-                            throw "Recovery matrix mismatch for $mode/$catalogReady/$eventName/$confirmation."
-                        }
                     }
                     catch {
-                        if ($expected -ne 'blocked') { throw }
+                        $rejected = $true
+                        $rejection = $_
+                    }
+                    if ($expected -eq 'blocked') {
+                        if (-not $rejected) {
+                            throw "Recovery matrix unexpectedly allowed $mode/$catalogReady/$eventName/$confirmation."
+                        }
+                    }
+                    elseif ($rejected) {
+                        throw $rejection
+                    }
+                    elseif ($actual -ne $expected) {
+                        throw "Recovery matrix mismatch for $mode/$catalogReady/$eventName/$confirmation."
                     }
                 }
             }
