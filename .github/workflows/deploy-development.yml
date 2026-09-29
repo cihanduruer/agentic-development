@@ -2,6 +2,11 @@ name: Deploy development
 
 on:
   workflow_dispatch:
+    inputs:
+      legacy_sql_secret_cleanup_confirmation:
+        description: Type DELETE-ACTIVE-LEGACY-SQL-SECRET to remove the active legacy credential after readiness checks
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -129,14 +134,6 @@ jobs:
             }
             "$name=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
-      - name: Remove active legacy SQL administrator credential
-        shell: pwsh
-        run: |
-          ./scripts/Remove-LegacySqlCredential.ps1 `
-            -ResourceGroup agentic-hotelbookingdev `
-            -SqlServerName '${{ steps.infrastructure.outputs.sqlServerName }}' `
-            -ApiAppName '${{ steps.infrastructure.outputs.apiAppName }}' `
-            -LegacyVaultName '${{ steps.infrastructure.outputs.legacyKeyVaultName }}'
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -230,6 +227,20 @@ jobs:
             -TokenAudience $env:OPERATIONS_API_AUDIENCE `
             -ResourceGroup 'agentic-hotelbookingdev' `
             -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
+      - name: Remove approved active legacy SQL administrator credential
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.legacy_sql_secret_cleanup_confirmation == 'DELETE-ACTIVE-LEGACY-SQL-SECRET'
+        shell: pwsh
+        run: |
+          ./scripts/Remove-LegacySqlCredential.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -SqlServerName '${{ steps.infrastructure.outputs.sqlServerName }}' `
+            -ApiAppName '${{ steps.infrastructure.outputs.apiAppName }}' `
+            -LegacyVaultName '${{ steps.infrastructure.outputs.legacyKeyVaultName }}' `
+            -DeploymentPrincipalObjectId '${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}' `
+            -Approved `
+            -RuntimeReadinessVerified
       - name: Remove deployment runner SQL firewall rule
         if: always() && steps.sql-firewall.outcome == 'success'
         run: >-

@@ -28,11 +28,45 @@ $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 
 if ($null -eq $InvokeIndexer) {
     $InvokeIndexer = {
-        param([string[]] $IndexerArguments)
-        $output = & dotnet @IndexerArguments 2>&1
-        [pscustomobject]@{
-            ExitCode = $LASTEXITCODE
-            Output = ($output -join [Environment]::NewLine)
+        param(
+            [string[]] $IndexerArguments,
+            [int] $AttemptTimeoutSeconds
+        )
+
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'dotnet'
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in $IndexerArguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        try {
+            if (-not $process.Start()) {
+                throw 'Unable to start the knowledge indexer process.'
+            }
+            $standardOutput = $process.StandardOutput.ReadToEndAsync()
+            $standardError = $process.StandardError.ReadToEndAsync()
+            $completed = $process.WaitForExit($AttemptTimeoutSeconds * 1000)
+            if (-not $completed) {
+                $process.Kill($true)
+                $process.WaitForExit()
+            }
+            $output = @(
+                $standardOutput.GetAwaiter().GetResult()
+                $standardError.GetAwaiter().GetResult()
+            ) -join [Environment]::NewLine
+            [pscustomobject]@{
+                ExitCode = if ($completed) { $process.ExitCode } else { -1 }
+                Output = $output.Trim()
+                TimedOut = -not $completed
+            }
+        }
+        finally {
+            $process.Dispose()
         }
     }
 }
@@ -54,18 +88,33 @@ $arguments = @(
     '--index', $Index
 )
 
+$lastOutput = ''
 while ($true) {
-    $result = & $InvokeIndexer $arguments
+    $elapsedBeforeAttempt = & $GetElapsedSeconds
+    $remainingSeconds = $MaximumWaitSeconds - $elapsedBeforeAttempt
+    if ($remainingSeconds -le 0) {
+        throw "Knowledge indexing exhausted the ${MaximumWaitSeconds}s Search RBAC propagation deadline. Final indexing error: $lastOutput"
+    }
+
+    $result = & $InvokeIndexer $arguments $remainingSeconds
+    $lastOutput = $result.Output
+    $elapsed = & $GetElapsedSeconds
+    if ($result.TimedOut) {
+        throw "Knowledge indexing exceeded its ${remainingSeconds}s child-process deadline within the ${MaximumWaitSeconds}s Search RBAC propagation budget. Final indexing error: $($result.Output)"
+    }
+    if ($elapsed -gt $MaximumWaitSeconds) {
+        throw "Knowledge indexing exceeded the ${MaximumWaitSeconds}s Search RBAC propagation deadline. Final indexing error: $($result.Output)"
+    }
     if ($result.ExitCode -eq 0) {
         Write-Output $result.Output
         break
     }
 
-    $elapsed = & $GetElapsedSeconds
     if ($elapsed -ge $MaximumWaitSeconds) {
         throw "Knowledge indexing failed after waiting ${elapsed}s for Search RBAC propagation. Final indexing error: $($result.Output)"
     }
 
-    Write-Output "Knowledge indexing is not authorized or available after ${elapsed}s; retrying in ${RetryDelaySeconds}s."
-    & $Sleep $RetryDelaySeconds
+    $sleepSeconds = [Math]::Min($RetryDelaySeconds, $MaximumWaitSeconds - $elapsed)
+    Write-Output "Knowledge indexing is not authorized or available after ${elapsed}s; retrying in ${sleepSeconds}s."
+    & $Sleep $sleepSeconds
 }

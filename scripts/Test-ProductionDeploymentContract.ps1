@@ -46,6 +46,37 @@ try {
     catch {
         if ($_.Exception.Message -notmatch 'older than') { throw }
     }
+
+    foreach ($invalidValue in @('true', '"1"', '1.0')) {
+        @"
+{"schemaVersion":$invalidValue,"name":"entra-sql-managed-identity","version":1}
+"@ | Set-Content (Join-Path $temp 'deployment-contract.json')
+        try {
+            & $scriptPath -ReleaseDirectory $temp
+            throw "A deployment contract with invalid schema type '$invalidValue' was accepted."
+        }
+        catch {
+            if ($_.Exception.Message -notmatch 'older than') { throw }
+        }
+    }
+
+    @{
+        schemaVersion = 1
+        name = 'entra-sql-managed-identity'
+        version = 1
+    } | ConvertTo-Json | Set-Content (Join-Path $temp 'deployment-contract.json')
+    foreach ($invalidValue in @('true', '"1"', '1.0')) {
+        @"
+{"schemaVersion":2,"deploymentContract":"entra-sql-managed-identity","deploymentContractVersion":$invalidValue}
+"@ | Set-Content (Join-Path $temp 'release-evidence.json')
+        try {
+            & $scriptPath -ReleaseDirectory $temp
+            throw "Release evidence with invalid contract-version type '$invalidValue' was accepted."
+        }
+        catch {
+            if ($_.Exception.Message -notmatch 'older than') { throw }
+        }
+    }
 }
 finally {
     Remove-Item $temp -Recurse -Force

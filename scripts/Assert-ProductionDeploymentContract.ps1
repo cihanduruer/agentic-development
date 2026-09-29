@@ -18,11 +18,24 @@ catch {
     throw "Release deployment-contract metadata is malformed: $($_.Exception.Message)"
 }
 
-if ($contract.schemaVersion -ne 1 -or
-    $contract.name -ne 'entra-sql-managed-identity' -or
-    $contract.version -ne 1 -or
-    $evidence.schemaVersion -ne 2 -or
-    $evidence.deploymentContract -ne $contract.name -or
+$contractSchemaIsInteger =
+    $contract.schemaVersion -is [int] -or $contract.schemaVersion -is [long]
+$contractVersionIsInteger =
+    $contract.version -is [int] -or $contract.version -is [long]
+$evidenceSchemaIsInteger =
+    $evidence.schemaVersion -is [int] -or $evidence.schemaVersion -is [long]
+$evidenceVersionIsInteger =
+    $evidence.deploymentContractVersion -is [int] -or
+    $evidence.deploymentContractVersion -is [long]
+
+if (-not $contractSchemaIsInteger -or $contract.schemaVersion -ne 1 -or
+    $contract.name -isnot [string] -or
+    $contract.name -cne 'entra-sql-managed-identity' -or
+    -not $contractVersionIsInteger -or $contract.version -ne 1 -or
+    -not $evidenceSchemaIsInteger -or $evidence.schemaVersion -ne 2 -or
+    $evidence.deploymentContract -isnot [string] -or
+    $evidence.deploymentContract -cne $contract.name -or
+    -not $evidenceVersionIsInteger -or
     $evidence.deploymentContractVersion -ne $contract.version) {
     throw 'Release artifact is older than the required production deployment contract.'
 }

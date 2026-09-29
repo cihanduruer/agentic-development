@@ -12,16 +12,25 @@ if ($command -match 'appsettings list') {
     'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
     exit 0
 }
-if ($command -match 'keyvault list') { '1'; exit 0 }
-if ($command -match 'resource show') {
-    if (Test-Path $global:MockSecretStatePath) { 'ResourceNotFound'; exit 1 }
-    '/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-kv/secrets/sql-connection-string'
+if ($command -match 'keyvault list') {
+    '/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-kv'
     exit 0
 }
-if ($command -match 'resource delete') {
+if ($command -match 'role assignment list') { '0'; exit 0 }
+if ($command -match 'role assignment create') {
+    '/subscriptions/test/providers/Microsoft.Authorization/roleAssignments/test'
+    exit 0
+}
+if ($command -match 'keyvault secret list-versions') {
+    if (Test-Path $global:MockSecretStatePath) { 'SecretNotFound'; exit 1 }
+    '1'
+    exit 0
+}
+if ($command -match 'keyvault secret delete') {
     New-Item -ItemType File -Path $global:MockSecretStatePath -Force | Out-Null
     exit 0
 }
+if ($command -match 'role assignment delete') { exit 0 }
 exit 1
 '@ | Set-Content $azPath
 
@@ -33,11 +42,40 @@ exit 1
         & $global:MockAzPath @args
     }
 
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -SqlServerName test-sql `
+            -ApiAppName test-api `
+            -LegacyVaultName test-kv `
+            -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d'
+        throw 'Cleanup ran without explicit human approval.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'Explicit human approval') { throw }
+    }
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -SqlServerName test-sql `
+            -ApiAppName test-api `
+            -LegacyVaultName test-kv `
+            -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+            -Approved
+        throw 'Cleanup ran without runtime readiness proof.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'Runtime readiness') { throw }
+    }
+
     & $scriptPath `
         -ResourceGroup test-rg `
         -SqlServerName test-sql `
         -ApiAppName test-api `
-        -LegacyVaultName test-kv
+        -LegacyVaultName test-kv `
+        -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+        -Approved `
+        -RuntimeReadinessVerified
     if (-not (Test-Path $statePath)) {
         throw 'The exact legacy secret was not deleted.'
     }
@@ -49,14 +87,17 @@ if ($command -match 'appsettings list') {
     'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
     exit 0
 }
-if ($command -match 'keyvault list') { '0'; exit 0 }
+if ($command -match 'keyvault list') { ''; exit 0 }
 exit 1
 '@ | Set-Content $azPath
     & $scriptPath `
         -ResourceGroup test-rg `
         -SqlServerName test-sql `
         -ApiAppName test-api `
-        -LegacyVaultName test-kv
+        -LegacyVaultName test-kv `
+        -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+        -Approved `
+        -RuntimeReadinessVerified
 
     @'
 $command = $args -join ' '
@@ -72,7 +113,10 @@ exit 1
             -ResourceGroup test-rg `
             -SqlServerName test-sql `
             -ApiAppName test-api `
-            -LegacyVaultName test-kv
+            -LegacyVaultName test-kv `
+            -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+            -Approved `
+            -RuntimeReadinessVerified
         throw 'A password-bearing runtime connection was accepted.'
     }
     catch {
@@ -88,8 +132,17 @@ if ($command -match 'appsettings list') {
     'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
     exit 0
 }
-if ($command -match 'keyvault list') { '1'; exit 0 }
-if ($command -match 'resource show') { 'ForbiddenByRbac'; exit 1 }
+if ($command -match 'keyvault list') {
+    '/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-kv'
+    exit 0
+}
+if ($command -match 'role assignment list') { '0'; exit 0 }
+if ($command -match 'role assignment create') {
+    '/subscriptions/test/providers/Microsoft.Authorization/roleAssignments/test'
+    exit 0
+}
+if ($command -match 'keyvault secret list-versions') { 'ForbiddenByRbac'; exit 1 }
+if ($command -match 'role assignment delete') { exit 0 }
 exit 1
 '@ | Set-Content $azPath
     try {
@@ -97,7 +150,11 @@ exit 1
             -ResourceGroup test-rg `
             -SqlServerName test-sql `
             -ApiAppName test-api `
-            -LegacyVaultName test-kv
+            -LegacyVaultName test-kv `
+            -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+            -Approved `
+            -RuntimeReadinessVerified `
+            -AuthorizationRetryCount 1
         throw 'Inaccessible secret state was incorrectly treated as absence.'
     }
     catch {
@@ -116,7 +173,10 @@ exit 1
             -ResourceGroup test-rg `
             -SqlServerName test-sql `
             -ApiAppName test-api `
-            -LegacyVaultName test-kv
+            -LegacyVaultName test-kv `
+            -DeploymentPrincipalObjectId '96a52cf4-fec7-4b1d-8a61-1b507a34d29d' `
+            -Approved `
+            -RuntimeReadinessVerified
         throw 'Cleanup unexpectedly ran before Entra-only SQL was verified.'
     }
     catch {
