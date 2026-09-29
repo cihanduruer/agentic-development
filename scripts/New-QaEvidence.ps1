@@ -14,10 +14,6 @@ param(
     [string] $HeadSha,
 
     [Parameter(Mandatory)]
-    [ValidatePattern('^[0-9a-f]{40}$')]
-    [string] $KnowledgeRevision,
-
-    [Parameter(Mandatory)]
     [string] $TestResultsPath,
 
     [Parameter(Mandatory)]
@@ -52,6 +48,7 @@ function Get-MarkdownSection {
 $acceptanceEvidence = Get-MarkdownSection 'Acceptance criteria evidence'
 $negativeEvidence = Get-MarkdownSection 'Negative-path evidence'
 $knowledgeEvidence = Get-MarkdownSection 'Knowledge revision'
+$knowledgeRevision = $null
 
 if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
     $acceptanceEvidence -notmatch '(?im)^\s*-\s*\[[xX]\]\s+\S') {
@@ -60,15 +57,26 @@ if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
 if ($acceptanceEvidence -match '(?im)^\s*-\s*\[\s\]\s+\S') {
     $failures.Add('Every listed acceptance criterion must be completed before QA can pass.')
 }
+if ($acceptanceEvidence -match '(?im)^\s*-\s*\[[xX]\]\s+Criterion and evidence location\s*$') {
+    $failures.Add('Acceptance criteria evidence must replace the pull request template placeholder.')
+}
 
 if ([string]::IsNullOrWhiteSpace($negativeEvidence) -or
     $negativeEvidence -notmatch '(?im)^\s*-\s+\S') {
     $failures.Add('Negative-path evidence must identify at least one negative path and its evidence.')
 }
+if ($negativeEvidence -match '(?im)^\s*-\s+Negative path and test or other evidence\s*$') {
+    $failures.Add('Negative-path evidence must replace the pull request template placeholder.')
+}
 
-if ([string]::IsNullOrWhiteSpace($knowledgeEvidence) -or
-    $knowledgeEvidence -notmatch '(?i)\b[0-9a-f]{40}\b') {
-    $failures.Add('Knowledge revision must contain the full commit SHA used for grounding.')
+if (-not [string]::IsNullOrWhiteSpace($knowledgeEvidence)) {
+    $knowledgeMatches = [Regex]::Matches($knowledgeEvidence, '(?i)\b[0-9a-f]{40}\b')
+    if ($knowledgeMatches.Count -eq 1) {
+        $knowledgeRevision = $knowledgeMatches[0].Value.ToLowerInvariant()
+    }
+}
+if ($null -eq $knowledgeRevision) {
+    $failures.Add('Knowledge revision must contain exactly one full commit SHA used for grounding.')
 }
 
 if ($ProductChange -eq 'true' -and "$PullRequestTitle`n$body" -notmatch '\bAB#\d+\b') {
@@ -93,11 +101,12 @@ $testRuns = foreach ($trxFile in $trxFiles) {
 }
 
 if (@($testRuns).Count -gt 0) {
-    if (($testRuns | Measure-Object total -Sum).Sum -eq 0) {
+    if (($testRuns | Measure-Object executed -Sum).Sum -eq 0) {
         $failures.Add('The QA test run executed zero tests.')
     }
-    if (($testRuns | Measure-Object failed -Sum).Sum -gt 0) {
-        $failures.Add('One or more QA tests failed.')
+    if (($testRuns | Measure-Object passed -Sum).Sum -ne
+        ($testRuns | Measure-Object total -Sum).Sum) {
+        $failures.Add('Every discovered QA test must pass.')
     }
 }
 
@@ -107,7 +116,7 @@ $result = [ordered]@{
     status = $status
     pullRequest = $PullRequestNumber
     headSha = $HeadSha
-    knowledgeRevision = $KnowledgeRevision
+    knowledgeRevision = $knowledgeRevision
     agent = [ordered]@{
         profile = 'hotel-qa'
         execution = 'not-run'
@@ -129,7 +138,7 @@ $summary = @(
     "- Result: **$status**"
     "- Pull request: #$PullRequestNumber"
     "- Commit: ``$HeadSha``"
-    "- Knowledge revision: ``$KnowledgeRevision``"
+    "- Knowledge revision: ``$knowledgeRevision``"
     '- Custom agent execution: **not run**'
     ''
     'The workflow applied the `hotel-qa` evidence contract but did not invoke or impersonate the custom agent.'

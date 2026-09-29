@@ -116,7 +116,7 @@ jobs:
             "- QA evidence: https://github.com/$env:REPOSITORY/actions/runs/$env:QA_RUN_ID"
             '- Production deployment: not started'
             ''
-            'This artifact is a proposal only. Production requires manual workflow dispatch, typed confirmation, immutable run and commit verification, and the protected `production` environment.'
+            'This artifact is a proposal only. Production requires manual workflow dispatch, typed confirmation, immutable run and commit verification, and the `production` environment.'
           ) | Set-Content release/release-proposal.md
           Get-ChildItem release -File |
             Where-Object Name -ne 'checksums.sha256' |

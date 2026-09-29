@@ -19,17 +19,15 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
 
 concurrency:
   group: production
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Promote verified artifact
+  verify:
+    name: Verify release evidence
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Validate manual authorization and immutable source
         id: verify
@@ -177,6 +175,35 @@ jobs:
             if (!validation) {
               core.setFailed('PR validation evidence is not successful for the selected commit.');
             }
+
+      - name: Preserve verified release
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-release-${{ github.run_id }}
+          path: release
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Promote verified artifact
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Download verified release
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-release-${{ github.run_id }}
+          path: release
 
       - uses: azure/login@v2
         with:

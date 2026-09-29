@@ -6,7 +6,7 @@
 4. Review database migration impact, operational risks, rollback plan, and the Azure what-if result when available.
 5. In Actions, choose `Deploy production` on `main` and select **Run workflow**.
 6. Enter the recorded release run ID and full commit SHA, type `DEPLOY-PRODUCTION`, and submit. Never substitute a branch name, tag, latest-run lookup, or rebuilt package.
-7. The workflow verifies the immutable selection and checksums before authenticating to Azure, deploys the separate production parameters/resource group, and promotes the API and web artifacts without rebuilding.
+7. The preflight job verifies the immutable selection, checksums, QA run, and PR-validation result before the separate deployment job enters the `production` environment or authenticates to Azure. The deployment job uses the separate production parameters/resource group and promotes the API and web artifacts without rebuilding.
 8. Run health, booking, telemetry, and dashboard smoke tests.
 9. On failure, stop promotion, redeploy a previously verified release artifact through the same manual workflow, and update the Azure Boards item with evidence.
 10. Mark work Released only after successful smoke tests and telemetry verification.
