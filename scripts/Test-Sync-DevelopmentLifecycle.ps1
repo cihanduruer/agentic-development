@@ -35,7 +35,12 @@ $deployment = [pscustomobject]@{
 $pull = [pscustomobject]@{
     number = 6
     title = "AB#959: Show total stay price"
-    body = "Evidence for AB#959."
+    body = @"
+- Azure Boards: AB#959
+- Platform change: false
+
+Evidence for AB#959.
+"@
     merged_at = "2026-09-29T08:00:00Z"
     merge_commit_sha = $deployedSha
     html_url = "https://github.com/$repository/pull/6"
@@ -48,7 +53,9 @@ $pull = [pscustomobject]@{
         repo = [pscustomobject]@{ full_name = $repository }
     }
 }
+$metadataDigest = Get-PullRequestMetadataDigest -Title $pull.title -Body $pull.body
 $issue = [pscustomobject]@{
+    id = 500
     number = 5
     title = "[AB#959] Show total stay price"
     body = "Azure Boards work item: [AB#959](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/959)"
@@ -69,7 +76,10 @@ $qa = [pscustomobject]@{
     head_sha = "c" * 40
     created_at = "2026-09-29T08:02:00Z"
     html_url = "https://github.com/$repository/actions/runs/102"
-    artifacts = @([pscustomobject]@{ name = "qa-evidence-$deployedSha"; expired = $false })
+    artifacts = @([pscustomobject]@{
+        name = "qa-evidence-$deployedSha-$metadataDigest"
+        expired = $false
+    })
 }
 $reviewRun = [pscustomobject]@{
     conclusion = "success"
@@ -103,12 +113,12 @@ Assert-True ($evidence.WorkItemId -eq 959) "The trusted AB#959 evidence should r
 Assert-True (
     @(Get-PullRequestAbIds `
         -Title "Document the pipeline" `
-        -Body "Historical example: AB#959").Count -eq 0
+        -Body "- Platform change: true`nHistorical example: AB#959").Count -eq 0
 ) "Incidental PR body references must not become delivery identity."
 Assert-True (
     @(Get-PullRequestAbIds `
         -Title "Deliver pricing" `
-        -Body "- Azure Boards: AB#959").Count -eq 1
+        -Body "- Azure Boards: AB#959`n- Platform change: false").Count -eq 1
 ) "The explicit Azure Boards tracking field should provide delivery identity."
 
 $laterReviewRun = $reviewRun.PSObject.Copy()
@@ -173,7 +183,9 @@ $conflictingIdentityPull.body = @"
 $conflictingIdentityArguments = $arguments.Clone()
 $conflictingIdentityArguments.PullRequests = @($conflictingIdentityPull)
 $conflictingValues = @(
-    Get-PullRequestAzureBoardsValues -Body $conflictingIdentityPull.body
+    Get-PullRequestFieldValues `
+        -Body $conflictingIdentityPull.body `
+        -Field 'Azure Boards'
 )
 Assert-True (
     @($conflictingValues | Where-Object {
@@ -181,12 +193,43 @@ Assert-True (
     }).Count -eq 1
 ) "The conflict fixture should declare Azure Boards N/A."
 Assert-True (
-    @(Get-PullRequestAbIds `
-        -Title $conflictingIdentityPull.title `
-        -Body $conflictingIdentityPull.body).Count -eq 1
+    @(Get-AbIds -Text $conflictingIdentityPull.body).Count -eq 1
 ) "The conflict fixture should declare one explicit AB identity."
 Assert-Throws {
     Resolve-LifecycleEvidence @conflictingIdentityArguments
+} "conflicting Azure Boards N/A and AB identity declarations"
+
+$contradictoryPlatformPull = $pull.PSObject.Copy()
+$contradictoryPlatformPull.title = "Platform delivery"
+$contradictoryPlatformPull.body = @"
+- Azure Boards: N/A
+- Platform change: false
+- Platform change: true
+"@
+$contradictoryPlatformArguments = $arguments.Clone()
+$contradictoryPlatformArguments.PullRequests = @($contradictoryPlatformPull)
+Assert-Throws {
+    Resolve-LifecycleEvidence @contradictoryPlatformArguments
+} "contradictory Platform change declarations"
+Assert-Throws {
+    Get-PullRequestAbIds `
+        -Title $contradictoryPlatformPull.title `
+        -Body $contradictoryPlatformPull.body
+} "contradictory Platform change declarations"
+Assert-Throws {
+    Get-PullRequestClassification `
+        -Title 'Change product behavior' `
+        -Body '- Azure Boards: AB#959'
+} "must declare '- Platform change: true' or '- Platform change: false'"
+Assert-Throws {
+    Get-PullRequestClassification `
+        -Title 'Change product behavior' `
+        -Body "- Azure Boards: AB#959`n- Platform change: yes"
+} "must be exactly 'true' or 'false'"
+Assert-Throws {
+    Get-PullRequestClassification `
+        -Title 'Harden platform paths' `
+        -Body "- Azure Boards: N/A; AB#959`n- Platform change: true"
 } "conflicting Azure Boards N/A and AB identity declarations"
 
 $untrackedPull = $pull.PSObject.Copy()
@@ -276,7 +319,7 @@ function Invoke-GitHubApi {
     if ($Uri -match '/actions/artifacts\?name=qa-evidence-') {
         return [pscustomobject]@{
             artifacts = @([pscustomobject]@{
-                name = "qa-evidence-$deployedSha"
+                name = "qa-evidence-$deployedSha-$metadataDigest"
                 expired = $false
                 workflow_run = [pscustomobject]@{ id = 42 }
             })
@@ -291,7 +334,9 @@ function Invoke-GitHubApi {
     }
     if ($Uri -match '/search/issues\?q=') {
         return [pscustomobject]@{
-            items = @([pscustomobject]@{ number = 5 })
+            total_count = 1
+            incomplete_results = $false
+            items = @([pscustomobject]@{ id = 500; number = 5 })
         }
     }
     if ($Uri -match 'page=1') {
@@ -307,7 +352,12 @@ Assert-True ($pagedIssues.Count -eq 2) "GitHub array responses must be flattened
 Assert-True ($script:pageRequestCount -eq 1) "A short GitHub page must stop pagination."
 
 $script:pageRequestCount = 0
-$targetedQa = @(Get-QaEvidenceRuns -Repository $repository -ExpectedSha $deployedSha)
+$targetedQa = @(
+    Get-QaEvidenceRuns `
+        -Repository $repository `
+        -ExpectedSha $deployedSha `
+        -MetadataDigest $metadataDigest
+)
 Assert-True ($targetedQa.Count -eq 1) "Exact-name QA artifact lookup should return its workflow run."
 Assert-True ($script:pageRequestCount -eq 2) "QA lookup should use one artifact and one run request."
 
@@ -315,5 +365,231 @@ $script:pageRequestCount = 0
 $targetedIssues = @(Get-CanonicalIssueCandidates -Repository $repository -Ids @(959))
 Assert-True ($targetedIssues.Count -eq 1) "Targeted AB issue lookup should return search candidates."
 Assert-True ($script:pageRequestCount -eq 1) "AB issue lookup should use one targeted search request."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        incomplete_results = $true
+        items = @([pscustomobject]@{ id = 500; number = 5 })
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "reported incomplete results"
+Assert-True ($script:pageRequestCount -eq 1) "Incomplete search results must fail on the first page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 2
+        incomplete_results = $false
+        items = @()
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned truncated results"
+Assert-True ($script:pageRequestCount -eq 1) "Truncated search results must fail without pointless paging."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
+    $items = if ($page -eq 1) {
+        @(1..100 | ForEach-Object { [pscustomobject]@{ id = $_; number = $_ } })
+    } else {
+        @([pscustomobject]@{ id = 101; number = 101 })
+    }
+    return [pscustomobject]@{
+        total_count = 101
+        incomplete_results = $false
+        items = $items
+    }
+}
+$pagedSearch = @(Get-CanonicalIssueCandidates -Repository $repository -Ids @(959))
+Assert-True ($pagedSearch.Count -eq 101) "Targeted issue search must collect every reported result."
+Assert-True ($script:pageRequestCount -eq 2) "A 101-result issue search must request its second page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
+    return [pscustomobject]@{
+        total_count = if ($page -eq 1) { 101 } else { 102 }
+        incomplete_results = $false
+        items = @(1..100 | ForEach-Object { [pscustomobject]@{ id = $_; number = $_ } })
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "changed while results were paged"
+Assert-True ($script:pageRequestCount -eq 2) "Changing search totals must fail on the changed page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1001
+        incomplete_results = $false
+        items = @()
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "exceeds the 1,000-result completeness limit"
+Assert-True ($script:pageRequestCount -eq 1) "Searches above GitHub's result cap must fail immediately."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        incomplete_results = $false
+        items = @(
+            [pscustomobject]@{ id = 1; number = 1 }
+            [pscustomobject]@{ id = 2; number = 2 }
+        )
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned more unique results than total_count"
+Assert-True ($script:pageRequestCount -eq 1) "Over-complete search results must fail immediately."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 101
+        incomplete_results = $false
+        items = @(1..100 | ForEach-Object { [pscustomobject]@{
+            id = $_
+            number = $_
+        } })
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned duplicate issue ID"
+Assert-True ($script:pageRequestCount -eq 2) "Duplicate paginated issue IDs must fail on the repeated page."
+
+$changedMetadataPull = $pull.PSObject.Copy()
+$changedMetadataPull.body = "$($pull.body)`nMetadata changed after QA."
+$changedMetadataArguments = $arguments.Clone()
+$changedMetadataArguments.PullRequests = @($changedMetadataPull)
+Assert-Throws {
+    Resolve-LifecycleEvidence @changedMetadataArguments
+} "no successful unexpired QA evidence"
+
+$script:boundaryMode = 'platform'
+$script:azureCalls = 0
+$originalGitHubToken = $env:GITHUB_TOKEN
+$env:GITHUB_TOKEN = 'test-token'
+$platformBoundaryPull = $platformPull.PSObject.Copy()
+$platformBoundaryPull.body = @"
+- Azure Boards: N/A
+- Platform change: true
+"@
+
+function az {
+    $script:azureCalls++
+    throw 'Azure must not be called by boundary failure/skip tests.'
+}
+
+function Invoke-GitHubApi {
+    param([string]$Uri)
+
+    if ($Uri -match '/actions/runs/100$') {
+        return $deployment.PSObject.Copy()
+    }
+    if ($Uri -match '/compare/') {
+        return [pscustomobject]@{ status = 'identical' }
+    }
+    if ($Uri -match '/commits/.+/pulls\?') {
+        $selectedPull = if ($script:boundaryMode -eq 'platform') {
+            $platformBoundaryPull
+        } else {
+            $pull
+        }
+        return ,@($selectedPull)
+    }
+    if ($Uri -match '/search/issues\?') {
+        return [pscustomobject]@{
+            total_count = 1
+            incomplete_results = $false
+            items = @($issue)
+        }
+    }
+    if ($Uri -match '/actions/artifacts\?') {
+        if ($script:boundaryMode -eq 'platform') {
+            return [pscustomobject]@{ artifacts = @() }
+        }
+        return [pscustomobject]@{
+            artifacts = @([pscustomobject]@{
+                name = "qa-evidence-$deployedSha-$metadataDigest"
+                expired = $false
+                workflow_run = [pscustomobject]@{ id = 42 }
+            })
+        }
+    }
+    if ($Uri -match '/actions/runs/42$') {
+        return $qa
+    }
+    if ($Uri -match '/actions/workflows/pr-validation\.yml/runs') {
+        $runs = if ($script:boundaryMode -eq 'platform') { @() } else { @($validation) }
+        return [pscustomobject]@{ workflow_runs = $runs }
+    }
+    if ($Uri -match '/actions/workflows/hotel-code-review\.yml/runs') {
+        $runs = if ($script:boundaryMode -eq 'platform') { @() } else { @($reviewRun) }
+        return [pscustomobject]@{ workflow_runs = $runs }
+    }
+    if ($Uri -match '/pulls/6/reviews\?') {
+        return ,@()
+    }
+    throw "Unexpected GitHub API request in boundary test: $Uri"
+}
+
+$platformBoundaryResult = Invoke-DevelopmentLifecycleSync `
+    -Organization 'ai-enabled-ado-org' `
+    -Project 'sample-project' `
+    -Repository $repository `
+    -DeploymentRunId 100 `
+    -DeployedSha $deployedSha `
+    -EvidenceWaitAttempts 1 `
+    -EvidenceWaitSeconds 0 `
+    -DryRun
+Assert-True (
+    $platformBoundaryResult.Action -eq 'Skipped'
+) "The full API boundary must preserve a zero-AB platform/N/A skip."
+Assert-True (
+    $script:azureCalls -eq 0
+) "A platform skip must not request Azure credentials or write to Boards."
+
+$script:boundaryMode = 'zero-review'
+Assert-Throws {
+    Invoke-DevelopmentLifecycleSync `
+        -Organization 'ai-enabled-ado-org' `
+        -Project 'sample-project' `
+        -Repository $repository `
+        -DeploymentRunId 100 `
+        -DeployedSha $deployedSha `
+        -EvidenceWaitAttempts 1 `
+        -EvidenceWaitSeconds 0 `
+        -DryRun
+} "no successful review workflow contains a Copilot review"
+Assert-True (
+    $script:azureCalls -eq 0
+) "Missing reviews must fail before Azure credentials or Board writes."
+$env:GITHUB_TOKEN = $originalGitHubToken
 
 Write-Output "Development lifecycle synchronization tests passed."

@@ -20,26 +20,7 @@ $ErrorActionPreference = "Stop"
 $script:TrustedAssociations = @("OWNER", "MEMBER", "COLLABORATOR")
 $script:CopilotReviewer = "copilot-pull-request-reviewer[bot]"
 
-function Get-AbIds {
-    param([AllowEmptyString()][string]$Text)
-
-    return @(
-        [regex]::Matches($Text, '(?i)\bAB#(?<id>[1-9][0-9]*)\b') |
-            ForEach-Object { [int]$_.Groups["id"].Value } |
-            Sort-Object -Unique
-    )
-}
-
-function Get-PullRequestAzureBoardsValues {
-    param([AllowEmptyString()][string]$Body)
-
-    return @(
-        [regex]::Matches(
-            $Body,
-            '(?im)^\s*-\s*Azure Boards:\s*(?<value>[^\r\n]*)\r?$') |
-            ForEach-Object { $_.Groups["value"].Value.Trim() }
-    )
-}
+. "$PSScriptRoot/PullRequestClassification.ps1"
 
 function Get-PullRequestAbIds {
     param(
@@ -47,11 +28,9 @@ function Get-PullRequestAbIds {
         [AllowEmptyString()][string]$Body
     )
 
-    $trackingValues = @(
-        Get-PullRequestAzureBoardsValues -Body $Body |
-            Where-Object { $_ -notmatch '^N/A(?:\s*[.;]|$)' }
+    return @(
+        (Get-PullRequestClassification -Title $Title -Body $Body).WorkItemIds
     )
-    return @(Get-AbIds -Text "$Title`n$($trackingValues -join "`n")")
 }
 
 function Test-CanonicalWorkItemIssue {
@@ -111,17 +90,11 @@ function Resolve-LifecycleEvidence {
         throw "Deployed SHA '$ExpectedSha' belongs to PR #$($pull.number), not selected PR #$ExpectedPullRequestNumber."
     }
 
-    $pullBody = [string]$pull.body
-    $isPlatformChange = $pullBody -match '(?im)^\s*-\s*Platform change:\s*true\s*$'
-    $boardsValues = @(Get-PullRequestAzureBoardsValues -Body $pullBody)
-    $boardsNotApplicable = @(
-        $boardsValues | Where-Object { $_ -match '^N/A(?:\s*[.;]|$)' }
-    ).Count -gt 0
-    $ids = @(Get-PullRequestAbIds -Title ([string]$pull.title) -Body $pullBody)
-    if ($boardsNotApplicable -and $ids.Count -gt 0) {
-        throw "Pull request #$($pull.number) has conflicting Azure Boards N/A and AB identity declarations."
-    }
-    if ($isPlatformChange -and $boardsNotApplicable) {
+    $classification = Get-PullRequestClassification `
+        -Title ([string]$pull.title) `
+        -Body ([string]$pull.body)
+    $ids = @($classification.WorkItemIds)
+    if ($classification.IsPlatformOnly -and $classification.BoardsNotApplicable) {
         return [pscustomobject]@{
             Action = "Skipped"
             Reason = "Merged PR #$($pull.number) explicitly declares a platform change with Azure Boards not applicable."
@@ -130,10 +103,7 @@ function Resolve-LifecycleEvidence {
         }
     }
 
-    if ($ids.Count -eq 0) {
-        if (-not $isPlatformChange) {
-            throw "Merged PR #$($pull.number) has no Azure Boards identity and is not explicitly marked as a platform change."
-        }
+    if ($classification.IsPlatformOnly) {
         return [pscustomobject]@{
             Action = "Skipped"
             Reason = "Merged PR #$($pull.number) has no Azure Boards identity."
@@ -141,10 +111,10 @@ function Resolve-LifecycleEvidence {
             DeployedSha = $ExpectedSha
         }
     }
-    if ($ids.Count -gt 1) {
-        throw "Pull request #$($pull.number) must identify exactly one Azure Boards item; found $($ids.Count)."
-    }
     $workItemId = $ids[0]
+    $metadataDigest = Get-PullRequestMetadataDigest `
+        -Title ([string]$pull.title) `
+        -Body ([string]$pull.body)
 
     $issueMatches = @($Issues | Where-Object {
         $null -eq $_.pull_request -and
@@ -173,7 +143,7 @@ function Resolve-LifecycleEvidence {
         $_.conclusion -eq "success" -and
         $_.path -eq ".github/workflows/qa-evidence.yml" -and
         @($_.artifacts | Where-Object {
-            $_.name -eq "qa-evidence-$ExpectedSha" -and -not $_.expired
+            $_.name -eq "qa-evidence-$ExpectedSha-$metadataDigest" -and -not $_.expired
         }).Count -gt 0
     } | Sort-Object created_at -Descending | Select-Object -First 1)
     if ($qa.Count -ne 1) {
@@ -366,10 +336,11 @@ function Get-WorkflowRuns {
 function Get-QaEvidenceRuns {
     param(
         [Parameter(Mandatory)][string]$Repository,
-        [Parameter(Mandatory)][string]$ExpectedSha
+        [Parameter(Mandatory)][string]$ExpectedSha,
+        [Parameter(Mandatory)][string]$MetadataDigest
     )
 
-    $artifactName = "qa-evidence-$ExpectedSha"
+    $artifactName = "qa-evidence-$ExpectedSha-$MetadataDigest"
     $response = Invoke-GitHubApi -Uri (
         "https://api.github.com/repos/$Repository/actions/artifacts?name=$artifactName&per_page=100")
     $artifacts = @($response.artifacts | Where-Object {
@@ -394,10 +365,47 @@ function Get-CanonicalIssueCandidates {
     $issues = [Collections.Generic.List[object]]::new()
     foreach ($id in $Ids) {
         $query = [uri]::EscapeDataString("repo:$Repository is:issue `"AB#$id`"")
-        $response = Invoke-GitHubApi -Uri (
-            "https://api.github.com/search/issues?q=$query&per_page=100")
-        foreach ($issue in @($response.items)) {
-            $issues.Add($issue)
+        $expectedCount = $null
+        $seenIssueIds = [Collections.Generic.HashSet[long]]::new()
+        for ($page = 1; $page -le 10; $page++) {
+            $response = Invoke-GitHubApi -Uri (
+                "https://api.github.com/search/issues?q=$query&per_page=100&page=$page")
+            if ($response.incomplete_results -eq $true) {
+                throw "GitHub issue search for AB#$id reported incomplete results."
+            }
+
+            $totalCount = [int]$response.total_count
+            if ($totalCount -gt 1000) {
+                throw "GitHub issue search for AB#$id exceeds the 1,000-result completeness limit."
+            }
+            if ($null -eq $expectedCount) {
+                $expectedCount = $totalCount
+            } elseif ($totalCount -ne $expectedCount) {
+                throw "GitHub issue search for AB#$id changed while results were paged."
+            }
+
+            $batch = @($response.items)
+            foreach ($issue in $batch) {
+                if ($null -eq $issue.id) {
+                    throw "GitHub issue search for AB#$id returned a result without an issue ID."
+                }
+                if (-not $seenIssueIds.Add([long]$issue.id)) {
+                    throw "GitHub issue search for AB#$id returned duplicate issue ID $($issue.id)."
+                }
+                $issues.Add($issue)
+            }
+            if ($seenIssueIds.Count -gt $expectedCount) {
+                throw "GitHub issue search for AB#$id returned more unique results than total_count."
+            }
+            if ($seenIssueIds.Count -eq $expectedCount) {
+                break
+            }
+            if ($batch.Count -eq 0) {
+                throw "GitHub issue search for AB#$id returned truncated results."
+            }
+        }
+        if ($seenIssueIds.Count -ne $expectedCount) {
+            throw "GitHub issue search for AB#$id did not return all $expectedCount results."
         }
     }
     return $issues.ToArray()
@@ -445,12 +453,19 @@ function Invoke-DevelopmentLifecycleSync {
     $pulls = @(Get-GitHubPages -Uri (
         "https://api.github.com/repos/$Repository/commits/$DeployedSha/pulls"))
     $candidatePulls = @($pulls | Where-Object { $_.merge_commit_sha -eq $DeployedSha })
-    $candidateIds = if ($candidatePulls.Count -eq 1) {
-        @(Get-PullRequestAbIds `
+    $candidateIds = @(
+        if ($candidatePulls.Count -eq 1) {
+            Get-PullRequestAbIds `
             -Title ([string]$candidatePulls[0].title) `
-            -Body ([string]$candidatePulls[0].body))
+                -Body ([string]$candidatePulls[0].body)
+        }
+    )
+    $candidateMetadataDigest = if ($candidatePulls.Count -eq 1) {
+        Get-PullRequestMetadataDigest `
+            -Title ([string]$candidatePulls[0].title) `
+            -Body ([string]$candidatePulls[0].body)
     } else {
-        @()
+        ''
     }
     $issues = @(Get-CanonicalIssueCandidates `
         -Repository $Repository `
@@ -463,14 +478,15 @@ function Invoke-DevelopmentLifecycleSync {
             -HeadSha $DeployedSha)
         $qaRuns = @(Get-QaEvidenceRuns `
             -Repository $Repository `
-            -ExpectedSha $DeployedSha)
+            -ExpectedSha $DeployedSha `
+            -MetadataDigest $candidateMetadataDigest)
         $reviewRuns = @(Get-WorkflowRuns -Repository $Repository -Workflow "hotel-code-review.yml")
-        $reviews = if ($candidatePulls.Count -eq 1) {
-            @(Get-GitHubPages -Uri (
-                "https://api.github.com/repos/$Repository/pulls/$($candidatePulls[0].number)/reviews"))
-        } else {
-            @()
-        }
+        $reviews = @(
+            if ($candidatePulls.Count -eq 1) {
+                Get-GitHubPages -Uri (
+                    "https://api.github.com/repos/$Repository/pulls/$($candidatePulls[0].number)/reviews")
+            }
+        )
 
         try {
             $evidence = Resolve-LifecycleEvidence `

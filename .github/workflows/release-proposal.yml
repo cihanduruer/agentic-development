@@ -21,6 +21,7 @@ jobs:
     outputs:
       on-main: ${{ steps.source.outputs.on-main }}
       sha: ${{ steps.source.outputs.sha }}
+      metadata-digest: ${{ steps.source.outputs.metadata-digest }}
     steps:
       - name: Download QA result
         uses: actions/download-artifact@v4
@@ -39,7 +40,9 @@ jobs:
           script: |
             const fs = require('fs');
             const qa = JSON.parse(fs.readFileSync('qa/QaEvidence/qa-result.json', 'utf8'));
-            if (qa.status !== 'passed' || !/^[0-9a-f]{40}$/.test(qa.headSha)) {
+            if (qa.status !== 'passed'
+                || !/^[0-9a-f]{40}$/.test(qa.headSha)
+                || !/^[0-9a-f]{64}$/.test(qa.metadataDigest)) {
               core.setFailed('QA artifact does not identify a successful tested commit.');
               return;
             }
@@ -60,6 +63,7 @@ jobs:
               return;
             }
             core.setOutput('sha', qa.headSha);
+            core.setOutput('metadata-digest', qa.metadataDigest);
             core.setOutput('on-main', 'true');
 
   package:
@@ -93,6 +97,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
           QA_RUN_ID: ${{ github.event.workflow_run.id }}
+          QA_METADATA_DIGEST: ${{ needs.source.outputs.metadata-digest }}
           REPOSITORY: ${{ github.repository }}
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
@@ -104,6 +109,7 @@ jobs:
             sourceBranch = 'main'
             qaWorkflowRunId = [long]$env:QA_RUN_ID
             qaWorkflowUrl = "https://github.com/$env:REPOSITORY/actions/runs/$env:QA_RUN_ID"
+            qaMetadataDigest = $env:QA_METADATA_DIGEST
             createdAtUtc = [DateTime]::UtcNow.ToString('o')
             productionDeployment = 'not-started'
           }

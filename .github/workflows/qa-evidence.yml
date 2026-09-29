@@ -183,15 +183,15 @@ jobs:
               pull_number: pull.number,
               per_page: 100
             });
-            const productChange = files.some(file =>
-              file.filename.startsWith('src/') || file.filename.startsWith('tests/'));
             core.setOutput('number', pull.number.toString());
             core.setOutput('title', pull.title);
-            core.setOutput('product-change', productChange.toString());
             core.setOutput('head-sha', sourceSha);
             core.setOutput('source-repository', sourceRepository);
             core.setOutput('trusted-knowledge-revision', pull.base.sha);
             core.setOutput('body-base64', Buffer.from(pull.body || '', 'utf8').toString('base64'));
+            core.setOutput(
+              'files-base64',
+              Buffer.from(files.map(file => file.filename).join('\n'), 'utf8').toString('base64'));
 
       - name: Check out trusted QA policy
         uses: actions/checkout@v4
@@ -233,18 +233,20 @@ jobs:
         shell: pwsh
         env:
           BODY_BASE64: ${{ steps.context.outputs.body-base64 }}
+          FILES_BASE64: ${{ steps.context.outputs.files-base64 }}
         run: |
           New-Item -ItemType Directory -Path QaEvidence -Force | Out-Null
-          [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:BODY_BASE64)) |
-            Set-Content QaEvidence/pr-body.md
+          . ./trusted/scripts/PullRequestClassification.ps1
+          Write-Base64Utf8File -Base64 $env:BODY_BASE64 -Path 'QaEvidence/pr-body.md'
+          Write-Base64Utf8File -Base64 $env:FILES_BASE64 -Path 'QaEvidence/changed-files.txt'
 
       - name: Evaluate QA evidence
+        id: evidence
         shell: pwsh
         env:
           PR_NUMBER: ${{ steps.context.outputs.number }}
           PR_TITLE: ${{ steps.context.outputs.title }}
           HEAD_SHA: ${{ steps.context.outputs.head-sha }}
-          PRODUCT_CHANGE: ${{ steps.context.outputs.product-change }}
           TRUSTED_KNOWLEDGE_REVISION: ${{ steps.context.outputs.trusted-knowledge-revision }}
         run: |
           ./trusted/scripts/New-QaEvidence.ps1 `
@@ -255,13 +257,15 @@ jobs:
             -TrustedKnowledgeRevision $env:TRUSTED_KNOWLEDGE_REVISION `
             -TestResultsPath source/TestResults `
             -OutputDirectory QaEvidence `
-            -ProductChange $env:PRODUCT_CHANGE
+            -ChangedFilesPath QaEvidence/changed-files.txt
+          $result = Get-Content QaEvidence/qa-result.json -Raw | ConvertFrom-Json
+          "metadata-digest=$($result.metadataDigest)" >> $env:GITHUB_OUTPUT
 
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-evidence-${{ steps.context.outputs.head-sha }}
+          name: qa-evidence-${{ steps.context.outputs.head-sha }}-${{ steps.evidence.outputs.metadata-digest }}
           path: |
             QaEvidence
             source/TestResults

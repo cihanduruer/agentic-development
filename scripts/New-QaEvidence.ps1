@@ -24,13 +24,30 @@ param(
     [string] $OutputDirectory,
 
     [Parameter(Mandatory)]
-    [ValidateSet('true', 'false')]
-    [string] $ProductChange
+    [string] $ChangedFilesPath
 )
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/PullRequestClassification.ps1"
 $body = [IO.File]::ReadAllText((Resolve-Path $PullRequestBodyPath))
+$changedFiles = @(
+    [IO.File]::ReadAllLines((Resolve-Path $ChangedFilesPath)) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+)
 $failures = [Collections.Generic.List[string]]::new()
+$classification = $null
+try {
+    $classification = Get-PullRequestClassification `
+        -Title $PullRequestTitle `
+        -Body $body
+}
+catch {
+    $failures.Add($_.Exception.Message)
+}
+$productChange = $null -ne $classification -and -not $classification.IsPlatformOnly
+$metadataDigest = Get-PullRequestMetadataDigest `
+    -Title $PullRequestTitle `
+    -Body $body
 
 function Get-MarkdownSection {
     param(
@@ -54,7 +71,7 @@ $negativeEvidence = Get-MarkdownSection 'Negative-path evidence'
 $knowledgeEvidence = Get-MarkdownSection 'Knowledge revision'
 $citedKnowledgeRevision = $null
 
-if ($ProductChange -eq 'true') {
+if ($productChange) {
     if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
         $acceptanceEvidence -notmatch '(?im)^\s*-\s*\[[xX]\]\s+\S') {
         $failures.Add('Acceptance criteria evidence must contain at least one completed checklist item.')
@@ -80,9 +97,6 @@ if ($ProductChange -eq 'true') {
     }
     if ($null -eq $citedKnowledgeRevision) {
         $failures.Add('Knowledge revision must contain exactly one full commit SHA used for grounding.')
-    }
-    if ("$PullRequestTitle`n$body" -notmatch '\bAB#\d+\b') {
-        $failures.Add('Product changes must reference an Azure Boards item as AB#<id>.')
     }
 } else {
     $acceptanceEvidence = 'N/A - non-product change.'
@@ -124,6 +138,15 @@ $result = [ordered]@{
     pullRequest = $PullRequestNumber
     headSha = $HeadSha
     trustedKnowledgeRevision = $TrustedKnowledgeRevision
+    metadataDigest = $metadataDigest
+    classification = if ($null -eq $classification) {
+        'invalid'
+    } elseif ($classification.IsPlatformOnly) {
+        'platform'
+    } else {
+        'product'
+    }
+    changedFiles = $changedFiles
     knowledgeRevision = $citedKnowledgeRevision
     knowledgeRevisionEvidence = $knowledgeEvidence
     agent = [ordered]@{

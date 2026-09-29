@@ -122,6 +122,9 @@ jobs:
             if ([string]$evidence.qaWorkflowRunId -eq '') {
               throw 'Release evidence does not identify the QA workflow run.'
             }
+            if ([string]$evidence.qaMetadataDigest -notmatch '^[0-9a-f]{64}$') {
+              throw 'Release evidence does not identify the QA metadata digest.'
+            }
           }
           finally {
             Pop-Location
@@ -155,7 +158,7 @@ jobs:
               }
             );
             const qaArtifact = artifacts.find(artifact =>
-              artifact.name === `qa-evidence-${process.env.COMMIT_SHA}`
+              artifact.name === `qa-evidence-${process.env.COMMIT_SHA}-${evidence.qaMetadataDigest}`
               && !artifact.expired);
             if (!qaArtifact) {
               core.setFailed('The successful QA run has no unexpired evidence artifact for the selected commit.');

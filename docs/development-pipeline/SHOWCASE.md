@@ -110,6 +110,10 @@ evidence. Documentation-only changes use the explicit not-eligible review path;
 that is not a Copilot review of code. Eligible changes require current-head review;
 unresolved High or unclassified findings block.
 
+Freeze the final PR title and body before QA because the metadata digest binds that
+declaration to the evidence. Add post-run links as PR comments, not metadata edits.
+Any source or metadata change requires fresh exact-head validation, review, and QA.
+
 If a maintainer needs fresh evidence, trusted manual **PR validation** must run
 from `main` for that PR number and exact SHA first. Require the successful,
 unexpired `pr-validation-evidence-<SHA>` artifact before manual **QA evidence**
@@ -123,7 +127,9 @@ In `qa-result.json`, show `headSha` equal to `c6c4e0de0b4e8a21c0db561baea732fd42
 `status: passed`, and **22/22 tests**. This is later platform evidence for PR #17,
 not a claim that historical PR #6 passed today's gates. Product acceptance fields
 are N/A for that non-product change. The workflow applies the evidence contract;
-`hotel-qa` custom-agent execution is explicitly **`not-run`**.
+`hotel-qa` custom-agent execution is explicitly **`not-run`**. This pre-digest
+baseline is read-only historical proof and is not eligible for a new production
+promotion.
 
 ## 4. Show operations and the authorization boundary (2 minutes)
 
@@ -151,7 +157,8 @@ Do not run the deployment smoke script live: it writes events and restarts the A
 contains `release-c6c4e0de0b4e8a21c0db561baea732fd42be73e2`.
 Its `release-evidence.json` names QA run `36548837929`, that same source commit,
 and `productionDeployment: not-started`. All four SHA-256 entries were matched
-on 2026-09-29 (API zip, web zip, evidence JSON, proposal Markdown).
+on 2026-09-29 (API zip, web zip, evidence JSON, proposal Markdown). This pre-digest
+release artifact is also historical only and cannot be promoted to production.
 
 For future meetings select a successful [release proposal run](https://github.com/cihanduruer/agentic-development/actions/workflows/release-proposal.yml)
 whose artifact still exists; inspect its actual source/QA chain, not just the latest
@@ -159,6 +166,7 @@ run or this historical SHA. Download its named artifact to a new local folder.
 Read `release-evidence.json` and `checksums.sha256`; compare every listed file using
 `Get-FileHash <downloaded-file> -Algorithm SHA256`. No rebuild or deployment is needed.
 An expired/missing artifact means choose another verified run, not fabricate proof.
+For an actual promotion, generate fresh digest-bound QA and release artifacts.
 
 Explain [manual production controls](../runbooks/release.md):
 exact release run/SHA, typed confirmation, provenance, and checksum verification.
