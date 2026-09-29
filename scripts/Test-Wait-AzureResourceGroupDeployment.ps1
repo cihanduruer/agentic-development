@@ -93,15 +93,62 @@ Invoke-Scenario -Responses @(
     @{
         ExitCode = 1
         Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
     }
 ) -Assertion {
     & $scriptPath `
         -ResourceGroup test-rg `
         -DeploymentName test-deployment `
-        -TimeoutSeconds 0 `
+        -TimeoutSeconds 5 `
         -PollIntervalSeconds 0 `
         -AllowFailedTerminalState `
         -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+    @{ ExitCode = 0; Body = '{"provisioningState":"Succeeded"}' }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 5 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    }
+) -Assertion {
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+        throw 'A single not-found observation unexpectedly proved absence.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'absence could not be proven') {
+            throw
+        }
+    }
 }
 
 $misleadingNotFoundDiagnostics = @(

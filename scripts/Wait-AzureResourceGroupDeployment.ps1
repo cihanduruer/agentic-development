@@ -20,6 +20,8 @@ param(
 )
 
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+$notFoundObservations = 0
+$requiredNotFoundObservations = 3
 
 while ($true) {
     $deploymentJson = az deployment group show `
@@ -36,12 +38,21 @@ while ($true) {
             "^(?:ERROR:\s*)?\(DeploymentNotFound\)\s+Deployment\s+'$escapedDeploymentName'\s+could not be found\.?$"
         if ($AllowNotFound -and
             $diagnostic -match $deploymentNotFoundPattern) {
-            Write-Output "Deployment '$DeploymentName' was not submitted."
-            return
+            $notFoundObservations++
+            if ($notFoundObservations -ge $requiredNotFoundObservations) {
+                Write-Output "Deployment '$DeploymentName' was not submitted after $notFoundObservations consecutive observations."
+                return
+            }
+            if ([DateTimeOffset]::UtcNow -ge $deadline) {
+                throw "Deployment '$DeploymentName' absence could not be proven within $TimeoutSeconds seconds."
+            }
+            Start-Sleep -Seconds $PollIntervalSeconds
+            continue
         }
         throw "Unable to read deployment '$DeploymentName' in resource group '$ResourceGroup'."
     }
 
+    $notFoundObservations = 0
     $deployment = $deploymentJson | ConvertFrom-Json
     switch ($deployment.provisioningState) {
         'Succeeded' {
