@@ -75,6 +75,24 @@ function Invoke-Evidence {
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "New-QaEvidence-$([guid]::NewGuid())"
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
+    $qaWorkflow = [IO.File]::ReadAllText(
+        (Join-Path $PSScriptRoot '../.github/workflows/qa-evidence.yml'))
+    $releaseWorkflow = [IO.File]::ReadAllText(
+        (Join-Path $PSScriptRoot '../.github/workflows/release-proposal.yml'))
+    $productionWorkflow = [IO.File]::ReadAllText(
+        (Join-Path $PSScriptRoot '../.github/workflows/deploy-production.yml'))
+    Assert-Equal (
+        $qaWorkflow.Contains(
+            'name: qa-evidence-${{ steps.context.outputs.head-sha }}-${{ steps.evidence.outputs.metadata-digest }}')
+    ) $true 'QA upload must include the metadata digest in its artifact identity.'
+    Assert-Equal (
+        $releaseWorkflow.Contains('qaMetadataDigest = $env:QA_METADATA_DIGEST')
+    ) $true 'Release evidence must preserve the QA metadata digest.'
+    Assert-Equal (
+        $productionWorkflow.Contains(
+            'artifact.name === `qa-evidence-${process.env.COMMIT_SHA}-${evidence.qaMetadataDigest}`')
+    ) $true 'Production preflight must require the digest-bound QA artifact.'
+
     $rawBody = "- Azure Boards: N/A`r`n- Platform change: true`r`nCaf$([char]0x00E9)"
     $serializedBodyPath = Join-Path $testRoot 'serialized-body.md'
     [IO.File]::WriteAllText(
