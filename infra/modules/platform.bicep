@@ -5,11 +5,15 @@ param sqlEntraAdminObjectId string
 param tenantId string
 param deploymentPrincipalObjectId string
 param operationsApiAudience string
+param configureApi bool = true
+param configureSql bool = true
+param existingSqlServerName string = ''
 param tags object
 
 var suffix = uniqueString(subscription().id, resourceGroup().id, environment)
 var baseName = 'ahb-${environment}-${suffix}'
 var routingDeploymentName = 'gpt-4.1-mini'
+var sqlServerName = empty(existingSqlServerName) ? '${baseName}-sql' : existingSqlServerName
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${baseName}-log'
@@ -106,8 +110,8 @@ resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   }
 }
 
-resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
-  name: '${baseName}-sql'
+resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = if (configureSql) {
+  name: sqlServerName
   location: location
   tags: tags
   properties: {
@@ -125,7 +129,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = {
   }
 }
 
-resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01' = {
+resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01' = if (configureSql) {
   parent: sqlServer
   name: 'AllowAzureServices'
   properties: {
@@ -134,7 +138,7 @@ resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01' = {
   }
 }
 
-resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
+resource database 'Microsoft.Sql/servers/databases@2023-08-01' = if (configureSql) {
   parent: sqlServer
   name: 'hotelbooking'
   location: location
@@ -153,7 +157,7 @@ resource database 'Microsoft.Sql/servers/databases@2023-08-01' = {
   }
 }
 
-resource api 'Microsoft.Web/sites@2023-12-01' = {
+resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
   name: '${baseName}-api'
   location: location
   tags: tags
@@ -175,7 +179,7 @@ resource api 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'ConnectionStrings__HotelBooking'
-          value: 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Initial Catalog=${database.name};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+          value: 'Server=tcp:${sqlServerName}.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
         }
         {
           name: 'Database__ApplyMigrations'
@@ -242,11 +246,11 @@ resource api 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
-resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
   name: guid(aiServices.id, api.id, 'cognitive-services-openai-user')
   scope: aiServices
   properties: {
-    principalId: api.identity.principalId
+    principalId: api!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -268,11 +272,11 @@ resource deploymentOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
-resource apiContentSafetyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiContentSafetyRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
   name: guid(aiServices.id, api.id, 'cognitive-services-user')
   scope: aiServices
   properties: {
-    principalId: api.identity.principalId
+    principalId: api!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -281,11 +285,11 @@ resource apiContentSafetyRole 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
-resource apiSearchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiSearchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
   name: guid(search.id, api.id, 'search-index-data-reader')
   scope: search
   properties: {
-    principalId: api.identity.principalId
+    principalId: api!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -320,14 +324,15 @@ resource deploymentSearchServiceContributorRole 'Microsoft.Authorization/roleAss
   }
 }
 
-output apiUrl string = 'https://${api.properties.defaultHostName}'
-output apiAppName string = api.name
-output apiName string = api.name
-output apiPrincipalId string = api.identity.principalId
+output apiUrl string = 'https://${baseName}-api.azurewebsites.net'
+output apiAppName string = '${baseName}-api'
+output apiName string = '${baseName}-api'
+output apiPrincipalId string = configureApi ? api!.identity.principalId : ''
+output appServicePlanName string = plan.name
 output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
 output routingDeploymentName string = routingModel.name
 output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
 output searchEndpoint string = 'https://${search.name}.search.windows.net/'
-output sqlServerName string = sqlServer.name
+output sqlServerName string = sqlServerName
 output legacyKeyVaultName string = '${baseName}-kv'

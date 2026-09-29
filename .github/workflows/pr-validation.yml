@@ -101,6 +101,9 @@ jobs:
       - name: Test Search RBAC propagation retries
         shell: pwsh
         run: ./scripts/Test-Invoke-KnowledgeIndexerWithRetry.ps1
+      - name: Test routing RBAC propagation retries
+        shell: pwsh
+        run: ./scripts/Test-Invoke-RoutingReadinessWithRetry.ps1
       - name: Test Azure data hardening contracts
         shell: pwsh
         run: ./scripts/Test-AzureDataHardeningContracts.ps1

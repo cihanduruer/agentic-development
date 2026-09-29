@@ -21,6 +21,15 @@ param deploymentPrincipalObjectId string
 @description('Client ID of the Entra operations API registration, used as the v2 access-token audience.')
 param operationsApiAudience string
 
+@description('Apply the API configuration and workload RBAC only after its SQL identity has been bootstrapped.')
+param configureApi bool = true
+
+@description('Create or enforce the Entra-only SQL server only when the environment is new or runtime readiness is complete.')
+param configureSql bool = true
+
+@description('Existing SQL server name adopted during a staged upgrade; empty for an initial deployment.')
+param existingSqlServerName string = ''
+
 var tags = {
   application: 'agentic-hotelbooking'
   environment: environment
@@ -37,6 +46,9 @@ module platform 'modules/platform.bicep' = {
     tenantId: tenantId
     deploymentPrincipalObjectId: deploymentPrincipalObjectId
     operationsApiAudience: operationsApiAudience
+    configureApi: configureApi
+    configureSql: configureSql
+    existingSqlServerName: existingSqlServerName
     tags: tags
   }
 }
@@ -50,5 +62,6 @@ output searchServiceName string = platform.outputs.searchServiceName
 output sqlServerName string = platform.outputs.sqlServerName
 output apiName string = platform.outputs.apiName
 output apiPrincipalId string = platform.outputs.apiPrincipalId
+output appServicePlanName string = platform.outputs.appServicePlanName
 output searchEndpoint string = platform.outputs.searchEndpoint
 output legacyKeyVaultName string = platform.outputs.legacyKeyVaultName

@@ -227,6 +227,47 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Classify SQL cutover state before infrastructure mutation
+        id: sql-state
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+        run: |
+          $serversJson = az sql server list `
+            --resource-group agentic-hotelbookingprod `
+            --query '[].{name:name}' `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($serversJson)) {
+            throw 'Unable to classify the production SQL state before infrastructure mutation.'
+          }
+          $servers = @($serversJson | ConvertFrom-Json)
+          if ($servers.Count -gt 1) {
+            throw 'The production resource group contains multiple SQL servers; cutover is blocked before mutation.'
+          }
+          if ($servers.Count -eq 0) {
+            'configureSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'sqlServerName=' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            exit 0
+          }
+          $administratorsJson = az sql server ad-admin list `
+            --resource-group agentic-hotelbookingprod `
+            --server-name $servers[0].name `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($administratorsJson)) {
+            throw 'Unable to verify the existing production SQL Entra administrator before mutation.'
+          }
+          $administrators = @($administratorsJson | ConvertFrom-Json)
+          if (@($administrators | Where-Object {
+                $_.sid -eq $env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID
+              }).Count -ne 1) {
+            throw 'Existing production SQL requires the GitHub deployment principal as Entra administrator before any deployment mutation.'
+          }
+          'configureSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sqlServerName=$($servers[0].name)" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Deploy production infrastructure
         id: infrastructure
         shell: pwsh
@@ -258,6 +299,9 @@ jobs:
               "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
               "tenantId=$env:AZURE_TENANT_ID" `
               "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              configureApi=false `
+              "configureSql=${{ steps.sql-state.outputs.configureSql }}" `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
             --query properties.outputs `
             --output json `
             --only-show-errors
@@ -268,8 +312,8 @@ jobs:
           $requiredOutputs = @(
             'apiAppName',
             'apiName',
-            'apiPrincipalId',
             'apiUrl',
+            'appServicePlanName',
             'legacyKeyVaultName',
             'searchEndpoint',
             'sqlServerName',
@@ -283,6 +327,55 @@ jobs:
             "$name=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
           "resourceGroupName=$env:RESOURCE_GROUP" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Ensure API managed identity exists without changing live configuration
+        id: api-identity
+        shell: pwsh
+        run: |
+          $appId = az webapp show `
+            --resource-group agentic-hotelbookingprod `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --query id `
+            --output tsv `
+            --only-show-errors 2>&1
+          $appLookupExitCode = $LASTEXITCODE
+          if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
+            throw "Unable to determine whether the production API exists: $appId"
+          }
+          if ($appLookupExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($appId)) {
+            $principalId = az webapp identity show `
+              --resource-group agentic-hotelbookingprod `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --query principalId `
+              --output tsv `
+              --only-show-errors 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+              $principalId = az webapp identity assign `
+                --resource-group agentic-hotelbookingprod `
+                --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+                --query principalId `
+                --output tsv `
+                --only-show-errors
+            }
+          }
+          else {
+            $principalId = az deployment group create `
+              --name "production-api-identity-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              --resource-group agentic-hotelbookingprod `
+              --template-file infra/api-identity.bicep `
+              --parameters `
+                "appServicePlanName=${{ steps.infrastructure.outputs.appServicePlanName }}" `
+                "apiAppName=${{ steps.infrastructure.outputs.apiAppName }}" `
+                environment=prod `
+              --query properties.outputs.apiPrincipalId.value `
+              --output tsv `
+              --only-show-errors
+          }
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+            throw 'The production API managed identity could not be resolved before SQL bootstrap.'
+          }
+          "principalId=$($principalId.Trim())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - uses: actions/setup-dotnet@v4
@@ -337,7 +430,33 @@ jobs:
             --server '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
             --database hotelbooking `
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
-            --principal-object-id '${{ steps.infrastructure.outputs.apiPrincipalId }}'
+            --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
+
+      - name: Apply managed-identity API configuration after SQL bootstrap
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingprod `
+            --template-file infra/resource-group.bicep `
+            --parameters infra/production.parameters.json `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              configureApi=true `
+              configureSql=true `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The production API managed-identity configuration cutover failed.'
+          }
 
       - name: Index canonical knowledge
         shell: pwsh

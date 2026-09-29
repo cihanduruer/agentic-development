@@ -183,11 +183,12 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 `.github/workflows/deploy-development.yml` runs after relevant changes reach `main` or through manual dispatch:
 
 1. Authenticate to Azure with GitHub OIDC.
-2. Start the Bicep deployment asynchronously and poll it in bounded intervals, refreshing the GitHub OIDC Azure login before a long-running ARM operation can outlive its original token.
+2. Before mutation, classify SQL as initial-empty or existing. Existing environments must contain exactly one SQL server and already configure the deployment principal as Entra administrator. Exclude existing SQL and API configuration from the first Bicep phase so failures cannot cut over the live authentication path; reuse an existing API identity without modifying that app, or create a new identity-only API from `infra/api-identity.bicep`.
 3. Apply EF migrations as the SQL Entra administrator and fail closed on unexpected runtime-role permissions, API direct grants, ownership, or extra memberships before granting the exact custom runtime role.
-4. Index the exact Git commit of `docs/knowledge` into Azure AI Search, allowing up to ten minutes for managed-identity RBAC propagation, terminating an indexer child process at the remaining wall-clock deadline, and emitting the final authorization diagnostic on exhaustion.
-5. Publish and deploy the ASP.NET Core API to App Service.
-6. Publish the Blazor WebAssembly client.
+4. Only after SQL bootstrap succeeds, use one Bicep cutover to enforce SQL Entra-only authentication and apply the managed-identity API configuration.
+5. Index the exact Git commit of `docs/knowledge` into Azure AI Search, allowing up to ten minutes for managed-identity RBAC propagation, terminating an indexer child process at the remaining wall-clock deadline, and emitting the final authorization diagnostic on exhaustion.
+6. Publish and deploy the ASP.NET Core API to App Service. The authenticated routing smoke retries the same exact-revision and correlation request for up to ten minutes while Content Safety and Search reader roles propagate. Only an HTTP 200 `human_review` decision with reason `evaluation_error` is retryable; other failures stop immediately. Each attempt persists one event in the bounded readiness series. Only the expected `qa-agent` policy decision succeeds, and timeout diagnostics preserve the final safe status, worker, model, reason, revision, and correlation.
+7. Publish the Blazor WebAssembly client.
 7. Inject the deployed API endpoint into the web configuration.
 8. Deploy the client to Azure Static Web Apps.
 9. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.

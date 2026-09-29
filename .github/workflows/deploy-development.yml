@@ -16,6 +16,7 @@ on:
       - 'scripts/Wait-AzureResourceGroupDeployment.ps1'
       - 'scripts/Remove-LegacySqlCredential.ps1'
       - 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1'
+      - 'scripts/Invoke-RoutingReadinessWithRetry.ps1'
       - 'docs/knowledge/**'
       - 'tools/KnowledgeIndexer/**'
       - 'tools/SqlManagedIdentityBootstrapper/**'
@@ -41,6 +42,46 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Classify SQL cutover state before infrastructure mutation
+        id: sql-state
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+        run: |
+          $serversJson = az sql server list `
+            --resource-group agentic-hotelbookingdev `
+            --query '[].{name:name}' `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($serversJson)) {
+            throw 'Unable to classify the development SQL state before infrastructure mutation.'
+          }
+          $servers = @($serversJson | ConvertFrom-Json)
+          if ($servers.Count -gt 1) {
+            throw 'The development resource group contains multiple SQL servers; cutover is blocked before mutation.'
+          }
+          if ($servers.Count -eq 0) {
+            'configureSql=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            'sqlServerName=' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            exit 0
+          }
+          $administratorsJson = az sql server ad-admin list `
+            --resource-group agentic-hotelbookingdev `
+            --server-name $servers[0].name `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($administratorsJson)) {
+            throw 'Unable to verify the existing development SQL Entra administrator before mutation.'
+          }
+          $administrators = @($administratorsJson | ConvertFrom-Json)
+          if (@($administrators | Where-Object {
+                $_.sid -eq $env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID
+              }).Count -ne 1) {
+            throw 'Existing development SQL requires the GitHub deployment principal as Entra administrator before any deployment mutation.'
+          }
+          'configureSql=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sqlServerName=$($servers[0].name)" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Start infrastructure deployment
         id: deployment
         shell: pwsh
@@ -74,6 +115,9 @@ jobs:
               "tenantId=$env:AZURE_TENANT_ID" `
               "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
               "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=false `
+              "configureSql=${{ steps.sql-state.outputs.configureSql }}" `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
             --no-wait `
             --only-show-errors
           if ($LASTEXITCODE -ne 0) {
@@ -121,8 +165,8 @@ jobs:
           $requiredOutputs = @(
             'apiAppName',
             'apiName',
-            'apiPrincipalId',
             'apiUrl',
+            'appServicePlanName',
             'legacyKeyVaultName',
             'searchEndpoint',
             'sqlServerName'
@@ -134,6 +178,54 @@ jobs:
             }
             "$name=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
+      - name: Ensure API managed identity exists without changing live configuration
+        id: api-identity
+        shell: pwsh
+        run: |
+          $appId = az webapp show `
+            --resource-group agentic-hotelbookingdev `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --query id `
+            --output tsv `
+            --only-show-errors 2>&1
+          $appLookupExitCode = $LASTEXITCODE
+          if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
+            throw "Unable to determine whether the development API exists: $appId"
+          }
+          if ($appLookupExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($appId)) {
+            $principalId = az webapp identity show `
+              --resource-group agentic-hotelbookingdev `
+              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+              --query principalId `
+              --output tsv `
+              --only-show-errors 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+              $principalId = az webapp identity assign `
+                --resource-group agentic-hotelbookingdev `
+                --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+                --query principalId `
+                --output tsv `
+                --only-show-errors
+            }
+          }
+          else {
+            $principalId = az deployment group create `
+              --name "development-api-identity-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+              --resource-group agentic-hotelbookingdev `
+              --template-file infra/api-identity.bicep `
+              --parameters `
+                "appServicePlanName=${{ steps.infrastructure.outputs.appServicePlanName }}" `
+                "apiAppName=${{ steps.infrastructure.outputs.apiAppName }}" `
+                environment=dev `
+              --query properties.outputs.apiPrincipalId.value `
+              --output tsv `
+              --only-show-errors
+          }
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($principalId)) {
+            throw 'The development API managed identity could not be resolved before SQL bootstrap.'
+          }
+          "principalId=$($principalId.Trim())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -182,7 +274,33 @@ jobs:
             --server '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
             --database hotelbooking `
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
-            --principal-object-id '${{ steps.infrastructure.outputs.apiPrincipalId }}'
+            --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
+      - name: Apply managed-identity API configuration after SQL bootstrap
+        shell: pwsh
+        env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+        run: |
+          az deployment group create `
+            --name "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group agentic-hotelbookingdev `
+            --template-file infra/resource-group.bicep `
+            --parameters `
+              environment=dev `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              configureApi=true `
+              configureSql=true `
+              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The development API managed-identity configuration cutover failed.'
+          }
       - name: Index canonical knowledge
         shell: pwsh
         run: |
