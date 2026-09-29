@@ -22,6 +22,22 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: LocalSql-2026-Bootstrap!
+        ports:
+          - 1433:1433
+    env:
+      SQL_BOOTSTRAP_TEST_CONNECTION: >-
+        Server=localhost,1433;
+        Initial Catalog=master;
+        User ID=sa;
+        Password=LocalSql-2026-Bootstrap!;
+        Encrypt=False;
+        TrustServerCertificate=True
     steps:
       - name: Verify manually requested pull request head
         if: github.event_name == 'workflow_dispatch'
@@ -82,6 +98,9 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: dotnet restore --locked-mode
+      - name: Test SQL bootstrapper source mutations
+        shell: pwsh
+        run: ./scripts/Test-SqlManagedIdentityBootstrapperMutations.ps1
       - name: Test agentic intake script
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh

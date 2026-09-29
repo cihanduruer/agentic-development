@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Api\AgenticHotelBooking.Api.csproj" />
+    <ProjectReference Include="..\..\tools\SqlManagedIdentityBootstrapper\SqlManagedIdentityBootstrapper.csproj" />
   </ItemGroup>
 
 </Project>

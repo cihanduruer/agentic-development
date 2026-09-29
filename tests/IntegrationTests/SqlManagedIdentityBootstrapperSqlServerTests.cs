@@ -1,0 +1,456 @@
+using System.Data;
+using AgenticHotelBooking.SqlManagedIdentityBootstrapper;
+using Microsoft.Data.SqlClient;
+
+namespace AgenticHotelBooking.IntegrationTests;
+
+public sealed class SqlManagedIdentityBootstrapperSqlServerTests
+{
+    private const string PrincipalName = "agentic-api";
+
+    [SqlServerFact]
+    public async Task ExactDirectPermissionContractMigratesAndRerunsIdempotently()
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+
+                await ExecuteBootstrap(connection, principalObjectId);
+
+                Assert.Equal(0, await CountDirectPermissions(connection));
+                await AssertRuntimeRoleContract(connection);
+
+                await ExecuteBootstrap(connection, principalObjectId);
+
+                Assert.Equal(0, await CountDirectPermissions(connection));
+                await AssertRuntimeRoleContract(connection);
+            });
+    }
+
+    [SqlServerTheory]
+    [InlineData("subset")]
+    [InlineData("superset")]
+    [InlineData("deny")]
+    [InlineData("grant-option")]
+    [InlineData("column")]
+    public async Task MutatedDirectPermissionStateFailsClosed(string mutation)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, DirectGrantsFor(mutation));
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51000, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoles(connection));
+            });
+    }
+
+    [SqlServerTheory]
+    [InlineData("user")]
+    [InlineData("role")]
+    public async Task UnexpectedRuntimeRoleOwnerFailsClosed(string ownerType)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await CreateAttackerOwnedRuntimeRole(connection, ownerType);
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51015, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(
+                    ownerType == "user" ? "attacker" : "attacker_owner",
+                    await ReadRuntimeRoleOwner(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+            });
+    }
+
+    [SqlServerFact]
+    public async Task UnexpectedRuntimeRoleMemberFailsClosed()
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    """
+                    CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
+                    CREATE USER [attacker] WITHOUT LOGIN;
+                    ALTER ROLE [hotel_booking_runtime] ADD MEMBER [attacker];
+                    """);
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51012, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+                Assert.Equal(1, await CountRuntimeRoleMembers(connection));
+            });
+    }
+
+    private static async Task InIsolatedDatabase(
+        Func<SqlConnection, Guid, Task> test)
+    {
+        var baseConnectionString = Environment.GetEnvironmentVariable(
+            "SQL_BOOTSTRAP_TEST_CONNECTION");
+        if (string.IsNullOrWhiteSpace(baseConnectionString))
+        {
+            throw new InvalidOperationException(
+                "SQL_BOOTSTRAP_TEST_CONNECTION is required for SQL Server bootstrap tests.");
+        }
+
+        var databaseName = $"bootstrap_{Guid.NewGuid():N}";
+        var loginName = $"bootstrap_login_{Guid.NewGuid():N}";
+        var masterConnectionString = new SqlConnectionStringBuilder(baseConnectionString)
+        {
+            InitialCatalog = "master",
+        }.ConnectionString;
+
+        await using var master = await OpenWithRetry(masterConnectionString);
+        await ExecuteNonQuery(master, $"CREATE DATABASE [{databaseName}];");
+        var principalObjectId = await CreateSqlLogin(master, loginName);
+
+        try
+        {
+            var databaseConnectionString =
+                new SqlConnectionStringBuilder(baseConnectionString)
+                {
+                    InitialCatalog = databaseName,
+                }.ConnectionString;
+            await using var database = new SqlConnection(databaseConnectionString);
+            await database.OpenAsync();
+            await ExecuteNonQuery(
+                database,
+                $"""
+                CREATE TABLE dbo.Hotels (Id int NOT NULL);
+                CREATE TABLE dbo.Rooms (Id int NOT NULL);
+                CREATE TABLE dbo.Reservations (Id int NOT NULL);
+                CREATE TABLE dbo.AgentEvents (Id int NOT NULL);
+                CREATE USER [agentic-api] FOR LOGIN [{loginName}];
+                REVOKE CONNECT FROM [agentic-api];
+                """);
+            await test(database, principalObjectId);
+        }
+        finally
+        {
+            SqlConnection.ClearAllPools();
+            await ExecuteNonQuery(
+                master,
+                $"""
+                ALTER DATABASE [{databaseName}]
+                    SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE [{databaseName}];
+                """);
+            await ExecuteNonQuery(master, $"DROP LOGIN [{loginName}];");
+        }
+    }
+
+    private static async Task<SqlConnection> OpenWithRetry(
+        string connectionString)
+    {
+        SqlException? lastException = null;
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            var connection = new SqlConnection(connectionString);
+            try
+            {
+                await connection.OpenAsync();
+                return connection;
+            }
+            catch (SqlException exception)
+            {
+                lastException = exception;
+                await connection.DisposeAsync();
+                await Task.Delay(TimeSpan.FromSeconds(2));
+            }
+        }
+
+        throw new InvalidOperationException(
+            "The SQL Server test service did not become ready.",
+            lastException);
+    }
+
+    private static async Task<Guid> CreateSqlLogin(
+        SqlConnection connection,
+        string loginName)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            $"""
+            CREATE LOGIN [{loginName}]
+                WITH PASSWORD = 'Local-Bootstrap-2026!';
+            SELECT CONVERT(uniqueidentifier, sid)
+            FROM sys.server_principals
+            WHERE name = N'{loginName}';
+            """;
+        return (Guid)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task ExecuteBootstrap(
+        SqlConnection connection,
+        Guid principalObjectId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = SqlManagedIdentityBootstrap.CommandText;
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalName", SqlDbType.NVarChar, 128)
+            {
+                Value = PrincipalName,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
+            {
+                Value = principalObjectId,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
+            {
+                Value = "S",
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiAuthenticationType", SqlDbType.NVarChar, 60)
+            {
+                Value = "INSTANCE",
+            });
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task CreateAttackerOwnedRuntimeRole(
+        SqlConnection connection,
+        string ownerType)
+    {
+        var commandText = ownerType switch
+        {
+            "user" =>
+                """
+                CREATE USER [attacker] WITHOUT LOGIN;
+                CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [attacker];
+                """,
+            "role" =>
+                """
+                CREATE ROLE [attacker_owner] AUTHORIZATION [dbo];
+                CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [attacker_owner];
+                """,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(ownerType),
+                ownerType,
+                "Unsupported owner type."),
+        };
+        await ExecuteNonQuery(connection, commandText);
+    }
+
+    private static async Task AssertRuntimeRoleContract(
+        SqlConnection connection)
+    {
+        Assert.Equal("dbo", await ReadRuntimeRoleOwner(connection));
+        Assert.Equal(7, await CountRuntimeRolePermissions(connection));
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT_BIG(*)
+            FROM sys.database_role_members AS memberships
+            INNER JOIN sys.database_principals AS roles
+                ON roles.principal_id = memberships.role_principal_id
+            INNER JOIN sys.database_principals AS members
+                ON members.principal_id = memberships.member_principal_id
+            WHERE roles.name = N'hotel_booking_runtime'
+              AND members.name = N'agentic-api';
+            """;
+        Assert.Equal(1L, await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<string?> ReadRuntimeRoleOwner(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT owners.name
+            FROM sys.database_principals AS roles
+            LEFT JOIN sys.database_principals AS owners
+                ON owners.principal_id = roles.owning_principal_id
+            WHERE roles.name = N'hotel_booking_runtime';
+            """;
+        return (string?)await command.ExecuteScalarAsync();
+    }
+
+    private static async Task<long> CountDirectPermissions(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT_BIG(*)
+            FROM sys.database_permissions AS permissions
+            INNER JOIN sys.database_principals AS principals
+                ON principals.principal_id = permissions.grantee_principal_id
+            WHERE principals.name = N'agentic-api';
+            """;
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<long> CountRuntimeRoles(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT_BIG(*)
+            FROM sys.database_principals
+            WHERE name = N'hotel_booking_runtime';
+            """;
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<long> CountRuntimeRolePermissions(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT_BIG(*)
+            FROM sys.database_permissions AS permissions
+            INNER JOIN sys.database_principals AS principals
+                ON principals.principal_id = permissions.grantee_principal_id
+            WHERE principals.name = N'hotel_booking_runtime';
+            """;
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<long> CountRuntimeRoleMembers(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT_BIG(*)
+            FROM sys.database_role_members AS memberships
+            INNER JOIN sys.database_principals AS roles
+                ON roles.principal_id = memberships.role_principal_id
+            WHERE roles.name = N'hotel_booking_runtime';
+            """;
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string[]> ReadDirectPermissions(
+        SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT CONCAT(
+                permissions.class, N':',
+                permissions.major_id, N':',
+                permissions.minor_id, N':',
+                permissions.permission_name, N':',
+                permissions.state)
+            FROM sys.database_permissions AS permissions
+            INNER JOIN sys.database_principals AS principals
+                ON principals.principal_id = permissions.grantee_principal_id
+            WHERE principals.name = N'agentic-api'
+            ORDER BY
+                permissions.class,
+                permissions.major_id,
+                permissions.minor_id,
+                permissions.permission_name,
+                permissions.state;
+            """;
+        var permissions = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            permissions.Add(reader.GetString(0));
+        }
+
+        return [.. permissions];
+    }
+
+    private static async Task ExecuteNonQuery(
+        SqlConnection connection,
+        string commandText)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static string DirectGrantsFor(string mutation) =>
+        mutation switch
+        {
+            "subset" =>
+                """
+                GRANT SELECT ON OBJECT::dbo.Hotels TO [agentic-api];
+                GRANT SELECT ON OBJECT::dbo.Rooms TO [agentic-api];
+                GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [agentic-api];
+                GRANT SELECT, INSERT ON OBJECT::dbo.AgentEvents TO [agentic-api];
+                """,
+            "superset" =>
+                ExactDirectGrants +
+                "GRANT UPDATE ON OBJECT::dbo.Hotels TO [agentic-api];",
+            "deny" =>
+                ExactDirectGrants +
+                "DENY SELECT ON OBJECT::dbo.Hotels TO [agentic-api];",
+            "grant-option" =>
+                ExactDirectGrants +
+                "GRANT SELECT ON OBJECT::dbo.Hotels TO [agentic-api] WITH GRANT OPTION;",
+            "column" =>
+                """
+                GRANT SELECT ON OBJECT::dbo.Hotels(Id) TO [agentic-api];
+                GRANT SELECT ON OBJECT::dbo.Rooms TO [agentic-api];
+                GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [agentic-api];
+                GRANT SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents TO [agentic-api];
+                """,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(mutation),
+                mutation,
+                "Unsupported permission mutation."),
+        };
+
+    private const string ExactDirectGrants =
+        """
+        GRANT SELECT ON OBJECT::dbo.Hotels TO [agentic-api];
+        GRANT SELECT ON OBJECT::dbo.Rooms TO [agentic-api];
+        GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [agentic-api];
+        GRANT SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents TO [agentic-api];
+        """;
+}
+
+public sealed class SqlServerFactAttribute : FactAttribute
+{
+    public SqlServerFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("SQL_BOOTSTRAP_TEST_CONNECTION")))
+        {
+            Skip =
+                "SQL_BOOTSTRAP_TEST_CONNECTION is required for SQL Server bootstrap tests.";
+        }
+    }
+}
+
+public sealed class SqlServerTheoryAttribute : TheoryAttribute
+{
+    public SqlServerTheoryAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("SQL_BOOTSTRAP_TEST_CONNECTION")))
+        {
+            Skip =
+                "SQL_BOOTSTRAP_TEST_CONNECTION is required for SQL Server bootstrap tests.";
+        }
+    }
+}

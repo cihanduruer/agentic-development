@@ -151,8 +151,8 @@ public static class SqlManagedIdentityBootstrap
                        WHERE principal_id = @ExistingApiPrincipalId
                          AND name = @apiPrincipalName
                          AND sid = @ApiPrincipalSid
-                         AND type = N'E'
-                         AND authentication_type_desc = N'EXTERNAL'
+                         AND type = @apiPrincipalType
+                         AND authentication_type_desc = @apiAuthenticationType
                    )
                )
                OR (
@@ -361,7 +361,7 @@ public static class SqlManagedIdentityBootstrap
                    OR EXISTS (
                        SELECT
                            permissions.major_id,
-                           permissions.permission_name
+                           permissions.permission_name COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
                          AND permissions.class = 1
@@ -377,7 +377,7 @@ public static class SqlManagedIdentityBootstrap
                        EXCEPT
                        SELECT
                            permissions.major_id,
-                           permissions.permission_name
+                           permissions.permission_name COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
                          AND permissions.class = 1
@@ -529,6 +529,16 @@ public static class SqlManagedIdentityBootstrap
             new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
             {
                 Value = options.PrincipalObjectId,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
+            {
+                Value = "E",
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiAuthenticationType", SqlDbType.NVarChar, 60)
+            {
+                Value = "EXTERNAL",
             });
         return command;
     }

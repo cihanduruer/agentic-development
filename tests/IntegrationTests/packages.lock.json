@@ -830,6 +830,12 @@
           "Microsoft.EntityFrameworkCore.InMemory": "[10.0.4, )",
           "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.4, )"
         }
+      },
+      "sqlmanagedidentitybootstrapper": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Data.SqlClient": "[6.1.1, )"
+        }
       }
     }
   }

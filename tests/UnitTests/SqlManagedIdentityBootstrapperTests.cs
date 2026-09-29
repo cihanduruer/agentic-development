@@ -72,6 +72,8 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Equal("hotelbooking", connection.Database);
         Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
         Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
+        Assert.Equal("E", command.Parameters["@apiPrincipalType"].Value);
+        Assert.Equal("EXTERNAL", command.Parameters["@apiAuthenticationType"].Value);
         Assert.DoesNotContain(":setvar", command.CommandText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("EXEC(N", command.CommandText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
@@ -88,7 +90,11 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Contains("sys.database_permissions", commandText, StringComparison.Ordinal);
         Assert.Contains("unexpected direct database permissions", commandText, StringComparison.Ordinal);
         Assert.Contains("name, SID, or type does not match", commandText, StringComparison.Ordinal);
-        Assert.Contains("authentication_type_desc = N'EXTERNAL'", commandText, StringComparison.Ordinal);
+        Assert.Contains("type = @apiPrincipalType", commandText, StringComparison.Ordinal);
+        Assert.Contains(
+            "authentication_type_desc = @apiAuthenticationType",
+            commandText,
+            StringComparison.Ordinal);
         Assert.Contains("sys.database_role_members", commandText, StringComparison.Ordinal);
         Assert.Contains("unexpected database role memberships", commandText, StringComparison.Ordinal);
         Assert.Contains("sys.schemas", commandText, StringComparison.Ordinal);
@@ -103,6 +109,11 @@ public sealed class SqlManagedIdentityBootstrapperTests
         var commandText = SqlManagedIdentityBootstrap.CommandText;
 
         Assert.Contains("permissions.state = N'G'", commandText, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            CountOccurrences(
+                commandText,
+                "permissions.permission_name COLLATE DATABASE_DEFAULT"));
         Assert.Contains("permissions.minor_id = 0", commandText, StringComparison.Ordinal);
         Assert.Contains("member_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
         Assert.Contains("role_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
@@ -114,6 +125,10 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Contains("unexpectedly nested", commandText, StringComparison.Ordinal);
         Assert.Contains("runtime role unexpectedly owns", commandText, StringComparison.Ordinal);
         Assert.Contains("runtime role has unexpected database permissions", commandText, StringComparison.Ordinal);
+        Assert.Contains(
+            "runtime role does not have the exact expected permission set",
+            commandText,
+            StringComparison.Ordinal);
         Assert.Contains("COUNT_BIG(*)", commandText, StringComparison.Ordinal);
         Assert.Contains("<> 7", commandText, StringComparison.Ordinal);
         Assert.Contains(
@@ -193,6 +208,11 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "REVOKE SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents FROM ",
             commandText,
             StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            CountOccurrences(
+                commandText,
+                "EXEC sys.sp_executesql @Command;"));
         Assert.Contains(
             "still has direct database permissions after legacy migration",
             commandText,
