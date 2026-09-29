@@ -119,11 +119,20 @@ Assert-True (
 
 $platformPull = $pull.PSObject.Copy()
 $platformPull.title = "Harden platform workflow"
-$platformPull.body = "Platform change: true"
+$platformPull.body = "- Platform change: true"
 $platformArguments = $arguments.Clone()
 $platformArguments.PullRequests = @($platformPull)
 $platformResult = Resolve-LifecycleEvidence @platformArguments
 Assert-True ($platformResult.Action -eq "Skipped") "A non-AB platform PR should skip clearly."
+
+$untrackedPull = $pull.PSObject.Copy()
+$untrackedPull.title = "Change delivery behavior"
+$untrackedPull.body = "- Platform change: false"
+$untrackedArguments = $arguments.Clone()
+$untrackedArguments.PullRequests = @($untrackedPull)
+Assert-Throws {
+    Resolve-LifecycleEvidence @untrackedArguments
+} "not explicitly marked as a platform change"
 
 $ambiguousPull = $pull.PSObject.Copy()
 $ambiguousPull.title = "AB#959 and AB#960"
@@ -186,6 +195,22 @@ $script:pageRequestCount = 0
 function Invoke-GitHubApi {
     param([string]$Uri)
     $script:pageRequestCount++
+    if ($Uri -match '/actions/artifacts\?name=qa-evidence-') {
+        return [pscustomobject]@{
+            artifacts = @([pscustomobject]@{
+                name = "qa-evidence-$deployedSha"
+                expired = $false
+                workflow_run = [pscustomobject]@{ id = 42 }
+            })
+        }
+    }
+    if ($Uri -match '/actions/runs/42$') {
+        return [pscustomobject]@{
+            id = 42
+            conclusion = "success"
+            path = ".github/workflows/qa-evidence.yml"
+        }
+    }
     if ($Uri -match 'page=1') {
         return ,@(
             [pscustomobject]@{ number = 5 },
@@ -197,5 +222,10 @@ function Invoke-GitHubApi {
 $pagedIssues = @(Get-GitHubPages -Uri "https://api.github.com/repos/example/issues?state=all")
 Assert-True ($pagedIssues.Count -eq 2) "GitHub array responses must be flattened."
 Assert-True ($script:pageRequestCount -eq 1) "A short GitHub page must stop pagination."
+
+$script:pageRequestCount = 0
+$targetedQa = @(Get-QaEvidenceRuns -Repository $repository -ExpectedSha $deployedSha)
+Assert-True ($targetedQa.Count -eq 1) "Exact-name QA artifact lookup should return its workflow run."
+Assert-True ($script:pageRequestCount -eq 2) "QA lookup should use one artifact and one run request."
 
 Write-Output "Development lifecycle synchronization tests passed."

@@ -89,6 +89,9 @@ function Resolve-LifecycleEvidence {
 
     $ids = @(Get-AbIds -Text "$($pull.title)`n$($pull.body)")
     if ($ids.Count -eq 0) {
+        if ([string]$pull.body -notmatch '(?im)^\s*-\s*Platform change:\s*true\s*$') {
+            throw "Merged PR #$($pull.number) has no Azure Boards identity and is not explicitly marked as a platform change."
+        }
         return [pscustomobject]@{
             Action = "Skipped"
             Reason = "Merged PR #$($pull.number) has no Azure Boards identity."
@@ -312,6 +315,28 @@ function Get-WorkflowRuns {
     return $runs.ToArray()
 }
 
+function Get-QaEvidenceRuns {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$ExpectedSha
+    )
+
+    $artifactName = "qa-evidence-$ExpectedSha"
+    $response = Invoke-GitHubApi -Uri (
+        "https://api.github.com/repos/$Repository/actions/artifacts?name=$artifactName&per_page=100")
+    $artifacts = @($response.artifacts | Where-Object {
+        $_.name -eq $artifactName -and -not $_.expired
+    })
+    $runs = [Collections.Generic.List[object]]::new()
+    foreach ($group in ($artifacts | Group-Object { $_.workflow_run.id })) {
+        $run = Invoke-GitHubApi -Uri (
+            "https://api.github.com/repos/$Repository/actions/runs/$($group.Name)")
+        $run | Add-Member -NotePropertyName artifacts -NotePropertyValue @($group.Group) -Force
+        $runs.Add($run)
+    }
+    return $runs.ToArray()
+}
+
 function Invoke-DevelopmentLifecycleSync {
     param(
         [string]$Organization,
@@ -347,14 +372,9 @@ function Invoke-DevelopmentLifecycleSync {
             -Repository $Repository `
             -Workflow "pr-validation.yml" `
             -HeadSha $DeployedSha)
-        $qaRuns = @(Get-WorkflowRuns `
+        $qaRuns = @(Get-QaEvidenceRuns `
             -Repository $Repository `
-            -Workflow "qa-evidence.yml")
-        foreach ($run in $qaRuns) {
-            $artifacts = Invoke-GitHubApi -Uri (
-                "https://api.github.com/repos/$Repository/actions/runs/$($run.id)/artifacts?per_page=100")
-            $run | Add-Member -NotePropertyName artifacts -NotePropertyValue @($artifacts.artifacts) -Force
-        }
+            -ExpectedSha $DeployedSha)
         $reviewRuns = @(Get-WorkflowRuns -Repository $Repository -Workflow "hotel-code-review.yml")
         $reviews = if ($candidatePulls.Count -eq 1) {
             @(Get-GitHubPages -Uri (

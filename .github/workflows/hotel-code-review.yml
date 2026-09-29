@@ -164,12 +164,34 @@ jobs:
               }
             }
 
+            const reportsFindings = body => {
+              const findings = body.match(/\bfindings?\s*:\s*(\d+)/i);
+              const open = body.match(/<summary>\s*<strong>\s*open\s*\((\d+)\)/i);
+              if (findings && Number(findings[1]) === 0
+                  && (!open || Number(open[1]) === 0)) {
+                return false;
+              }
+              return (findings && Number(findings[1]) > 0)
+                || (open && Number(open[1]) > 0)
+                || /\bchanges?\s+recommended\b/i.test(body);
+            };
+            const findingsRegressions = [
+              ['Findings: 0', false],
+              ['Findings: 0\n<summary><strong>Open (0)</strong></summary>', false],
+              ['Findings: 1', true],
+              ['<summary><strong>Open (2)</strong></summary>', true],
+              ['Changes recommended', true]
+            ];
+            for (const [sample, expected] of findingsRegressions) {
+              if (reportsFindings(sample) !== expected) {
+                core.setFailed(`Review-body findings regression for '${sample}'.`);
+                return;
+              }
+            }
+
             const reviewBody = currentReview.body || '';
             const reviewBodySeverity = severity(reviewBody);
-            const reviewBodyReportsFindings =
-              /\bchanges?\s+recommended\b/i.test(reviewBody)
-              || /\bfindings?\s*:/i.test(reviewBody)
-              || /<summary>\s*<strong>\s*open\s*\(/i.test(reviewBody);
+            const reviewBodyReportsFindings = reportsFindings(reviewBody);
             const unresolved = connection.nodes
               .filter(thread => !thread.isResolved)
               .flatMap(thread => thread.comments.nodes)
