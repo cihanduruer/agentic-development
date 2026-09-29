@@ -1,0 +1,99 @@
+name: Sync development lifecycle
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sync-development-lifecycle.yml'
+      - 'scripts/Sync-DevelopmentLifecycle.ps1'
+      - 'scripts/Test-Sync-DevelopmentLifecycle.ps1'
+  workflow_run:
+    workflows: [Deploy development]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      deployment_run_id:
+        description: Successful Deploy development workflow run ID
+        required: true
+        type: string
+      deployed_sha:
+        description: Exact deployed main commit SHA
+        required: true
+        type: string
+      pull_request_number:
+        description: Merged pull request deployed by the selected run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifecycle-${{ github.event_name == 'workflow_dispatch' && inputs.deployed_sha || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test lifecycle synchronization policy
+        shell: pwsh
+        run: ./scripts/Test-Sync-DevelopmentLifecycle.ps1
+
+  synchronize:
+    needs: policy
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_branch == 'main')
+    environment: development
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      issues: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Record evidence-backed delivery
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYMENT_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.deployment_run_id || github.event.workflow_run.id }}
+          DEPLOYED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.deployed_sha || github.event.workflow_run.head_sha }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          if ($env:DEPLOYMENT_RUN_ID -notmatch '^[1-9][0-9]*$') {
+            throw "deployment_run_id must be a positive integer."
+          }
+          if ($env:DEPLOYED_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw "deployed_sha must be a full lowercase commit SHA."
+          }
+          $parameters = @{
+            DeploymentRunId = [long]$env:DEPLOYMENT_RUN_ID
+            DeployedSha = $env:DEPLOYED_SHA
+            EvidenceWaitAttempts = 20
+            EvidenceWaitSeconds = 30
+          }
+          if ($env:PULL_REQUEST_NUMBER) {
+            if ($env:PULL_REQUEST_NUMBER -notmatch '^[1-9][0-9]*$') {
+              throw "pull_request_number must be a positive integer."
+            }
+            $parameters.PullRequestNumber = [int]$env:PULL_REQUEST_NUMBER
+          }
+          ./scripts/Sync-DevelopmentLifecycle.ps1 @parameters

@@ -56,10 +56,20 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Request Copilot review
+        id: request-review
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.COPILOT_AGENT_TOKEN }}
           script: |
+            const existingReviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+            core.setOutput(
+              'existing_review_ids',
+              existingReviews.map(review => review.id).join(','));
             await github.rest.pulls.requestReviewers({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -76,7 +86,46 @@ jobs:
             const repo = context.repo.repo;
             const pull = context.payload.pull_request;
             const reviewer = 'copilot-pull-request-reviewer[bot]';
+            const reviewerGraphql = 'copilot-pull-request-reviewer';
+            const isCopilotReviewer = login =>
+              login === reviewer || login === reviewerGraphql;
+            const reviewerIdentityRegressions = [
+              [reviewer, true],
+              [reviewerGraphql, true],
+              ['unrelated-bot[bot]', false]
+            ];
+            for (const [login, expected] of reviewerIdentityRegressions) {
+              if (isCopilotReviewer(login) !== expected) {
+                core.setFailed(`Reviewer identity regression for '${login}'.`);
+                return;
+              }
+            }
+            const existingReviewIds = new Set(
+              '${{ steps.request-review.outputs.existing_review_ids }}'
+                .split(',')
+                .filter(Boolean)
+                .map(Number));
             const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+            const isNewCurrentHeadReview = review =>
+              isCopilotReviewer(review.user?.login)
+              && review.commit_id === pull.head.sha
+              && !existingReviewIds.has(review.id);
+            const freshnessRegressions = [
+              [{ id: 1, user: { login: reviewer }, commit_id: pull.head.sha }, new Set([1]), false],
+              [{ id: 2, user: { login: reviewer }, commit_id: pull.head.sha }, new Set([1]), true],
+              [{ id: 2, user: { login: reviewer }, commit_id: '0'.repeat(40) }, new Set([1]), false]
+            ];
+            for (const [review, priorIds, expected] of freshnessRegressions) {
+              const originalIds = new Set(existingReviewIds);
+              existingReviewIds.clear();
+              for (const id of priorIds) existingReviewIds.add(id);
+              if (isNewCurrentHeadReview(review) !== expected) {
+                core.setFailed(`Review freshness regression for review ${review.id}.`);
+                return;
+              }
+              existingReviewIds.clear();
+              for (const id of originalIds) existingReviewIds.add(id);
+            }
 
             let currentReview;
             for (let attempt = 1; attempt <= 36; attempt++) {
@@ -87,9 +136,7 @@ jobs:
                 per_page: 100
               });
               currentReview = reviews
-                .filter(review =>
-                  review.user?.login === reviewer
-                  && review.commit_id === pull.head.sha)
+                .filter(isNewCurrentHeadReview)
                 .sort((left, right) => new Date(right.submitted_at) - new Date(left.submitted_at))[0];
               if (currentReview) {
                 break;
@@ -134,25 +181,99 @@ jobs:
 
             const severity = body => {
               const normalized = body.replace(/[*_`#<>"]/g, ' ');
-              if (/\bseverity\s*:?\s*high\b/i.test(normalized) || /^\s*high\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*high\b/i.test(normalized)
+                  || /\bhigh\s+severity\b/i.test(normalized)
+                  || /^\s*high\s*$/im.test(normalized)) {
                 return 'high';
               }
-              if (/\bseverity\s*:?\s*medium\b/i.test(normalized) || /^\s*medium\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*medium\b/i.test(normalized)
+                  || /\bmedium\s+severity\b/i.test(normalized)
+                  || /^\s*medium\s*$/im.test(normalized)) {
                 return 'medium';
               }
-              if (/\bseverity\s*:?\s*low\b/i.test(normalized) || /^\s*low\s*$/im.test(normalized)) {
+              if (/\bseverity\s*:?\s*low\b/i.test(normalized)
+                  || /\blow\s+severity\b/i.test(normalized)
+                  || /^\s*low\s*$/im.test(normalized)) {
                 return 'low';
               }
               return 'unknown';
             };
+            const severityRegressions = [
+              ['<img alt="High severity">', 'high'],
+              ['Severity: Medium', 'medium'],
+              ['low severity', 'low'],
+              ['Changes recommended', 'unknown']
+            ];
+            for (const [sample, expected] of severityRegressions) {
+              if (severity(sample) !== expected) {
+                core.setFailed(`Severity parser regression for '${sample}'.`);
+                return;
+              }
+            }
 
+            const reportsFindings = body => {
+              const findings = body.match(/\bfindings?\s*:\s*(\d+)/i);
+              const open = body.match(/<summary>\s*<strong>\s*open\s*\((\d+)\)/i);
+              if (findings && Number(findings[1]) === 0
+                  && (!open || Number(open[1]) === 0)) {
+                return false;
+              }
+              const recommendsChanges = /\bchanges?\s+recommended\b/i.test(body)
+                && !/\bno changes?\s+recommended\b/i.test(body);
+              return (findings && Number(findings[1]) > 0)
+                || (open && Number(open[1]) > 0)
+                || recommendsChanges;
+            };
+            const activeReviewBody = body => body.replace(
+              /<details>\s*<summary><strong>\s*resolved since last review[\s\S]*?<\/details>/gi,
+              '');
+            const findingsRegressions = [
+              ['Findings: 0', false],
+              ['Findings: 0\n<summary><strong>Open (0)</strong></summary>', false],
+              ['Findings: 1', true],
+              ['<summary><strong>Open (2)</strong></summary>', true],
+              ['Changes recommended', true],
+              ['No changes recommended', false]
+            ];
+            for (const [sample, expected] of findingsRegressions) {
+              if (reportsFindings(sample) !== expected) {
+                core.setFailed(`Review-body findings regression for '${sample}'.`);
+                return;
+              }
+            }
+            const reviewHistoryRegression = [
+              '**Findings:** None',
+              '<details><summary><strong>Resolved since last review (2)</strong></summary>',
+              '<img alt="High severity"> fixed finding',
+              '</details>',
+              '<details><summary><strong>Previously missed (1)</strong></summary>',
+              '<img alt="Medium severity"> active finding',
+              '</details>'
+            ].join('\n');
+            if (severity(activeReviewBody(reviewHistoryRegression)) !== 'medium'
+                || reportsFindings(activeReviewBody(reviewHistoryRegression))) {
+              core.setFailed('Resolved review-history regression.');
+              return;
+            }
+
+            const reviewBody = activeReviewBody(currentReview.body || '');
+            const reviewBodySeverity = severity(reviewBody);
+            const reviewBodyReportsFindings = reportsFindings(reviewBody);
             const unresolved = connection.nodes
               .filter(thread => !thread.isResolved)
               .flatMap(thread => thread.comments.nodes)
-              .filter(comment => comment.author?.login === reviewer)
+              .filter(comment => isCopilotReviewer(comment.author?.login))
               .map(comment => ({ ...comment, severity: severity(comment.body) }));
             const blocking = unresolved.filter(comment =>
               comment.severity === 'high' || comment.severity === 'unknown');
+            if (reviewBodySeverity === 'high'
+                || (reviewBodyReportsFindings && reviewBodySeverity === 'unknown')) {
+              blocking.unshift({
+                url: currentReview.html_url || pull.html_url,
+                severity: reviewBodySeverity,
+                body: reviewBody
+              });
+            }
 
             const label = 'development-required';
             if (blocking.length > 0) {

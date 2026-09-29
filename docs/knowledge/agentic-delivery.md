@@ -19,6 +19,12 @@ GitHub can represent the assigned agent as the documented `copilot-swe-agent`/`c
 
 GitHub intentionally marks Copilot cloud-agent pull request runs `action_required` before creating jobs when **Require approval for workflow runs** is enabled under the repository's Copilot cloud-agent settings. A maintainer can approve the run from the pull request merge box, or dispatch `PR validation` from `main` with the pull request number and its full current head SHA. The manual workflow uses the trusted default-branch definition, reads the pull request through GitHub's API, verifies that it is open, targets this repository's `main`, originates in this repository, and still has that exact head SHA, then checks out only that SHA and asserts the checked-out commit before producing provenance. Pull-request-triggered runs execute PR-modifiable workflow content and are not accepted as trusted QA provenance. This provides exact-commit evidence without using `pull_request_target` to execute untrusted pull-request code. Administrators may disable the Copilot-specific approval setting when repository policy permits, but automation does not change that security setting.
 
+## Azure Boards delivery synchronization
+
+After a successful development deployment, lifecycle synchronization requires one merged same-repository PR, one trusted canonical `AB#<id>` issue, exact-deployed-SHA validation and QA evidence, and exact-head Copilot review evidence. The delivery identity must be in the PR title or its `Azure Boards:` tracking field; incidental body references are ignored. Automatic runs wait for bounded evidence races; manual replay pins the deployment run, SHA, and PR. PRs explicitly marked `Platform change: true` skip only when they have no AB identity or also declare `Azure Boards: N/A`; the latter prevents historical AB references from becoming delivery scope. Stale, missing, ambiguous, or untrusted evidence fails closed.
+
+Synchronization never changes work-item state. It adds `delivery-evidence`, removes `ready-for-triage`, and adds deduplicated PR, deployment, validation, QA, and review links under an optimistic revision test. Complete replays are no-ops; terminal items may receive missing evidence but are never reopened.
+
 ## Decision contracts
 
 | Decision | Allowed outputs |
