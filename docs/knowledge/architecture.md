@@ -24,7 +24,7 @@ The API exposes a typed event-ingestion endpoint and broadcasts accepted events 
 
 ## Agent workflow
 
-GitHub Copilot agents perform repository work. Deterministic C# policy owns safety, evidence, and approval gates. For ambiguous safe routes, Microsoft Agent Framework obtains strict typed output from an Azure OpenAI deployment and validates the suggestion against the live worker menu and confidence threshold. Azure AI Search supplies revisioned knowledge, Azure AI Content Safety supplies Prompt Shields, and the dedicated Microsoft Foundry evaluation workflow scores groundedness. These signals never grant authorization.
+GitHub Copilot agents perform repository work. Deterministic C# policy owns safety, evidence, and approval gates. For ambiguous safe routes, Microsoft Agent Framework obtains strict typed output from an Azure OpenAI deployment and validates the suggestion against the live worker menu and confidence threshold. Azure AI Search supplies revisioned knowledge, Azure AI Content Safety supplies Prompt Shields, and the dedicated Microsoft Foundry evaluation workflow is configured to score groundedness when manually dispatched. These signals never grant authorization. Repository tests prove the deterministic fail-closed behavior; deployment and live-cloud workflow evidence are separate release artifacts and must not be inferred from local validation.
 
 `tools/KnowledgeIndexer` reads only canonical Markdown under `docs/knowledge`, requires `owner` and `last_reviewed` front matter, chunks on section boundaries, and uses deterministic revision/path/content hashes as Azure AI Search keys. Re-running the same commit uses `mergeOrUpload` and does not duplicate chunks; prior revisions remain queryable.
 
