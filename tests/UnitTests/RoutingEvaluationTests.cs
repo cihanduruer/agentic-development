@@ -2,6 +2,7 @@ using AgenticHotelBooking.Application;
 using AgenticHotelBooking.Infrastructure;
 using Azure.Core;
 using System.Net;
+using System.Text.Json;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -123,6 +124,55 @@ public sealed class RoutingEvaluationTests
         Assert.Equal("quality assurance browser testing OR", query);
         Assert.Throws<InvalidDataException>(() =>
             AzureSearchGroundingEvaluator.BuildGroundingQuery("*", "?"));
+    }
+
+    [Fact]
+    public void GroundingSearchProjectionDeserializesIdOnlyDocuments()
+    {
+        var hit = JsonSerializer.Deserialize<KnowledgeSearchHit>(
+            """{"Id":"document-id"}""");
+
+        Assert.NotNull(hit);
+        Assert.Equal("document-id", hit.Id);
+    }
+
+    [Fact]
+    public void DevelopmentSmokeVocabularyIsGroundedByCanonicalKnowledge()
+    {
+        const string relativePath = "docs/knowledge/agentic-delivery.md";
+        var repositoryRoot = FindRepositoryRoot();
+        var chunks = KnowledgeDocumentChunker.Chunk(
+            relativePath,
+            File.ReadAllText(Path.Combine(repositoryRoot, relativePath)),
+            "test-revision");
+        var terms = AzureSearchGroundingEvaluator.BuildGroundingQuery(
+                "quality-assurance",
+                "api-testing")
+            .Split(' ');
+
+        Assert.Contains(
+            chunks,
+            chunk =>
+            {
+                var searchableText = $"{chunk.Title} {chunk.Content}";
+                return terms.All(term =>
+                    searchableText.Contains(term, StringComparison.OrdinalIgnoreCase));
+            });
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "AgenticHotelBooking.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException("Unable to locate the repository root.");
     }
 
     private static MicrosoftRoutingEvaluationGate CreateGate(

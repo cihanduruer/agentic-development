@@ -42,6 +42,10 @@ Deterministic policy immediately routes incomplete evidence, high-risk actions, 
 
 The model receives labels and evidence metadata, not source code, prompts, secrets, personal data, work-item descriptions, or full internal documents. Application Insights records latency and failures; the operations event stream records the effective route, confidence, policy/model identifier, outcome, and knowledge revision.
 
+## Supported routing capability vocabulary
+
+The development deployment smoke verifies the deterministic `qa-agent` route with task category `quality-assurance` and required capability `api-testing`. This canonical section intentionally keeps the searchable quality assurance API testing terms together so the exact-revision Azure AI Search grounding gate has explicit evidence for that supported route.
+
 ## Autonomy
 
 - Read and analysis may run automatically.

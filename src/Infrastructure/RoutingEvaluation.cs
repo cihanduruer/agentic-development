@@ -179,7 +179,7 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
             credential);
         var escapedRevision = request.KnowledgeRevision.Replace("'", "''", StringComparison.Ordinal);
         var query = BuildGroundingQuery(request.TaskCategory, request.RequiredCapability);
-        var response = await searchClient.SearchAsync<KnowledgeSearchDocument>(
+        var response = await searchClient.SearchAsync<KnowledgeSearchHit>(
             query,
             new SearchOptions
             {
@@ -213,4 +213,9 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
 
         return string.Join(' ', terms);
     }
+}
+
+public sealed class KnowledgeSearchHit
+{
+    public string? Id { get; init; }
 }
