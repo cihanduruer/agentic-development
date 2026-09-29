@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using AgenticHotelBooking.Application;
+using AgenticHotelBooking.Domain;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace AgenticHotelBooking.IntegrationTests;
@@ -35,14 +36,14 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task ReservationResponseIncludesMultiNightTotal()
     {
-        var hotels = await client.GetFromJsonAsync<AgenticHotelBooking.Domain.Hotel[]>("/api/hotels");
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
         var hotel = hotels![0];
         var room = hotel.Rooms[0];
         var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(20));
 
         var response = await client.PostAsJsonAsync("/api/reservations",
             new BookingRequest(hotel.Id, room.Id, checkIn, checkIn.AddDays(2), 2, "Ada"));
-        var reservation = await response.Content.ReadFromJsonAsync<AgenticHotelBooking.Domain.Reservation>();
+        var reservation = await response.Content.ReadFromJsonAsync<Reservation>();
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal(2, reservation!.Nights);
