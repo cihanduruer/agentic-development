@@ -14,6 +14,10 @@ param(
     [string] $HeadSha,
 
     [Parameter(Mandatory)]
+    [ValidatePattern('^[0-9a-f]{40}$')]
+    [string] $TrustedKnowledgeRevision,
+
+    [Parameter(Mandatory)]
     [string] $TestResultsPath,
 
     [Parameter(Mandatory)]
@@ -48,39 +52,42 @@ function Get-MarkdownSection {
 $acceptanceEvidence = Get-MarkdownSection 'Acceptance criteria evidence'
 $negativeEvidence = Get-MarkdownSection 'Negative-path evidence'
 $knowledgeEvidence = Get-MarkdownSection 'Knowledge revision'
-$knowledgeRevision = $null
+$citedKnowledgeRevision = $null
 
-if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
-    $acceptanceEvidence -notmatch '(?im)^\s*-\s*\[[xX]\]\s+\S') {
-    $failures.Add('Acceptance criteria evidence must contain at least one completed checklist item.')
-}
-if ($acceptanceEvidence -match '(?im)^\s*-\s*\[\s\]\s+\S') {
-    $failures.Add('Every listed acceptance criterion must be completed before QA can pass.')
-}
-if ($acceptanceEvidence -match '(?im)^\s*-\s*\[[xX]\]\s+Criterion and evidence location\s*$') {
-    $failures.Add('Acceptance criteria evidence must replace the pull request template placeholder.')
-}
-
-if ([string]::IsNullOrWhiteSpace($negativeEvidence) -or
-    $negativeEvidence -notmatch '(?im)^\s*-\s+\S') {
-    $failures.Add('Negative-path evidence must identify at least one negative path and its evidence.')
-}
-if ($negativeEvidence -match '(?im)^\s*-\s+Negative path and test or other evidence\s*$') {
-    $failures.Add('Negative-path evidence must replace the pull request template placeholder.')
-}
-
-if (-not [string]::IsNullOrWhiteSpace($knowledgeEvidence)) {
-    $knowledgeMatches = [Regex]::Matches($knowledgeEvidence, '(?i)\b[0-9a-f]{40}\b')
-    if ($knowledgeMatches.Count -eq 1) {
-        $knowledgeRevision = $knowledgeMatches[0].Value.ToLowerInvariant()
+if ($ProductChange -eq 'true') {
+    if ([string]::IsNullOrWhiteSpace($acceptanceEvidence) -or
+        $acceptanceEvidence -notmatch '(?im)^\s*-\s*\[[xX]\]\s+\S') {
+        $failures.Add('Acceptance criteria evidence must contain at least one completed checklist item.')
     }
-}
-if ($null -eq $knowledgeRevision) {
-    $failures.Add('Knowledge revision must contain exactly one full commit SHA used for grounding.')
-}
-
-if ($ProductChange -eq 'true' -and "$PullRequestTitle`n$body" -notmatch '\bAB#\d+\b') {
-    $failures.Add('Product changes must reference an Azure Boards item as AB#<id>.')
+    if ($acceptanceEvidence -match '(?im)^\s*-\s*\[\s\]\s+\S') {
+        $failures.Add('Every listed acceptance criterion must be completed before QA can pass.')
+    }
+    if ($acceptanceEvidence -match '(?im)^\s*-\s*\[[xX]\]\s+Criterion and evidence location\s*$') {
+        $failures.Add('Acceptance criteria evidence must replace the pull request template placeholder.')
+    }
+    if ([string]::IsNullOrWhiteSpace($negativeEvidence) -or
+        $negativeEvidence -notmatch '(?im)^\s*-\s+\S') {
+        $failures.Add('Negative-path evidence must identify at least one negative path and its evidence.')
+    }
+    if ($negativeEvidence -match '(?im)^\s*-\s+Negative path and test or other evidence\s*$') {
+        $failures.Add('Negative-path evidence must replace the pull request template placeholder.')
+    }
+    if (-not [string]::IsNullOrWhiteSpace($knowledgeEvidence)) {
+        $knowledgeMatches = [Regex]::Matches($knowledgeEvidence, '(?i)\b[0-9a-f]{40}\b')
+        if ($knowledgeMatches.Count -eq 1) {
+            $citedKnowledgeRevision = $knowledgeMatches[0].Value.ToLowerInvariant()
+        }
+    }
+    if ($null -eq $citedKnowledgeRevision) {
+        $failures.Add('Knowledge revision must contain exactly one full commit SHA used for grounding.')
+    }
+    if ("$PullRequestTitle`n$body" -notmatch '\bAB#\d+\b') {
+        $failures.Add('Product changes must reference an Azure Boards item as AB#<id>.')
+    }
+} else {
+    $acceptanceEvidence = 'N/A - non-product change.'
+    $negativeEvidence = 'N/A - non-product change.'
+    $knowledgeEvidence = 'N/A - non-product change.'
 }
 
 $trxFiles = @(Get-ChildItem $TestResultsPath -Filter *.trx -Recurse)
@@ -116,7 +123,9 @@ $result = [ordered]@{
     status = $status
     pullRequest = $PullRequestNumber
     headSha = $HeadSha
-    knowledgeRevision = $knowledgeRevision
+    trustedKnowledgeRevision = $TrustedKnowledgeRevision
+    knowledgeRevision = $citedKnowledgeRevision
+    knowledgeRevisionEvidence = $knowledgeEvidence
     agent = [ordered]@{
         profile = 'hotel-qa'
         execution = 'not-run'
@@ -138,7 +147,8 @@ $summary = @(
     "- Result: **$status**"
     "- Pull request: #$PullRequestNumber"
     "- Commit: ``$HeadSha``"
-    "- Knowledge revision: ``$knowledgeRevision``"
+    "- Trusted knowledge revision: ``$TrustedKnowledgeRevision``"
+    "- Cited knowledge revision: ``$(if ($null -eq $citedKnowledgeRevision) { $knowledgeEvidence } else { $citedKnowledgeRevision })``"
     '- Custom agent execution: **not run**'
     ''
     'The workflow applied the `hotel-qa` evidence contract but did not invoke or impersonate the custom agent.'

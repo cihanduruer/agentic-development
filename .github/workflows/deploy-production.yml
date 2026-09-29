@@ -213,13 +213,39 @@ jobs:
 
       - name: Deploy production infrastructure
         id: infrastructure
-        uses: azure/arm-deploy@v2
-        with:
-          scope: subscription
-          region: westeurope
-          template: infra/main.bicep
-          parameters: infra/production.parameters.json sqlAdminPassword=${{ secrets.SQL_ADMIN_PASSWORD }}
-          failOnStdErr: false
+        shell: pwsh
+        env:
+          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+          RESOURCE_GROUP: agentic-hotelbookingprod
+          SQL_ADMIN_PASSWORD: ${{ secrets.SQL_ADMIN_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPERATIONS_API_AUDIENCE)) {
+            throw 'The production OPERATIONS_API_AUDIENCE environment variable is required.'
+          }
+          $outputsJson = az deployment group create `
+            --name "production-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --resource-group $env:RESOURCE_GROUP `
+            --template-file infra/resource-group.bicep `
+            --parameters infra/production.parameters.json `
+              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
+              "sqlAdminPassword=$env:SQL_ADMIN_PASSWORD" `
+            --query properties.outputs `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($outputsJson)) {
+            throw 'Production resource-group deployment failed without returning outputs.'
+          }
+          $outputs = $outputsJson | ConvertFrom-Json
+          $requiredOutputs = @('apiAppName', 'apiUrl', 'staticWebAppName')
+          foreach ($name in $requiredOutputs) {
+            $value = $outputs.$name.value
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              throw "Production deployment output '$name' is missing."
+            }
+            "$name=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          "resourceGroupName=$env:RESOURCE_GROUP" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Deploy API artifact
         uses: azure/webapps-deploy@v3
