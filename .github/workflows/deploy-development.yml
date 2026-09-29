@@ -47,7 +47,7 @@ jobs:
       - name: Deploy API
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: artifacts/api
       - name: Publish web
         run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release -o artifacts/web
@@ -69,9 +69,11 @@ jobs:
         shell: pwsh
         env:
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
+          OPERATIONS_API_RESOURCE: ${{ vars.OPERATIONS_API_RESOURCE }}
         run: |
           ./scripts/Test-DevelopmentOperations.ps1 `
             -ApiUrl '${{ steps.infrastructure.outputs.apiUrl }}' `
-            -Audience $env:OPERATIONS_API_AUDIENCE `
+            -TokenResource $env:OPERATIONS_API_RESOURCE `
+            -TokenAudience $env:OPERATIONS_API_AUDIENCE `
             -ResourceGroup 'agentic-hotelbookingdev' `
             -AppName '${{ steps.infrastructure.outputs.apiAppName }}'

@@ -16,7 +16,7 @@ The `production` environment is restricted to `main`. Required reviewers and wai
 Required `production` environment configuration:
 
 - OIDC variables or secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
-- Environment variable: `OPERATIONS_API_AUDIENCE`.
+- Environment variable: `OPERATIONS_API_AUDIENCE` set to the API application client ID expected in Entra v2 access tokens.
 - Secret: `SQL_ADMIN_PASSWORD`.
 - Azure federated credential restricted to this repository's `production` environment subject.
 - The precreated `agentic-hotelbookingprod` resource group in West Europe.

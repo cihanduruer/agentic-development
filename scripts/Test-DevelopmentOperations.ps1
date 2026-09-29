@@ -6,7 +6,11 @@ param(
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [string]$Audience,
+    [string]$TokenResource,
+
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string]$TokenAudience,
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
@@ -77,6 +81,27 @@ function Assert-Status {
     }
 }
 
+function ConvertFrom-JwtPayload {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Jwt
+    )
+
+    $segments = $Jwt.Split('.')
+    if ($segments.Count -ne 3) {
+        throw 'Azure CLI returned a malformed access token.'
+    }
+
+    $payload = $segments[1].Replace('-', '+').Replace('_', '/')
+    $payload += '=' * ((4 - ($payload.Length % 4)) % 4)
+    try {
+        [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+    }
+    catch {
+        throw 'Azure CLI returned an access token with an invalid JWT payload.'
+    }
+}
+
 $eventBody = @{
     kind                 = 0
     correlationId        = $correlationId
@@ -98,22 +123,27 @@ $routeBody = @{
     risk               = 'reversible'
     evidenceComplete   = $true
     availableWorkers   = @{
-        'qa-agent' = 'Runs API tests.'
+        'qa-agent'     = 'Runs API tests.'
+        'human_review' = 'Reviews ambiguous or unsafe work.'
     }
     knowledgeRevision  = $env:GITHUB_SHA
 } | ConvertTo-Json -Compress
 
 $publicRead = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=1"
 Assert-Status -Response $publicRead -Expected 200 -Operation 'Public operations read'
+Write-Output 'Verified public operations read: HTTP 200.'
 
 $anonymousEvent = Invoke-ApiRequest -Method POST -Uri "$api/api/operations/events" -Body $eventBody
 Assert-Status -Response $anonymousEvent -Expected 401 -Operation 'Anonymous operations ingestion'
+Write-Output 'Verified anonymous operations ingestion rejection: HTTP 401.'
 
 $anonymousRoute = Invoke-ApiRequest -Method POST -Uri "$api/api/orchestration/route" -Body $routeBody
 Assert-Status -Response $anonymousRoute -Expected 401 -Operation 'Anonymous orchestration routing'
+Write-Output 'Verified anonymous orchestration routing rejection: HTTP 401.'
 
+$tokenScope = "$($TokenResource.TrimEnd('/'))/.default"
 $token = az account get-access-token `
-    --resource $Audience `
+    --scope $tokenScope `
     --query accessToken `
     --output tsv `
     --only-show-errors
@@ -125,6 +155,18 @@ $token = $token.Trim()
 if ($env:GITHUB_ACTIONS -eq 'true') {
     Write-Output "::add-mask::$token"
 }
+
+$claims = ConvertFrom-JwtPayload -Jwt $token
+$roles = @($claims.roles)
+if ($claims.ver -ne '2.0' -or
+    $claims.aud -ne $TokenAudience -or
+    $claims.iss -notmatch '/v2\.0$' -or
+    $roles -notcontains 'Operations.Ingest') {
+    $safeRoles = $roles -join ','
+    throw "Access token claims are invalid: ver=$($claims.ver); iss=$($claims.iss); aud=$($claims.aud); roles=$safeRoles; azp=$($claims.azp)."
+}
+Write-Output "Verified access token claims: ver=2.0; iss=$($claims.iss); aud=$($claims.aud); roles=$($roles -join ','); azp=$($claims.azp)."
+
 $authorizedHeaders = @{ Authorization = "Bearer $token" }
 $authorizedEvent = Invoke-ApiRequest `
     -Method POST `
@@ -132,19 +174,58 @@ $authorizedEvent = Invoke-ApiRequest `
     -Body $eventBody `
     -Headers $authorizedHeaders
 Assert-Status -Response $authorizedEvent -Expected 201 -Operation 'Authorized operations ingestion'
+Write-Output "Verified OIDC-authorized operations ingestion: HTTP 201 for '$correlationId'."
+
+$authorizedRoute = Invoke-ApiRequest `
+    -Method POST `
+    -Uri "$api/api/orchestration/route" `
+    -Body $routeBody `
+    -Headers $authorizedHeaders
+Assert-Status -Response $authorizedRoute -Expected 200 -Operation 'Authorized orchestration routing'
+$routeDecision = $authorizedRoute.Content | ConvertFrom-Json
+if ($routeDecision.effectiveWorker -ne 'qa-agent' -or
+    $routeDecision.model -notmatch '^policy:') {
+    throw "Authorized routing returned an unexpected deterministic decision."
+}
+Write-Output "Verified OIDC-authorized deterministic routing: HTTP 200; worker=$($routeDecision.effectiveWorker); model=$($routeDecision.model)."
+
 $token = $null
 $authorizedHeaders.Clear()
 
-az webapp restart `
-    --resource-group $ResourceGroup `
-    --name $AppName `
-    --only-show-errors
-if ($LASTEXITCODE -ne 0) {
-    throw 'Development App Service restart failed.'
+$subscriptionId = az account show --query id --output tsv --only-show-errors
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($subscriptionId)) {
+    throw 'Azure CLI did not return the active subscription ID.'
 }
 
-$healthy = $false
+$restartUri = '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/restart?api-version=2024-11-01&synchronous=true' -f `
+    [Uri]::EscapeDataString($subscriptionId.Trim()), `
+    [Uri]::EscapeDataString($ResourceGroup), `
+    [Uri]::EscapeDataString($AppName)
+
 $restartDeadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
+$azCommand = Get-Command az -ErrorAction Stop
+$processInfo = [Diagnostics.ProcessStartInfo]::new()
+$processInfo.FileName = $azCommand.Source
+$processInfo.UseShellExecute = $false
+$processInfo.RedirectStandardOutput = $true
+$processInfo.RedirectStandardError = $true
+@('rest', '--method', 'post', '--uri', $restartUri, '--only-show-errors') |
+    ForEach-Object { [void]$processInfo.ArgumentList.Add($_) }
+$restartProcess = [Diagnostics.Process]::Start($processInfo)
+$remainingMilliseconds = [Math]::Max(
+    1,
+    [Math]::Floor(($restartDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds))
+if (-not $restartProcess.WaitForExit($remainingMilliseconds)) {
+    $restartProcess.Kill($true)
+    throw 'Synchronous development App Service restart exceeded the two-minute deadline.'
+}
+if ($restartProcess.ExitCode -ne 0) {
+    $restartError = $restartProcess.StandardError.ReadToEnd().Trim()
+    throw "Synchronous development App Service restart failed: $restartError"
+}
+Write-Output 'Verified synchronous App Service restart completion.'
+
+$healthy = $false
 $attempt = 0
 while ([DateTimeOffset]::UtcNow -lt $restartDeadline) {
     $attempt++
@@ -173,12 +254,18 @@ while ([DateTimeOffset]::UtcNow -lt $restartDeadline) {
 if (-not $healthy) {
     throw 'Development API did not become healthy within two minutes after restart.'
 }
+Write-Output 'Verified post-restart API health recovery: HTTP 200.'
 
 $persistedResponse = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=500"
 Assert-Status -Response $persistedResponse -Expected 200 -Operation 'Post-restart operations read'
 $persistedEvents = @($persistedResponse.Content | ConvertFrom-Json)
-if (-not ($persistedEvents | Where-Object correlationId -EQ $correlationId)) {
-    throw "Authorized event '$correlationId' was not persisted across the App Service restart."
+$missingCorrelations = @(
+    $correlationId
+    "$correlationId-route"
+) | Where-Object { $correlation = $_; -not ($persistedEvents | Where-Object correlationId -EQ $correlation) }
+if ($missingCorrelations.Count -gt 0) {
+    throw "Authorized events were not persisted across the App Service restart: $($missingCorrelations -join ', ')."
 }
 
-Write-Output "Development operations smoke check passed for correlation '$correlationId'."
+Write-Output "Verified post-restart event persistence for correlations '$correlationId' and '$correlationId-route'."
+Write-Output 'Development operations smoke check passed.'
