@@ -58,9 +58,10 @@ $linkedIssue = [PSCustomObject]@{
     number = 5
     title = "[AB#959] Show total stay price before booking confirmation"
     body = "Azure Boards work item: [AB#959](https://dev.azure.com/example)"
+    labels = @()
 }
 $selected = Select-WorkItemIssue -Issues @($linkedIssue) -Id 959
-Assert-True -Condition ($selected.number -eq 5) -Message "AB#959 should resolve to existing issue #5."
+Assert-True -Condition ($selected.number -eq 5) -Message "AB#959 should resolve to existing unlabeled issue #5."
 
 $unrelatedIssue = [PSCustomObject]@{
     number = 6
