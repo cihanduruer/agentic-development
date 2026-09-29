@@ -120,8 +120,8 @@ $mutations = @(
         Replacements = @(
             @{
                 Pattern =
-                    "(            IF )\((\r?\n                SELECT COUNT_BIG\(\*\)\r?\n                FROM sys\.database_principals)"
-                Value = '$1 1 = 0 AND ($2'
+                    "(?s)(            IF )\(\r?\n                SELECT COUNT_BIG\(\*\).*?\r?\n               \)(?=\r?\n            BEGIN\r?\n                THROW 51007,)"
+                Value = '${1}1 = 0'
             }
         )
     }
