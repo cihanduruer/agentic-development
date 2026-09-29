@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westeurope"
+    },
+    "resourceGroupName": {
+      "value": "agentic-hotelbookingprod"
+    },
+    "environment": {
+      "value": "prod"
+    },
+    "sqlAdminLogin": {
+      "value": "hoteladmin"
+    }
+  }
+}

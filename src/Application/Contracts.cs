@@ -54,8 +54,13 @@ public sealed record RecordAgentEventRequest(
 
 public interface IAgentEventStore
 {
-    IReadOnlyList<AgentEvent> GetRecent(int limit = 100);
-    AgentEvent Record(RecordAgentEventRequest request);
+    Task<IReadOnlyList<AgentEvent>> GetRecentAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentEvent> RecordAsync(
+        RecordAgentEventRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record RoutingRequest(

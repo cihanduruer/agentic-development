@@ -3,6 +3,7 @@ param location string
 param sqlAdminLogin string
 @secure()
 param sqlAdminPassword string
+param operationsApiAudience string
 param tags object
 
 var suffix = uniqueString(subscription().id, resourceGroup().id, environment)
@@ -115,6 +116,30 @@ resource api 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'MicrosoftRouting__Deployment'
           value: routingModel.name
+        }
+        {
+          name: 'OperationsAuth__Authority'
+          value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
+        }
+        {
+          name: 'OperationsAuth__Audience'
+          value: operationsApiAudience
+        }
+        {
+          name: 'OperationsAuth__RequiredRole'
+          value: 'Operations.Ingest'
+        }
+        {
+          name: 'OperationsEvents__RetentionDays'
+          value: '30'
+        }
+        {
+          name: 'OperationsEvents__MaxRecords'
+          value: '2000'
+        }
+        {
+          name: 'OperationsEvents__MaxQueryLimit'
+          value: '500'
         }
       ]
     }
@@ -242,6 +267,7 @@ resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 output apiUrl string = 'https://${api.properties.defaultHostName}'
+output apiAppName string = api.name
 output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
 output routingDeploymentName string = routingModel.name
 output staticWebAppName string = staticWebApp.name

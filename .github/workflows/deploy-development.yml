@@ -31,7 +31,7 @@ jobs:
           scope: resourcegroup
           resourceGroupName: agentic-hotelbookingdev
           template: infra/resource-group.bicep
-          parameters: environment=dev sqlAdminPassword=${{ secrets.SQL_ADMIN_PASSWORD }}
+          parameters: environment=dev sqlAdminPassword=${{ secrets.SQL_ADMIN_PASSWORD }} operationsApiAudience=${{ vars.OPERATIONS_API_AUDIENCE }}
           failOnStdErr: false
       - uses: actions/setup-dotnet@v4
         with:

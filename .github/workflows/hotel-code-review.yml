@@ -1,0 +1,206 @@
+name: Hotel code review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: hotel-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eligibility:
+    name: eligibility
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.check.outputs.eligible }}
+    steps:
+      - name: Identify hotel change
+        id: check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pull = context.payload.pull_request;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pull.number,
+              per_page: 100
+            });
+            const hotelPaths = [
+              /^src\//,
+              /^tests\//,
+              /^infra\//,
+              /^scripts\//,
+              /^\.github\/agents\/hotel-/,
+              /^\.github\/workflows\//
+            ];
+            const eligible = !pull.draft
+              && pull.base.ref === 'main'
+              && files.some(file => hotelPaths.some(pattern => pattern.test(file.filename)));
+            core.info(eligible
+              ? 'Eligible hotel implementation or delivery change.'
+              : 'Not eligible: draft, non-main target, or documentation-only change.');
+            core.setOutput('eligible', eligible.toString());
+
+  review:
+    name: Copilot findings gate
+    needs: eligibility
+    if: needs.eligibility.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Request Copilot review
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          script: |
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              reviewers: ['copilot-pull-request-reviewer[bot]']
+            });
+            core.info('Requested a Copilot review for the current pull request head.');
+
+      - name: Wait for current-head review and evaluate findings
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull = context.payload.pull_request;
+            const reviewer = 'copilot-pull-request-reviewer[bot]';
+            const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+            let currentReview;
+            for (let attempt = 1; attempt <= 36; attempt++) {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: pull.number,
+                per_page: 100
+              });
+              currentReview = reviews
+                .filter(review =>
+                  review.user?.login === reviewer
+                  && review.commit_id === pull.head.sha)
+                .sort((left, right) => new Date(right.submitted_at) - new Date(left.submitted_at))[0];
+              if (currentReview) {
+                break;
+              }
+              core.info(`Current-head Copilot review not complete (attempt ${attempt}/36).`);
+              await sleep(10000);
+            }
+
+            if (!currentReview) {
+              core.setFailed('Copilot did not produce a review for the current head within six minutes.');
+              return;
+            }
+
+            const result = await github.graphql(
+              `query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      pageInfo { hasNextPage }
+                      nodes {
+                        isResolved
+                        comments(first: 20) {
+                          nodes {
+                            author { login }
+                            body
+                            url
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }`,
+              { owner, repo, number: pull.number }
+            );
+
+            const connection = result.repository.pullRequest.reviewThreads;
+            if (connection.pageInfo.hasNextPage) {
+              core.setFailed('More than 100 review threads exist; refusing to pass an incomplete evaluation.');
+              return;
+            }
+
+            const severity = body => {
+              const normalized = body.replace(/[*_`#<>"]/g, ' ');
+              if (/\bseverity\s*:?\s*high\b/i.test(normalized) || /^\s*high\s*$/im.test(normalized)) {
+                return 'high';
+              }
+              if (/\bseverity\s*:?\s*medium\b/i.test(normalized) || /^\s*medium\s*$/im.test(normalized)) {
+                return 'medium';
+              }
+              if (/\bseverity\s*:?\s*low\b/i.test(normalized) || /^\s*low\s*$/im.test(normalized)) {
+                return 'low';
+              }
+              return 'unknown';
+            };
+
+            const unresolved = connection.nodes
+              .filter(thread => !thread.isResolved)
+              .flatMap(thread => thread.comments.nodes)
+              .filter(comment => comment.author?.login === reviewer)
+              .map(comment => ({ ...comment, severity: severity(comment.body) }));
+            const blocking = unresolved.filter(comment =>
+              comment.severity === 'high' || comment.severity === 'unknown');
+
+            const label = 'development-required';
+            if (blocking.length > 0) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: label,
+                  color: 'B60205',
+                  description: 'Blocking review or QA evidence must return to development.'
+                });
+              }
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pull.number,
+                labels: [label]
+              });
+              const links = blocking.map(comment => `- ${comment.url}`).join('\n');
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull.number,
+                body: `The automated review gate found unresolved blocking Copilot findings. Resolve the threads and push or re-request review before QA.\n\n${links}`
+              });
+              core.setFailed(`${blocking.length} unresolved high or unclassified Copilot finding(s) require development.`);
+              return;
+            }
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner,
+                repo,
+                issue_number: pull.number,
+                name: label
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            core.info(`${unresolved.length} unresolved medium/low finding(s); no blocking high-confidence finding remains.`);
+
+  not-eligible:
+    name: Copilot findings gate
+    needs: eligibility
+    if: needs.eligibility.outputs.eligible != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Copilot review is not required for this pull request."

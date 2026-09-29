@@ -13,6 +13,7 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
     public DbSet<HotelEntity> Hotels => Set<HotelEntity>();
     public DbSet<RoomEntity> Rooms => Set<RoomEntity>();
     public DbSet<ReservationEntity> Reservations => Set<ReservationEntity>();
+    public DbSet<AgentEventEntity> AgentEvents => Set<AgentEventEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +40,19 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
             entity.HasIndex(item => new { item.RoomId, item.CheckIn, item.CheckOut });
             entity.Property(item => item.Reference).HasMaxLength(20);
             entity.Property(item => item.GuestName).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<AgentEventEntity>(entity =>
+        {
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => new { item.Timestamp, item.Id });
+            entity.Property(item => item.CorrelationId).HasMaxLength(100);
+            entity.Property(item => item.WorkItemId).HasMaxLength(40);
+            entity.Property(item => item.Agent).HasMaxLength(100);
+            entity.Property(item => item.Summary).HasMaxLength(1000);
+            entity.Property(item => item.Decision).HasMaxLength(200);
+            entity.Property(item => item.Outcome).HasMaxLength(200);
+            entity.Property(item => item.KnowledgeRevision).HasMaxLength(64);
         });
 
         modelBuilder.Entity<HotelEntity>().HasData(
@@ -122,6 +136,175 @@ public sealed class ReservationEntity
     public int Guests { get; set; }
     public required string GuestName { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+public sealed class AgentEventEntity
+{
+    public Guid Id { get; set; }
+    public DateTimeOffset Timestamp { get; set; }
+    public AgentEventKind Kind { get; set; }
+    public required string CorrelationId { get; set; }
+    public required string WorkItemId { get; set; }
+    public required string Agent { get; set; }
+    public required string Summary { get; set; }
+    public required string Decision { get; set; }
+    public required string Outcome { get; set; }
+    public double? Confidence { get; set; }
+    public long DurationMilliseconds { get; set; }
+    public required string KnowledgeRevision { get; set; }
+}
+
+public sealed record AgentEventStoreOptions(
+    int RetentionDays = 30,
+    int MaxRecords = 2_000,
+    int MaxQueryLimit = 500)
+{
+    public AgentEventStoreOptions Validate()
+    {
+        if (RetentionDays is < 1 or > 365 ||
+            MaxRecords is < 1 or > 1_000_000 ||
+            MaxQueryLimit is < 1 or > 10_000)
+        {
+            throw new InvalidOperationException("Agent event retention configuration is outside supported bounds.");
+        }
+
+        return this;
+    }
+}
+
+public sealed class EntityFrameworkAgentEventStore(
+    HotelBookingDbContext dbContext,
+    AgentEventStoreOptions options,
+    TimeProvider timeProvider)
+    : IAgentEventStore
+{
+    private readonly AgentEventStoreOptions options = options.Validate();
+
+    public async Task<IReadOnlyList<AgentEvent>> GetRecentAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var boundedLimit = Math.Clamp(limit, 1, options.MaxQueryLimit);
+        return await dbContext.AgentEvents
+            .AsNoTracking()
+            .OrderByDescending(item => item.Timestamp)
+            .ThenByDescending(item => item.Id)
+            .Take(boundedLimit)
+            .Select(item => ToContract(item))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<AgentEvent> RecordAsync(
+        RecordAgentEventRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(request);
+        var entity = new AgentEventEntity
+        {
+            Id = Guid.NewGuid(),
+            Timestamp = timeProvider.GetUtcNow(),
+            Kind = request.Kind,
+            CorrelationId = request.CorrelationId.Trim(),
+            WorkItemId = request.WorkItemId.Trim(),
+            Agent = request.Agent.Trim(),
+            Summary = request.Summary.Trim(),
+            Decision = request.Decision.Trim(),
+            Outcome = request.Outcome.Trim(),
+            Confidence = request.Confidence,
+            DurationMilliseconds = Math.Max(0, request.DurationMilliseconds),
+            KnowledgeRevision = request.KnowledgeRevision.Trim()
+        };
+
+        dbContext.AgentEvents.Add(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await ApplyRetentionAsync(cancellationToken);
+        return ToContract(entity);
+    }
+
+    private async Task ApplyRetentionAsync(CancellationToken cancellationToken)
+    {
+        var cutoff = timeProvider.GetUtcNow().AddDays(-options.RetentionDays);
+        var expired = await dbContext.AgentEvents
+            .Where(item => item.Timestamp < cutoff)
+            .ToArrayAsync(cancellationToken);
+        dbContext.AgentEvents.RemoveRange(expired);
+
+        var overflowIds = await dbContext.AgentEvents
+            .OrderByDescending(item => item.Timestamp)
+            .ThenByDescending(item => item.Id)
+            .Skip(options.MaxRecords)
+            .Select(item => item.Id)
+            .ToArrayAsync(cancellationToken);
+        if (overflowIds.Length > 0)
+        {
+            var overflow = await dbContext.AgentEvents
+                .Where(item => overflowIds.Contains(item.Id))
+                .ToArrayAsync(cancellationToken);
+            dbContext.AgentEvents.RemoveRange(overflow);
+        }
+
+        if (expired.Length > 0 || overflowIds.Length > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    private static AgentEvent ToContract(AgentEventEntity item) =>
+        new(
+            item.Id,
+            item.Timestamp,
+            item.Kind,
+            item.CorrelationId,
+            item.WorkItemId,
+            item.Agent,
+            item.Summary,
+            item.Decision,
+            item.Outcome,
+            item.Confidence,
+            item.DurationMilliseconds,
+            item.KnowledgeRevision);
+
+    private static void Validate(RecordAgentEventRequest request)
+    {
+        if (request.CorrelationId is null ||
+            request.WorkItemId is null ||
+            request.Agent is null ||
+            request.Summary is null ||
+            request.Decision is null ||
+            request.Outcome is null ||
+            request.KnowledgeRevision is null)
+        {
+            throw new ArgumentException("Agent event text fields cannot be null.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CorrelationId) ||
+            string.IsNullOrWhiteSpace(request.Agent) ||
+            string.IsNullOrWhiteSpace(request.Summary))
+        {
+            throw new ArgumentException("Correlation ID, agent, and summary are required.");
+        }
+
+        if (request.Confidence is < 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Confidence must be between 0 and 1.");
+        }
+
+        ValidateLength(request.CorrelationId, 100, nameof(request.CorrelationId));
+        ValidateLength(request.WorkItemId, 40, nameof(request.WorkItemId));
+        ValidateLength(request.Agent, 100, nameof(request.Agent));
+        ValidateLength(request.Summary, 1000, nameof(request.Summary));
+        ValidateLength(request.Decision, 200, nameof(request.Decision));
+        ValidateLength(request.Outcome, 200, nameof(request.Outcome));
+        ValidateLength(request.KnowledgeRevision, 64, nameof(request.KnowledgeRevision));
+    }
+
+    private static void ValidateLength(string value, int maximumLength, string field)
+    {
+        if (value.Trim().Length > maximumLength)
+        {
+            throw new ArgumentException($"{field} cannot exceed {maximumLength} characters.", field);
+        }
+    }
 }
 
 public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbContext)
@@ -267,7 +450,8 @@ public static class PersistenceRegistration
 {
     public static IServiceCollection AddHotelBookingPersistence(
         this IServiceCollection services,
-        string? connectionString)
+        string? connectionString,
+        AgentEventStoreOptions agentEventOptions)
     {
         services.AddDbContext<HotelBookingDbContext>(options =>
         {
@@ -282,6 +466,9 @@ public static class PersistenceRegistration
             }
         });
         services.AddScoped<IHotelBookingService, EntityFrameworkHotelBookingService>();
+        services.AddScoped<IAgentEventStore, EntityFrameworkAgentEventStore>();
+        services.AddSingleton(agentEventOptions.Validate());
+        services.AddSingleton(TimeProvider.System);
         return services;
     }
 }

@@ -1,9 +1,9 @@
 targetScope = 'subscription'
 
-@description('Azure region for the development environment.')
+@description('Azure region for the target environment.')
 param location string = 'westeurope'
 
-@description('Resource group created for the development environment.')
+@description('Resource group created for the target environment.')
 param resourceGroupName string = 'agentic-hotelbookingdev'
 
 @description('Deployment environment tag.')
@@ -15,6 +15,9 @@ param sqlAdminPassword string
 
 @description('SQL administrator login.')
 param sqlAdminLogin string = 'hoteladmin'
+
+@description('Application ID URI exposed by the Entra operations API registration.')
+param operationsApiAudience string
 
 var tags = {
   application: 'agentic-hotelbooking'
@@ -36,12 +39,14 @@ module platform 'modules/platform.bicep' = {
     location: location
     sqlAdminLogin: sqlAdminLogin
     sqlAdminPassword: sqlAdminPassword
+    operationsApiAudience: operationsApiAudience
     tags: tags
   }
 }
 
 output resourceGroupName string = resourceGroup.name
 output apiUrl string = platform.outputs.apiUrl
+output apiAppName string = platform.outputs.apiAppName
 output staticWebAppName string = platform.outputs.staticWebAppName
 output searchServiceName string = platform.outputs.searchServiceName
 output sqlServerName string = platform.outputs.sqlServerName

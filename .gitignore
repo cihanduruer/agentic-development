@@ -11,3 +11,4 @@ artifacts/
 *.local.json
 infra/*.parameters.json
 !infra/*.example.parameters.json
+!infra/production.parameters.json

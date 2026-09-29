@@ -10,11 +10,11 @@ The MVP is a modular monolith:
 - Application contains use-case and telemetry contracts.
 - Infrastructure contains replaceable implementations.
 
-Entity Framework Core stores the catalog and reservations in Azure SQL. Reservation creation uses a serializable transaction and an indexed overlap query to preserve atomic overlap protection. Local and integration execution uses the EF in-memory provider with the same application service.
+Entity Framework Core stores the catalog, reservations, and AI operations events in Azure SQL. Reservation creation uses a serializable transaction and an indexed overlap query to preserve atomic overlap protection. Operations-event writes prune records older than the configured age and records beyond the configured capacity; reads clamp caller-supplied limits before issuing an ordered database query. Local and integration execution uses the EF in-memory provider with the same application services.
 
 ## Operations
 
-The API exposes a typed event-ingestion endpoint and broadcasts accepted events through SignalR. The dashboard reloads recent history and receives live events. Production telemetry is correlated through Application Insights and retained in Log Analytics; sensitive prompt bodies and source code are not dashboard fields.
+The API exposes a typed event-ingestion endpoint and broadcasts accepted events through SignalR after persistence succeeds. The dashboard reloads bounded recent history and receives live events. Dashboard reads and the SignalR hub remain public, while event ingestion and routing require the `Operations.Ingest` Entra application role outside Development. Production telemetry is correlated through Application Insights and retained in Log Analytics; sensitive prompt bodies and source code are not dashboard fields.
 
 ## Agent workflow
 
