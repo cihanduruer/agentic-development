@@ -4,15 +4,53 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number whose exact head will be validated
+        required: true
+        type: string
+      head_sha:
+        description: Full expected pull request head SHA
+        required: true
+        type: string
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify manually requested pull request head
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          if ($env:EXPECTED_HEAD_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw "head_sha must be a full 40-character lowercase commit SHA."
+          }
+          if ($env:PR_NUMBER -notmatch '^[1-9][0-9]*$') {
+            throw "pull_request_number must be a positive integer."
+          }
+
+          $pullRequest = gh api "repos/${{ github.repository }}/pulls/$env:PR_NUMBER" | ConvertFrom-Json
+          if ($pullRequest.base.repo.full_name -ne "${{ github.repository }}" -or $pullRequest.base.ref -ne "main") {
+            throw "Pull request #$env:PR_NUMBER does not target ${{ github.repository }}:main."
+          }
+          if ($pullRequest.head.repo.full_name -ne "${{ github.repository }}") {
+            throw "Pull request #$env:PR_NUMBER comes from another repository."
+          }
+          if ($pullRequest.head.sha -ne $env:EXPECTED_HEAD_SHA) {
+            throw "Pull request #$env:PR_NUMBER head is '$($pullRequest.head.sha)', not '$env:EXPECTED_HEAD_SHA'."
+          }
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.sha }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -20,6 +58,9 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: dotnet restore --locked-mode
+      - name: Test agentic intake script
+        shell: pwsh
+        run: ./scripts/Test-Start-AgenticWork.ps1
       - name: Format
         run: dotnet format --verify-no-changes --no-restore
       - name: Build
