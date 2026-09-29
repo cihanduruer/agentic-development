@@ -33,6 +33,23 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task ReservationResponseIncludesMultiNightTotal()
+    {
+        var hotels = await client.GetFromJsonAsync<AgenticHotelBooking.Domain.Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(20));
+
+        var response = await client.PostAsJsonAsync("/api/reservations",
+            new BookingRequest(hotel.Id, room.Id, checkIn, checkIn.AddDays(2), 2, "Ada"));
+        var reservation = await response.Content.ReadFromJsonAsync<AgenticHotelBooking.Domain.Reservation>();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(2, reservation!.Nights);
+        Assert.Equal(room.NightlyRate * 2, reservation.TotalStayPrice);
+    }
+
+    [Fact]
     public async Task RecordedAgentEventAppearsInRecentHistory()
     {
         var request = new RecordAgentEventRequest(
