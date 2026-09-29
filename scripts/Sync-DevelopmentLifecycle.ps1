@@ -112,6 +112,9 @@ function Resolve-LifecycleEvidence {
         }
     }
     $workItemId = $ids[0]
+    $metadataDigest = Get-PullRequestMetadataDigest `
+        -Title ([string]$pull.title) `
+        -Body ([string]$pull.body)
 
     $issueMatches = @($Issues | Where-Object {
         $null -eq $_.pull_request -and
@@ -140,7 +143,7 @@ function Resolve-LifecycleEvidence {
         $_.conclusion -eq "success" -and
         $_.path -eq ".github/workflows/qa-evidence.yml" -and
         @($_.artifacts | Where-Object {
-            $_.name -eq "qa-evidence-$ExpectedSha" -and -not $_.expired
+            $_.name -eq "qa-evidence-$ExpectedSha-$metadataDigest" -and -not $_.expired
         }).Count -gt 0
     } | Sort-Object created_at -Descending | Select-Object -First 1)
     if ($qa.Count -ne 1) {
@@ -333,10 +336,11 @@ function Get-WorkflowRuns {
 function Get-QaEvidenceRuns {
     param(
         [Parameter(Mandatory)][string]$Repository,
-        [Parameter(Mandatory)][string]$ExpectedSha
+        [Parameter(Mandatory)][string]$ExpectedSha,
+        [Parameter(Mandatory)][string]$MetadataDigest
     )
 
-    $artifactName = "qa-evidence-$ExpectedSha"
+    $artifactName = "qa-evidence-$ExpectedSha-$MetadataDigest"
     $response = Invoke-GitHubApi -Uri (
         "https://api.github.com/repos/$Repository/actions/artifacts?name=$artifactName&per_page=100")
     $artifacts = @($response.artifacts | Where-Object {
@@ -448,6 +452,13 @@ function Invoke-DevelopmentLifecycleSync {
                 -Body ([string]$candidatePulls[0].body)
         }
     )
+    $candidateMetadataDigest = if ($candidatePulls.Count -eq 1) {
+        Get-PullRequestMetadataDigest `
+            -Title ([string]$candidatePulls[0].title) `
+            -Body ([string]$candidatePulls[0].body)
+    } else {
+        ''
+    }
     $issues = @(Get-CanonicalIssueCandidates `
         -Repository $Repository `
         -Ids $candidateIds)
@@ -459,7 +470,8 @@ function Invoke-DevelopmentLifecycleSync {
             -HeadSha $DeployedSha)
         $qaRuns = @(Get-QaEvidenceRuns `
             -Repository $Repository `
-            -ExpectedSha $DeployedSha)
+            -ExpectedSha $DeployedSha `
+            -MetadataDigest $candidateMetadataDigest)
         $reviewRuns = @(Get-WorkflowRuns -Repository $Repository -Workflow "hotel-code-review.yml")
         $reviews = @(
             if ($candidatePulls.Count -eq 1) {

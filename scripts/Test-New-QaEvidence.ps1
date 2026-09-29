@@ -96,6 +96,9 @@ try {
     Assert-Equal $valid.Result.status 'passed' 'Valid evidence should be recorded as passed.'
     Assert-Equal $valid.Result.knowledgeRevision 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' 'The cited knowledge revision should be preserved.'
     Assert-Equal $valid.Result.trustedKnowledgeRevision 'dddddddddddddddddddddddddddddddddddddddd' 'The trusted revision should be preserved separately.'
+    Assert-Equal (
+        $valid.Result.metadataDigest -match '^[0-9a-f]{64}$'
+    ) $true 'QA evidence must bind a SHA-256 digest of the reviewed title and body.'
 
     $placeholder = Invoke-Evidence -CaseName 'placeholder' -Body @'
 ## Work tracking
@@ -182,6 +185,23 @@ Compared `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` with `cccccccccccccccccccccc
     Assert-Equal $contradictoryPlatform.Result.status 'failed' 'Contradictory platform declarations must fail.'
     Assert-Equal ($null -eq $contradictoryPlatform.Failure) $false 'Contradictory platform declarations must throw.'
 
+    $missingPlatform = Invoke-Evidence -CaseName 'missing-platform' -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+'@
+    Assert-Equal $missingPlatform.Result.status 'failed' 'Missing platform declarations must fail.'
+    Assert-Equal ($null -eq $missingPlatform.Failure) $false 'Missing platform declarations must throw.'
+
+    $invalidPlatform = Invoke-Evidence -CaseName 'invalid-platform' -Body @'
+## Work tracking
+
+- Azure Boards: AB#999
+- Platform change: yes
+'@
+    Assert-Equal $invalidPlatform.Result.status 'failed' 'Invalid platform declarations must fail.'
+    Assert-Equal ($null -eq $invalidPlatform.Failure) $false 'Invalid platform declarations must throw.'
+
     $conflictingIdentity = Invoke-Evidence -CaseName 'conflicting-identity' -Body @'
 ## Work tracking
 
@@ -191,6 +211,15 @@ Compared `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` with `cccccccccccccccccccccc
 '@
     Assert-Equal $conflictingIdentity.Result.status 'failed' 'Azure Boards N/A plus AB identity must fail.'
     Assert-Equal ($null -eq $conflictingIdentity.Failure) $false 'Conflicting Azure Boards declarations must throw.'
+
+    $mixedIdentity = Invoke-Evidence -CaseName 'mixed-identity' -Title 'Harden platform paths' -Body @'
+## Work tracking
+
+- Azure Boards: N/A; AB#999
+- Platform change: true
+'@
+    Assert-Equal $mixedIdentity.Result.status 'failed' 'Mixed N/A and AB identity must fail.'
+    Assert-Equal ($null -eq $mixedIdentity.Failure) $false 'Mixed N/A and AB identity must throw.'
 
     $zeroTests = Invoke-Evidence `
         -CaseName 'zero-tests' `

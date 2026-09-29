@@ -45,6 +45,9 @@ catch {
     $failures.Add($_.Exception.Message)
 }
 $productChange = $null -ne $classification -and -not $classification.IsPlatformOnly
+$metadataDigest = Get-PullRequestMetadataDigest `
+    -Title $PullRequestTitle `
+    -Body $body
 
 function Get-MarkdownSection {
     param(
@@ -135,6 +138,7 @@ $result = [ordered]@{
     pullRequest = $PullRequestNumber
     headSha = $HeadSha
     trustedKnowledgeRevision = $TrustedKnowledgeRevision
+    metadataDigest = $metadataDigest
     classification = if ($null -eq $classification) {
         'invalid'
     } elseif ($classification.IsPlatformOnly) {

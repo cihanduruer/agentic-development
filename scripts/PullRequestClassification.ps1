@@ -29,6 +29,27 @@ function Get-AbIds {
     )
 }
 
+function Get-PullRequestMetadataDigest {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string] $Title,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string] $Body
+    )
+
+    $bytes = [Text.Encoding]::UTF8.GetBytes("$Title`n$Body")
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha256.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
 function Get-PullRequestClassification {
     param(
         [Parameter(Mandatory)]
@@ -61,10 +82,7 @@ function Get-PullRequestClassification {
     $boardsNotApplicable = @(
         $boardsValues | Where-Object { $_ -match '^N/A(?:\s*[.;]|$)' }
     ).Count -gt 0
-    $trackingValues = @(
-        $boardsValues | Where-Object { $_ -notmatch '^N/A(?:\s*[.;]|$)' }
-    )
-    $ids = @(Get-AbIds -Text "$Title`n$($trackingValues -join "`n")")
+    $ids = @(Get-AbIds -Text "$Title`n$($boardsValues -join "`n")")
     $isPlatformChange = $normalizedPlatformValues[0] -eq 'true'
 
     if ($boardsNotApplicable -and $ids.Count -gt 0) {

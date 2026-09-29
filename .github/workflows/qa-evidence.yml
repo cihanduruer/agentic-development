@@ -242,6 +242,7 @@ jobs:
             Set-Content QaEvidence/changed-files.txt
 
       - name: Evaluate QA evidence
+        id: evidence
         shell: pwsh
         env:
           PR_NUMBER: ${{ steps.context.outputs.number }}
@@ -258,12 +259,14 @@ jobs:
             -TestResultsPath source/TestResults `
             -OutputDirectory QaEvidence `
             -ChangedFilesPath QaEvidence/changed-files.txt
+          $result = Get-Content QaEvidence/qa-result.json -Raw | ConvertFrom-Json
+          "metadata-digest=$($result.metadataDigest)" >> $env:GITHUB_OUTPUT
 
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-evidence-${{ steps.context.outputs.head-sha }}
+          name: qa-evidence-${{ steps.context.outputs.head-sha }}-${{ steps.evidence.outputs.metadata-digest }}
           path: |
             QaEvidence
             source/TestResults
