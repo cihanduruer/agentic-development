@@ -12,6 +12,8 @@ The MVP is a modular monolith:
 
 Entity Framework Core stores the catalog, reservations, and AI operations events in Azure SQL. Reservation creation uses a serializable transaction and an indexed overlap query to preserve atomic overlap protection. Operations-event writes prune records older than the configured age and records beyond the configured capacity; reads clamp caller-supplied limits before issuing an ordered database query. Local and integration execution uses the EF in-memory provider with the same application services.
 
+Static Web Apps rewrites client-side routes to the Blazor `index.html`, so direct navigation to pages such as `/operations` loads the SPA. Deployment writes the environment-specific HTTPS API endpoint to `appsettings.json` and removes publish-time Brotli and gzip variants of that runtime configuration; a browser must never receive a precompressed variant containing the local development endpoint.
+
 ## Operations
 
 The API exposes a typed event-ingestion endpoint and broadcasts accepted events through SignalR after persistence succeeds. The dashboard reloads bounded recent history and receives live events. Dashboard reads and the SignalR hub remain public, while event ingestion and routing require the `Operations.Ingest` Entra application role outside Development. Production telemetry is correlated through Application Insights and retained in Log Analytics; sensitive prompt bodies and source code are not dashboard fields.
