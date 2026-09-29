@@ -255,7 +255,7 @@ resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource deploymentOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource deploymentOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (environment == 'dev') {
   name: guid(aiServices.id, deploymentPrincipalObjectId, 'deployment-cognitive-services-openai-user')
   scope: aiServices
   properties: {

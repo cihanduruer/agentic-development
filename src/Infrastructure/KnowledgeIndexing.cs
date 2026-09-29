@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Azure;
@@ -52,9 +53,17 @@ public static class KnowledgeDocumentChunker
             .Where(pair => pair.Length == 2)
             .ToDictionary(pair => pair[0].Trim(), pair => pair[1].Trim(), StringComparer.OrdinalIgnoreCase);
         if (!metadata.TryGetValue("owner", out var owner) ||
-            !metadata.TryGetValue("last_reviewed", out var lastReviewed))
+            string.IsNullOrWhiteSpace(owner) ||
+            !metadata.TryGetValue("last_reviewed", out var lastReviewed) ||
+            !DateOnly.TryParseExact(
+                lastReviewed,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out _))
         {
-            throw new InvalidDataException($"{repositoryPath} metadata requires owner and last_reviewed.");
+            throw new InvalidDataException(
+                $"{repositoryPath} metadata requires a non-empty owner and a valid yyyy-MM-dd last_reviewed date.");
         }
 
         var sections = SplitSections(parts[2]);

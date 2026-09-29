@@ -45,4 +45,26 @@ public sealed class KnowledgeDocumentChunkerTests
 
         Assert.Contains("YAML metadata", error.Message);
     }
+
+    [Theory]
+    [InlineData("", "2026-09-29")]
+    [InlineData("Product owner", "not-a-date")]
+    [InlineData("Product owner", "2026-02-30")]
+    public void RejectsInvalidCanonicalMetadata(string owner, string lastReviewed)
+    {
+        var markdown = $"""
+            ---
+            owner: {owner}
+            last_reviewed: {lastReviewed}
+            ---
+            # Product
+
+            Overview.
+            """;
+
+        var error = Assert.Throws<InvalidDataException>(() =>
+            KnowledgeDocumentChunker.Chunk("docs/knowledge/product.md", markdown, "abc123"));
+
+        Assert.Contains("non-empty owner", error.Message);
+    }
 }
