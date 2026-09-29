@@ -57,7 +57,15 @@ $results = @($trx.TestRun.Results.UnitTestResult)
 if ($results.Count -ne $expectedTotal) {
     throw "SQL bootstrapper TRX contains $($results.Count) results; expected $expectedTotal."
 }
-if (@($results | Where-Object { $_.outcome -ne 'Passed' }).Count -gt 0) {
+if (@(
+        $results |
+            Where-Object {
+                -not [string]::Equals(
+                    [string] $_.outcome,
+                    'Passed',
+                    [StringComparison]::Ordinal)
+            }
+    ).Count -gt 0) {
     throw 'SQL bootstrapper TRX contains a result that is not Passed.'
 }
 
@@ -150,15 +158,20 @@ foreach ($definition in $definitions) {
     if (-not $expectedIdentitySet.Contains([string] $definition.name)) {
         throw "SQL bootstrapper TRX contains unexpected definition '$($definition.name)'."
     }
-    if ($definition.TestMethod.className -ne
-        'AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests') {
+    if (-not [string]::Equals(
+            [string] $definition.TestMethod.className,
+            'AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests',
+            [StringComparison]::Ordinal)) {
         throw "SQL bootstrapper TRX definition '$($definition.name)' has an unexpected class."
     }
     $identityWithoutClass =
         ([string] $definition.name).Substring(
             'AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.'.Length)
     $expectedMethodName = ($identityWithoutClass -split '\(', 2)[0]
-    if ($definition.TestMethod.name -cne $expectedMethodName) {
+    if (-not [string]::Equals(
+            [string] $definition.TestMethod.name,
+            $expectedMethodName,
+            [StringComparison]::Ordinal)) {
         throw "SQL bootstrapper TRX definition '$($definition.name)' has an unexpected method."
     }
 
@@ -207,11 +220,20 @@ foreach ($result in $results) {
     }
 
     $definitionLink = $definitionsByTestId[$testId]
-    if ($definitionLink.Definition.name -cne $result.testName) {
+    if (-not [string]::Equals(
+            [string] $definitionLink.Definition.name,
+            [string] $result.testName,
+            [StringComparison]::Ordinal)) {
         throw "SQL bootstrapper TRX result '$($result.testName)' does not match its definition."
     }
-    if ($definitionLink.ExecutionId -ne $executionId -or
-        $entriesByTestId[$testId] -ne $executionId) {
+    if (-not [string]::Equals(
+            [string] $definitionLink.ExecutionId,
+            $executionId,
+            [StringComparison]::Ordinal) -or
+        -not [string]::Equals(
+            [string] $entriesByTestId[$testId],
+            $executionId,
+            [StringComparison]::Ordinal)) {
         throw "SQL bootstrapper TRX result '$($result.testName)' has inconsistent execution linkage."
     }
 }

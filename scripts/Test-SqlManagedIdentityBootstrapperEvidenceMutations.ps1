@@ -35,6 +35,44 @@ $mutations = @(
                 Value = "`r`n`r`nWrite-Host"
             }
         )
+    },
+    @{
+        Name = 'case-insensitive-outcome'
+        Replacements = @(
+            @{
+                Pattern =
+                    "(?s)-not \[string\]::Equals\(\r?\n                    \[string\] \`$_\.outcome,\r?\n                    'Passed',\r?\n                    \[StringComparison\]::Ordinal\)"
+                Value = '([string] $$_.outcome) -ne ''Passed'''
+            }
+        )
+    },
+    @{
+        Name = 'case-insensitive-identities'
+        Replacements = @(
+            @{
+                Pattern =
+                    '\$expectedIdentitySet =\r?\n    \[Collections\.Generic\.HashSet\[string\]\]::new\(\[StringComparer\]::Ordinal\)'
+                Value =
+                    '$expectedIdentitySet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)'
+            },
+            @{
+                Pattern =
+                    '\$actualIdentitySet =\r?\n    \[Collections\.Generic\.HashSet\[string\]\]::new\(\[StringComparer\]::Ordinal\)'
+                Value =
+                    '$actualIdentitySet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)'
+            }
+        )
+    },
+    @{
+        Name = 'case-insensitive-definition-class'
+        Replacements = @(
+            @{
+                Pattern =
+                    "(?s)-not \[string\]::Equals\(\r?\n            \[string\] \`$definition\.TestMethod\.className,\r?\n            'AgenticHotelBooking\.IntegrationTests\.SqlManagedIdentityBootstrapperSqlServerTests',\r?\n            \[StringComparison\]::Ordinal\)"
+                Value =
+                    '$$definition.TestMethod.className -ne ''AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests'''
+            }
+        )
     }
 )
 

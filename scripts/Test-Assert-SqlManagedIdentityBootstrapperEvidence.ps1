@@ -212,6 +212,22 @@ try {
         throw "Permuted or XML-encoded SQL evidence was rejected: $($permuted.Output)"
     }
 
+    $uppercaseIds = @(Copy-CaseSet $baseCases)
+    $uppercaseIds | ForEach-Object {
+        $_.ResultTestId = $_.ResultTestId.ToUpperInvariant()
+        $_.DefinitionTestId = $_.DefinitionTestId.ToUpperInvariant()
+        $_.EntryTestId = $_.EntryTestId.ToUpperInvariant()
+        $_.ResultExecutionId = $_.ResultExecutionId.ToUpperInvariant()
+        $_.DefinitionExecutionId = $_.DefinitionExecutionId.ToUpperInvariant()
+        $_.EntryExecutionId = $_.EntryExecutionId.ToUpperInvariant()
+    }
+    $uppercaseIdsPath = Join-Path $testRoot 'uppercase-canonical-guids.trx'
+    New-TestTrx -Path $uppercaseIdsPath -Cases $uppercaseIds
+    $uppercaseIdsResult = Invoke-Assertion -Path $uppercaseIdsPath
+    if ($uppercaseIdsResult.ExitCode -ne 0) {
+        throw "Canonical uppercase GUID evidence was rejected: $($uppercaseIdsResult.Output)"
+    }
+
     Assert-Rejected -Name '01-zero-executed' -Cases @() -Total 0 -Executed 0 -Passed 0
 
     $cases = @(Copy-CaseSet $baseCases)
@@ -310,10 +326,44 @@ try {
     $cases = @(Copy-CaseSet $baseCases)
     $cases[0].DefinitionMethod = 'UnexpectedMethod'
     Assert-Rejected -Name '28-wrong-definition-method' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].Outcome = 'passed'
+    Assert-Rejected -Name '29-outcome-casing' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].ResultName = $cases[0].ResultName.ToLowerInvariant()
+    Assert-Rejected -Name '30-result-identity-casing' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].DefinitionName = $cases[0].DefinitionName.ToLowerInvariant()
+    Assert-Rejected -Name '31-definition-identity-casing' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].DefinitionClass = $cases[0].DefinitionClass.ToLowerInvariant()
+    Assert-Rejected -Name '32-definition-class-casing' -Cases $cases
+
+    $cases = @(Copy-CaseSet $baseCases)
+    $cases[0].DefinitionMethod = $cases[0].DefinitionMethod.ToLowerInvariant()
+    Assert-Rejected -Name '33-definition-method-casing' -Cases $cases
+
+    foreach ($challenge in @(
+        @{ Name = '34-state-value-casing'; Index = 9; Old = 'state: "G"'; New = 'state: "g"' }
+        @{ Name = '35-grantee-value-casing'; Index = 9; Old = 'granteeType: "user"'; New = 'granteeType: "User"' }
+        @{ Name = '36-owner-value-casing'; Index = 6; Old = 'ownerType: "user"'; New = 'ownerType: "User"' }
+        @{ Name = '37-mutation-value-casing'; Index = 1; Old = 'mutation: "subset"'; New = 'mutation: "Subset"' }
+        @{ Name = '38-argument-name-casing'; Index = 9; Old = 'permissionName:'; New = 'permissionname:' }
+    )) {
+        $cases = @(Copy-CaseSet $baseCases)
+        $cases[$challenge.Index].ResultName =
+            $cases[$challenge.Index].ResultName.Replace($challenge.Old, $challenge.New)
+        $cases[$challenge.Index].DefinitionName = $cases[$challenge.Index].ResultName
+        Assert-Rejected -Name $challenge.Name -Cases $cases
+    }
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
 }
 
-Write-Host 'SQL bootstrapper evidence assertion tests passed: 2 valid variants and 28 challenges.'
+Write-Host 'SQL bootstrapper evidence assertion tests passed: 3 valid variants and 38 challenges.'
 exit 0
