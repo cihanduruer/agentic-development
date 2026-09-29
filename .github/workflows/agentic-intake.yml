@@ -2,6 +2,11 @@ name: Agentic intake
 
 on:
   workflow_dispatch:
+    inputs:
+      work_item_id:
+        description: Azure Boards work item ID to process (for targeted recovery)
+        required: true
+        type: string
   schedule:
     - cron: '*/5 * * * *'
 
@@ -24,8 +29,17 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Start Copilot work for Ready hotel items
+      - name: Test intake response handling
+        shell: pwsh
+        run: ./scripts/Test-Start-AgenticWork.ps1
+      - name: Start Copilot work for eligible hotel items
         shell: pwsh
         env:
+          TARGET_WORK_ITEM_ID: ${{ inputs.work_item_id }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-        run: ./scripts/Start-AgenticWork.ps1
+        run: |
+          $parameters = @{}
+          if ($env:TARGET_WORK_ITEM_ID) {
+            $parameters.WorkItemId = [int]$env:TARGET_WORK_ITEM_ID
+          }
+          ./scripts/Start-AgenticWork.ps1 @parameters

@@ -6,6 +6,19 @@
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.
 
+## Azure Boards intake
+
+The `Agentic intake` workflow starts work from Azure Boards in two modes:
+
+- Scheduled runs query only `New` User Stories and Bugs without the `github-synced` tag.
+- Manual runs require one Azure Boards work-item ID and process only that item. This is the recovery path for a partially completed intake.
+
+`scripts/Start-AgenticWork.ps1` uses `AB#<id>` in the GitHub issue title or canonical Azure Boards link as the idempotency key. It resumes the single matching issue instead of creating a duplicate and fails closed if multiple issues match. It assigns Copilot through GitHub's public-preview issues REST API, preserving existing assignees when repairing an existing issue. The `COPILOT_AGENT_TOKEN` secret must be a GitHub user token; a classic token requires `repo`, while a fine-grained token requires metadata read and actions, contents, issues, and pull requests read/write access. The workflow's `GITHUB_TOKEN` is not used for Copilot assignment.
+
+GitHub can represent the assigned agent as the documented `copilot-swe-agent`/`copilot-swe-agent[bot]` login or as the `Copilot` bot projection. Intake validates the stable bot identity first and accepts those documented login forms. Only after assignment is verified does it move a `New` Board item to `Active`, add `github-synced`, append the GitHub issue hyperlink, and record history. Re-running an already synchronized item does not duplicate the issue or Board link.
+
+GitHub intentionally marks Copilot cloud-agent pull request runs `action_required` before creating jobs when **Require approval for workflow runs** is enabled under the repository's Copilot cloud-agent settings. A maintainer can approve the run from the pull request merge box, or dispatch `PR validation` with the pull request number and its full current head SHA. The manual workflow reads the pull request through GitHub's API, verifies that it targets this repository's `main`, originates in this repository, and still has that exact head SHA before checkout. This provides exact-commit evidence without using `pull_request_target` to execute untrusted pull-request code. Administrators may disable the Copilot-specific approval setting when repository policy permits, but automation does not change that security setting.
+
 ## Decision contracts
 
 | Decision | Allowed outputs |
