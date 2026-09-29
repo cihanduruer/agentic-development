@@ -179,6 +179,7 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 4. Publish the Blazor WebAssembly client.
 5. Inject the deployed API endpoint into the web configuration.
 6. Deploy the client to Azure Static Web Apps.
+7. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.
 
 The development topology is:
 
@@ -248,6 +249,8 @@ Tenant-scoped Microsoft Entra application registrations and app-role assignments
 The Bicep deployment derives the authority from the subscription tenant, configures the audience and required role on App Service, and fails if the audience variable is absent or empty at runtime.
 
 The development environment registration, `Operations.Ingest` assignment for the GitHub OIDC workload, and `OPERATIONS_API_AUDIENCE` environment variable were configured and verified on 2026-09-29. No additional Entra setup remains for development; other environments require their own workload assignments and audience configuration.
+
+Every development deployment runs `scripts/Test-DevelopmentOperations.ps1`. The script obtains a short-lived token for `OPERATIONS_API_AUDIENCE` from the existing OIDC Azure CLI session, masks it, submits a uniquely correlated event, restarts the API, and verifies the event remains publicly readable afterward. It also fails the deployment if public reads stop working or either protected endpoint accepts an anonymous valid request.
 
 ## Grounding note
 
