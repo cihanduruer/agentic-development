@@ -9,6 +9,14 @@ $sqlAuthentication = Get-Content `
     (Join-Path $root 'scripts/Get-AzureSqlAuthenticationMode.ps1') -Raw
 $indexRetry = Get-Content (Join-Path $root 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1') -Raw
 $routingRetry = Get-Content (Join-Path $root 'scripts/Invoke-RoutingReadinessWithRetry.ps1') -Raw
+$sqlConfigurationState = Get-Content `
+    (Join-Path $root 'scripts/Get-AppSqlConfigurationState.ps1') -Raw
+$developmentRecovery = Get-Content `
+    (Join-Path $root 'scripts/Resolve-DevelopmentPreCutoverState.ps1') -Raw
+$secretProtection = Get-Content `
+    (Join-Path $root 'scripts/Protect-DeploymentSecretFile.ps1') -Raw
+$secretCleanup = Get-Content `
+    (Join-Path $root 'scripts/Remove-DeploymentSecretFiles.ps1') -Raw
 $platform = Get-Content (Join-Path $root 'infra/modules/platform.bicep') -Raw
 $program = Get-Content (Join-Path $root 'src/Api/Program.cs') -Raw
 $contract = Get-Content (Join-Path $root 'infra/deployment-contract.json') -Raw | ConvertFrom-Json
@@ -145,7 +153,7 @@ foreach ($workflow in @($development, $production)) {
         $apiCutoverBody -notmatch 'previousConnection' -or
         $apiCutoverBody -notmatch 'continue-on-error: true' -or
         $apiCutoverBody -notmatch 'RUNNER_TEMP' -or
-        $apiCutoverBody -notmatch 'chmod 600' -or
+        $apiCutoverBody -notmatch 'Protect-DeploymentSecretFile\.ps1' -or
         $apiReadinessBody -notmatch 'continue-on-error: true' -or
         $apiReadinessBody -notmatch 'api-cutover-error\.txt' -or
         $cutoverLoginBody -notmatch 'uses: azure/login@v2' -or
@@ -157,7 +165,7 @@ foreach ($workflow in @($development, $production)) {
         $rollbackBody -notmatch 'prior app SQL connection was restored and proven ready' -or
         $rollbackBody -notmatch 'api-rollback-login\.outcome' -or
         $capturedConfigurationCleanupBody -notmatch 'always\(\)' -or
-        $capturedConfigurationCleanupBody -notmatch 'Remove-Item' -or
+        $capturedConfigurationCleanupBody -notmatch 'Remove-DeploymentSecretFiles\.ps1' -or
         $capturedConfigurationCleanupBody -notmatch 'previous-sql-connection\.txt' -or
         $capturedConfigurationCleanupBody -notmatch 'api-cutover-error\.txt' -or
         $firewallCleanupLoginBody -notmatch 'always\(\)' -or
@@ -198,6 +206,25 @@ foreach ($workflow in @($development, $production)) {
         $sqlAuthentication -notmatch 'invalid Entra-only authentication value') {
         throw 'SQL authentication classification must use the dedicated child resource and fail closed.'
     }
+}
+if ($development -notmatch 'stranded_managed_identity_recovery_confirmation' -or
+    $development -notmatch 'RECOVER-STRANDED-MANAGED-IDENTITY' -or
+    $development -notmatch 'Get-AppSqlConfigurationState\.ps1' -or
+    $development -notmatch 'Resolve-DevelopmentPreCutoverState\.ps1' -or
+    $sqlConfigurationState -notmatch 'managedIdentityDefault' -or
+    $sqlConfigurationState -notmatch 'managedIdentityExplicit' -or
+    $sqlConfigurationState -notmatch 'ambiguously combines' -or
+    $developmentRecovery -notmatch "EventName -eq 'workflow_dispatch'" -or
+    $developmentRecovery -notmatch 'RECOVER-STRANDED-MANAGED-IDENTITY' -or
+    $developmentRecovery -notmatch 'explicitly confirmed manual recovery run') {
+    throw 'Development must classify and explicitly approve recovery of a stranded managed-identity SQL setting.'
+}
+if ($secretProtection -notmatch '& chmod 600' -or
+    $secretProtection -notmatch '\$LASTEXITCODE -ne 0' -or
+    $secretProtection -notmatch 'Remove-Item.+-ErrorAction Stop' -or
+    $secretCleanup -notmatch 'Remove-Item.+-ErrorAction Stop' -or
+    $secretCleanup -notmatch 'cleanup could not be proven') {
+    throw 'Captured deployment secrets must fail closed on permission or cleanup failure.'
 }
 $cutoverCases = @(
     [pscustomobject]@{

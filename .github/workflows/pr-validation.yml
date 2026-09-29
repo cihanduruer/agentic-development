@@ -112,6 +112,9 @@ jobs:
       - name: Test Azure data hardening contracts
         shell: pwsh
         run: ./scripts/Test-AzureDataHardeningContracts.ps1
+      - name: Test development deployment recovery
+        shell: pwsh
+        run: ./scripts/Test-DevelopmentDeploymentRecovery.ps1
       - name: Test production deployment contract
         shell: pwsh
         run: ./scripts/Test-ProductionDeploymentContract.ps1

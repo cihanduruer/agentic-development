@@ -559,7 +559,8 @@ jobs:
             -Path (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt') `
             -Value $previousConnection `
             -NoNewline
-          chmod 600 -- (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt')
+          ./scripts/Protect-DeploymentSecretFile.ps1 `
+            -Path (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt')
           try {
             az deployment group create `
               --name "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
@@ -699,11 +700,10 @@ jobs:
         if: always() && steps.api-identity.outputs.configuredApi == 'true'
         shell: pwsh
         run: |
-          Remove-Item `
-            (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt'), `
-            (Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt') `
-            -Force `
-            -ErrorAction SilentlyContinue
+          ./scripts/Remove-DeploymentSecretFiles.ps1 -Path @(
+            (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt'),
+            (Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt')
+          )
 
       - name: Enforce SQL Entra-only after managed-identity API readiness
         shell: pwsh

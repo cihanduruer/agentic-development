@@ -7,6 +7,10 @@ on:
         description: Type DELETE-ACTIVE-LEGACY-SQL-SECRET to remove the active legacy credential after readiness checks
         required: false
         type: string
+      stranded_managed_identity_recovery_confirmation:
+        description: Type RECOVER-STRANDED-MANAGED-IDENTITY to repair a catalog-failing managed-identity setting
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -17,6 +21,10 @@ on:
       - 'scripts/Remove-LegacySqlCredential.ps1'
       - 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1'
       - 'scripts/Invoke-RoutingReadinessWithRetry.ps1'
+      - 'scripts/Get-AppSqlConfigurationState.ps1'
+      - 'scripts/Resolve-DevelopmentPreCutoverState.ps1'
+      - 'scripts/Protect-DeploymentSecretFile.ps1'
+      - 'scripts/Remove-DeploymentSecretFiles.ps1'
       - 'docs/knowledge/**'
       - 'tools/KnowledgeIndexer/**'
       - 'tools/SqlManagedIdentityBootstrapper/**'
@@ -199,6 +207,7 @@ jobs:
             --only-show-errors 2>&1
           $appLookupExitCode = $LASTEXITCODE
           $configuredApi = $false
+          $configuredSqlMode = 'unconfigured'
           if ($appLookupExitCode -ne 0 -and $appId -notmatch '(?i)ResourceNotFound|could not be found') {
             throw "Unable to determine whether the development API exists: $appId"
           }
@@ -213,6 +222,15 @@ jobs:
               throw 'Unable to classify whether the existing development API has runtime SQL configuration.'
             }
             $configuredApi = -not [string]::IsNullOrWhiteSpace($configuredConnection)
+            $env:APP_SQL_CONNECTION_STRING = $configuredConnection
+            try {
+              $configuredSqlMode = ./scripts/Get-AppSqlConfigurationState.ps1 `
+                -ExpectedServer '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
+                -ExpectedDatabase hotelbooking
+            }
+            finally {
+              Remove-Item Env:\APP_SQL_CONNECTION_STRING -ErrorAction SilentlyContinue
+            }
             $principalId = az webapp identity show `
               --resource-group agentic-hotelbookingdev `
               --name '${{ steps.infrastructure.outputs.apiAppName }}' `
@@ -247,6 +265,8 @@ jobs:
           "principalId=$($principalId.Trim())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "configuredApi=$($configuredApi.ToString().ToLowerInvariant())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "configuredSqlMode=$configuredSqlMode" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/setup-dotnet@v4
         with:
@@ -347,10 +367,12 @@ jobs:
           app-name: ${{ steps.infrastructure.outputs.apiAppName }}
           package: artifacts/api
       - name: Verify migration-disabled API artifact before existing-environment cutover
+        id: pre-cutover-readiness
         shell: pwsh
         run: |
           $readinessUri = '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels'
           $lastError = ''
+          $catalogReady = $false
           for ($attempt = 1; $attempt -le 12; $attempt++) {
             try {
               $response = Invoke-WebRequest `
@@ -358,7 +380,8 @@ jobs:
                 -TimeoutSec 30 `
                 -UseBasicParsing
               if ($response.StatusCode -eq 200) {
-                exit 0
+                $catalogReady = $true
+                break
               }
               $lastError = "HTTP $($response.StatusCode)"
             }
@@ -369,7 +392,13 @@ jobs:
               Start-Sleep -Seconds 10
             }
           }
-          throw "The migration-disabled development API artifact was not ready before managed-identity configuration: $lastError"
+          $state = ./scripts/Resolve-DevelopmentPreCutoverState.ps1 `
+            -ConfiguredSqlMode '${{ steps.api-identity.outputs.configuredSqlMode }}' `
+            -CatalogReady $catalogReady `
+            -EventName '${{ github.event_name }}' `
+            -RecoveryConfirmation '${{ inputs.stranded_managed_identity_recovery_confirmation }}' `
+            -FailureDiagnostic $lastError
+          "state=$state" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Refresh Azure login immediately before managed-identity API cutover
         if: steps.api-identity.outputs.configuredApi == 'true'
         uses: azure/login@v2
@@ -401,7 +430,8 @@ jobs:
             -Path (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt') `
             -Value $previousConnection `
             -NoNewline
-          chmod 600 -- (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt')
+          ./scripts/Protect-DeploymentSecretFile.ps1 `
+            -Path (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt')
           try {
             az deployment group create `
               --name "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
@@ -534,11 +564,10 @@ jobs:
         if: always() && steps.api-identity.outputs.configuredApi == 'true'
         shell: pwsh
         run: |
-          Remove-Item `
-            (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt'), `
-            (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt') `
-            -Force `
-            -ErrorAction SilentlyContinue
+          ./scripts/Remove-DeploymentSecretFiles.ps1 -Path @(
+            (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt'),
+            (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt')
+          )
       - name: Publish web
         run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release -o artifacts/web
       - name: Configure web API endpoint
