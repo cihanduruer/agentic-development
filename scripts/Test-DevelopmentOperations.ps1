@@ -98,7 +98,8 @@ $routeBody = @{
     risk               = 'reversible'
     evidenceComplete   = $true
     availableWorkers   = @{
-        'qa-agent' = 'Runs API tests.'
+        'qa-agent'     = 'Runs API tests.'
+        'human_review' = 'Reviews ambiguous or unsafe work.'
     }
     knowledgeRevision  = $env:GITHUB_SHA
 } | ConvertTo-Json -Compress
@@ -135,12 +136,21 @@ Assert-Status -Response $authorizedEvent -Expected 201 -Operation 'Authorized op
 $token = $null
 $authorizedHeaders.Clear()
 
-az webapp restart `
-    --resource-group $ResourceGroup `
-    --name $AppName `
+$subscriptionId = az account show --query id --output tsv --only-show-errors
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($subscriptionId)) {
+    throw 'Azure CLI did not return the active subscription ID.'
+}
+
+$restartUri = '/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/restart?api-version=2024-11-01&synchronous=true' -f `
+    [Uri]::EscapeDataString($subscriptionId.Trim()), `
+    [Uri]::EscapeDataString($ResourceGroup), `
+    [Uri]::EscapeDataString($AppName)
+az rest `
+    --method post `
+    --uri $restartUri `
     --only-show-errors
 if ($LASTEXITCODE -ne 0) {
-    throw 'Development App Service restart failed.'
+    throw 'Synchronous development App Service restart failed.'
 }
 
 $healthy = $false
