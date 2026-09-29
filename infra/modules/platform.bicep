@@ -267,6 +267,7 @@ resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 output apiUrl string = 'https://${api.properties.defaultHostName}'
+output apiAppName string = api.name
 output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
 output routingDeploymentName string = routingModel.name
 output staticWebAppName string = staticWebApp.name
