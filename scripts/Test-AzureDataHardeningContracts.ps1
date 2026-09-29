@@ -168,6 +168,8 @@ foreach ($workflow in @($development, $production)) {
         $rollbackBody -notmatch 'api-rollback-login\.outcome' -or
         $rollbackBody -notmatch 'Wait-AzureResourceGroupDeployment\.ps1' -or
         $rollbackBody -notmatch 'AllowFailedTerminalState' -or
+        $rollbackBody -notmatch 'AllowNotFound' -or
+        $rollbackBody -notmatch "'failure', 'cancelled'" -or
         $capturedConfigurationCleanupBody -notmatch 'always\(\)' -or
         $capturedConfigurationCleanupBody -notmatch 'Remove-DeploymentSecretFiles\.ps1' -or
         $capturedConfigurationCleanupBody -notmatch 'previous-sql-connection\.txt' -or

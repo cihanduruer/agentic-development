@@ -527,12 +527,13 @@ jobs:
           else {
             'The managed-identity API cutover failed without a captured diagnostic.'
           }
-          if ('${{ steps.api-cutover.outcome }}' -eq 'cancelled') {
+          if ('${{ steps.api-cutover.outcome }}' -in @('failure', 'cancelled')) {
             ./scripts/Wait-AzureResourceGroupDeployment.ps1 `
               -ResourceGroup agentic-hotelbookingdev `
               -DeploymentName "development-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
               -TimeoutSeconds 2400 `
-              -AllowFailedTerminalState
+              -AllowFailedTerminalState `
+              -AllowNotFound
           }
           az webapp config appsettings set `
             --resource-group agentic-hotelbookingdev `

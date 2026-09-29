@@ -74,6 +74,52 @@ foreach ($terminalState in @('Failed', 'Canceled')) {
     }
 }
 
+foreach ($terminalState in @('Succeeded', 'Failed', 'Canceled')) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' },
+        @{ ExitCode = 0; Body = "{`"provisioningState`":`"$terminalState`"}" }
+    ) -Assertion {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 5 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+    }
+}
+
+Invoke-Scenario -Responses @(
+    @{ ExitCode = 1; Body = 'DeploymentNotFound' }
+) -Assertion {
+    & $scriptPath `
+        -ResourceGroup test-rg `
+        -DeploymentName test-deployment `
+        -TimeoutSeconds 0 `
+        -PollIntervalSeconds 0 `
+        -AllowFailedTerminalState `
+        -AllowNotFound
+}
+
+Invoke-Scenario -Responses @(
+    @{ ExitCode = 0; Body = '{"provisioningState":"Running"}' }
+) -Assertion {
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -DeploymentName test-deployment `
+            -TimeoutSeconds 0 `
+            -PollIntervalSeconds 0 `
+            -AllowFailedTerminalState `
+            -AllowNotFound
+        throw 'A running deployment unexpectedly reached a terminal state.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'did not finish') {
+            throw
+        }
+    }
+}
+
 Invoke-Scenario -Responses @(
     @{ ExitCode = 1; Body = $null }
 ) -Assertion {

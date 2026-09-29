@@ -14,7 +14,9 @@ param(
 
     [switch] $AllowTimeout,
 
-    [switch] $AllowFailedTerminalState
+    [switch] $AllowFailedTerminalState,
+
+    [switch] $AllowNotFound
 )
 
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -25,9 +27,15 @@ while ($true) {
         --name $DeploymentName `
         --query properties `
         --output json `
-        --only-show-errors
+        --only-show-errors 2>&1
 
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deploymentJson)) {
+        $diagnostic = "$deploymentJson".Trim()
+        if ($AllowNotFound -and
+            $diagnostic -match '(?i)ResourceNotFound|DeploymentNotFound|could not be found') {
+            Write-Output "Deployment '$DeploymentName' was not submitted."
+            return
+        }
         throw "Unable to read deployment '$DeploymentName' in resource group '$ResourceGroup'."
     }
 
