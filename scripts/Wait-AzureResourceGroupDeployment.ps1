@@ -22,6 +22,7 @@ param(
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
 $notFoundObservations = 0
 $requiredNotFoundObservations = 3
+$deploymentObserved = $false
 
 while ($true) {
     $deploymentJson = az deployment group show `
@@ -36,14 +37,30 @@ while ($true) {
         $escapedDeploymentName = [Regex]::Escape($DeploymentName)
         $deploymentNotFoundPattern =
             "^(?:ERROR:\s*)?\(DeploymentNotFound\)\s+Deployment\s+'$escapedDeploymentName'\s+could not be found\.?$"
+        $jsonDiagnostic = $diagnostic -replace '^ERROR:\s*', ''
+        $exactJsonDeploymentNotFound = $false
+        try {
+            $jsonError = $jsonDiagnostic | ConvertFrom-Json -ErrorAction Stop
+            $expectedNotFoundMessage = "Deployment '$DeploymentName' could not be found."
+            $exactJsonDeploymentNotFound =
+                $jsonError.error.code -ceq 'DeploymentNotFound' -and
+                $jsonError.error.message -ceq $expectedNotFoundMessage
+        } catch {
+            $exactJsonDeploymentNotFound = $false
+        }
         if ($AllowNotFound -and
-            $diagnostic -match $deploymentNotFoundPattern) {
-            $notFoundObservations++
-            if ($notFoundObservations -ge $requiredNotFoundObservations) {
-                Write-Output "Deployment '$DeploymentName' was not submitted after $notFoundObservations consecutive observations."
-                return
+            ($diagnostic -match $deploymentNotFoundPattern -or $exactJsonDeploymentNotFound)) {
+            if (-not $deploymentObserved) {
+                $notFoundObservations++
+                if ($notFoundObservations -ge $requiredNotFoundObservations) {
+                    Write-Output "Deployment '$DeploymentName' was not submitted after $notFoundObservations consecutive observations."
+                    return
+                }
             }
             if ([DateTimeOffset]::UtcNow -ge $deadline) {
+                if ($deploymentObserved) {
+                    throw "Deployment '$DeploymentName' was observed but did not finish within $TimeoutSeconds seconds."
+                }
                 throw "Deployment '$DeploymentName' absence could not be proven within $TimeoutSeconds seconds."
             }
             Start-Sleep -Seconds $PollIntervalSeconds
@@ -53,6 +70,7 @@ while ($true) {
     }
 
     $notFoundObservations = 0
+    $deploymentObserved = $true
     $deployment = $deploymentJson | ConvertFrom-Json
     switch ($deployment.provisioningState) {
         'Succeeded' {
