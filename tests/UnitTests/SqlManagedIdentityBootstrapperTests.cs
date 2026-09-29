@@ -105,11 +105,21 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Contains("permissions.state = N'G'", commandText, StringComparison.Ordinal);
         Assert.Contains("permissions.minor_id = 0", commandText, StringComparison.Ordinal);
         Assert.Contains("member_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
+        Assert.Contains("role_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
+        Assert.Contains("member_principal_id <> @ExistingApiPrincipalId", commandText, StringComparison.Ordinal);
+        Assert.Contains(
+            "runtime role has unexpected database principals as members",
+            commandText,
+            StringComparison.Ordinal);
         Assert.Contains("unexpectedly nested", commandText, StringComparison.Ordinal);
         Assert.Contains("runtime role unexpectedly owns", commandText, StringComparison.Ordinal);
         Assert.Contains("runtime role has unexpected database permissions", commandText, StringComparison.Ordinal);
         Assert.Contains("COUNT_BIG(*)", commandText, StringComparison.Ordinal);
         Assert.Contains("<> 7", commandText, StringComparison.Ordinal);
+        Assert.Contains(
+            "runtime role does not have the exact expected membership",
+            commandText,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -214,6 +224,10 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.True(
             commandText.IndexOf(
                 "runtime role has unexpected database permissions",
+                StringComparison.Ordinal) < revokeIndex);
+        Assert.True(
+            commandText.IndexOf(
+                "runtime role has unexpected database principals as members",
                 StringComparison.Ordinal) < revokeIndex);
         Assert.Contains(
             "@ExistingDirectPermissionCount > 0",

@@ -270,6 +270,20 @@ public static class SqlManagedIdentityBootstrap
             IF @ExistingRuntimeRoleId IS NOT NULL
                AND EXISTS (
                    SELECT 1
+                   FROM sys.database_role_members
+                   WHERE role_principal_id = @ExistingRuntimeRoleId
+                     AND (
+                         @ExistingApiPrincipalId IS NULL
+                         OR member_principal_id <> @ExistingApiPrincipalId
+                     )
+               )
+            BEGIN
+                THROW 51012, 'The runtime role has unexpected database principals as members.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
                    FROM sys.database_permissions AS permissions
                    WHERE permissions.grantee_principal_id = @ExistingRuntimeRoleId
                      AND NOT (
@@ -422,6 +436,16 @@ public static class SqlManagedIdentityBootstrap
                     N'ALTER ROLE [hotel_booking_runtime] ADD MEMBER ' +
                     QUOTENAME(@apiPrincipalName) + N';';
                 EXEC sys.sp_executesql @Command;
+            END;
+
+            IF (
+                SELECT COUNT_BIG(*)
+                FROM sys.database_role_members
+                WHERE role_principal_id = @RuntimeRoleId
+            ) <> 1
+               OR COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1
+            BEGIN
+                THROW 51013, 'The runtime role does not have the exact expected membership.', 1;
             END;
 
             COMMIT TRANSACTION;
