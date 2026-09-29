@@ -80,6 +80,36 @@ public sealed class SqlManagedIdentityBootstrapperTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void CommandFailsClosedOnUnexpectedPrincipalAccess()
+    {
+        var commandText = SqlManagedIdentityBootstrap.CommandText;
+
+        Assert.Contains("sys.database_permissions", commandText, StringComparison.Ordinal);
+        Assert.Contains("unexpected direct database permissions", commandText, StringComparison.Ordinal);
+        Assert.Contains("sys.database_role_members", commandText, StringComparison.Ordinal);
+        Assert.Contains("unexpected database role memberships", commandText, StringComparison.Ordinal);
+        Assert.Contains("sys.schemas", commandText, StringComparison.Ordinal);
+        Assert.Contains("sys.objects", commandText, StringComparison.Ordinal);
+        Assert.Contains("sys.databases", commandText, StringComparison.Ordinal);
+        Assert.Contains("unexpectedly owns database securables", commandText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CommandAllowsOnlyTheExactRuntimeRolePermissionSet()
+    {
+        var commandText = SqlManagedIdentityBootstrap.CommandText;
+
+        Assert.Contains("permissions.state = N'G'", commandText, StringComparison.Ordinal);
+        Assert.Contains("permissions.minor_id = 0", commandText, StringComparison.Ordinal);
+        Assert.Contains("member_principal_id = @ExistingRuntimeRoleId", commandText, StringComparison.Ordinal);
+        Assert.Contains("unexpectedly nested", commandText, StringComparison.Ordinal);
+        Assert.Contains("runtime role unexpectedly owns", commandText, StringComparison.Ordinal);
+        Assert.Contains("runtime role has unexpected database permissions", commandText, StringComparison.Ordinal);
+        Assert.Contains("COUNT_BIG(*)", commandText, StringComparison.Ordinal);
+        Assert.Contains("<> 7", commandText, StringComparison.Ordinal);
+    }
+
     private static SqlBootstrapOptions CreateOptions() =>
         new(
             "example.database.windows.net",

@@ -51,3 +51,4 @@ output sqlServerName string = platform.outputs.sqlServerName
 output apiName string = platform.outputs.apiName
 output apiPrincipalId string = platform.outputs.apiPrincipalId
 output searchEndpoint string = platform.outputs.searchEndpoint
+output legacyKeyVaultName string = platform.outputs.legacyKeyVaultName

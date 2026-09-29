@@ -172,9 +172,9 @@ Repository settings should require `PR validation / validate`, `Hotel code revie
 
 ## Release proposal and production
 
-A successful digest-bound `QA evidence` run for `main` triggers `.github/workflows/release-proposal.yml`. It publishes API and web packages once, records the exact source commit, QA run, and metadata digest, creates SHA-256 checksums, and uploads `release-<commit>` for 90 days. This is evidence, not deployment. Every new promotion requires fresh digest-bound QA and release artifacts; pre-digest artifacts are read-only historical proof and cannot authorize a new production promotion.
+A successful digest-bound `QA evidence` run for `main` triggers `.github/workflows/release-proposal.yml`. It publishes API and web packages once, records the exact source commit, QA run, metadata digest, and versioned Entra SQL managed-identity deployment contract, creates SHA-256 checksums, and uploads `release-<commit>` for 90 days. A source commit without that contract cannot produce an eligible release. This is evidence, not deployment. Every new promotion requires fresh digest-bound QA and release artifacts; pre-contract and pre-digest artifacts are read-only historical proof and cannot authorize a new production promotion.
 
-Production uses `.github/workflows/deploy-production.yml` and can run only through `workflow_dispatch`. The operator supplies the release workflow run ID, its full commit SHA, and the exact text `DEPLOY-PRODUCTION`. A preflight job verifies the successful `main` release proposal, commit ancestry, checksums, QA artifact, and PR validation before a one-day verified artifact crosses into the separate `production` environment job. The precreated `agentic-hotelbookingprod` resource group is the deployment boundary: Azure CLI deploys `infra/resource-group.bicep` with `infra/production.parameters.json`, so the GitHub service principal needs Contributor and Role Based Access Control Administrator only on that resource group, not the subscription. The OIDC-authenticated Azure CLI obtains and masks the Static Web Apps token after infrastructure exists; no pre-existing token secret is required.
+Production uses `.github/workflows/deploy-production.yml` and can run only through `workflow_dispatch`. The operator supplies the release workflow run ID, its full commit SHA, and the exact text `DEPLOY-PRODUCTION`. A preflight job verifies the successful `main` release proposal, commit ancestry, checksums, deployment-contract manifest, QA artifact, and PR validation before a one-day verified artifact crosses into the separate `production` environment job. The precreated `agentic-hotelbookingprod` resource group is the deployment boundary: Azure CLI deploys `infra/resource-group.bicep` with `infra/production.parameters.json`, so the GitHub service principal needs Contributor and Role Based Access Control Administrator only on that resource group, not the subscription. The OIDC-authenticated Azure CLI obtains and masks the Static Web Apps token after infrastructure exists; no pre-existing token secret is required.
 
 The `production` GitHub Environment exists and is restricted to `main`. GitHub returned HTTP 422 when required reviewers and a wait timer were configured because those protection rules are unavailable for this private repository on its current billing plan. Until the plan supports those controls, typed confirmation, immutable source checks, manual dispatch, branch restriction, and repository write access are the implemented human controls. A repository administrator must configure environment OIDC values and deployment secrets before the first release. No production deployment was performed while implementing this pipeline.
 
@@ -184,13 +184,14 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 
 1. Authenticate to Azure with GitHub OIDC.
 2. Start the Bicep deployment asynchronously and poll it in bounded intervals, refreshing the GitHub OIDC Azure login before a long-running ARM operation can outlive its original token.
-3. Apply EF migrations as the SQL Entra administrator and idempotently grant the API managed identity its custom runtime role.
-4. Index the exact Git commit of `docs/knowledge` into Azure AI Search.
-5. Publish and deploy the ASP.NET Core API to App Service.
-6. Publish the Blazor WebAssembly client.
-7. Inject the deployed API endpoint into the web configuration.
-8. Deploy the client to Azure Static Web Apps.
-9. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.
+3. Verify Entra-only SQL and the passwordless App Service connection, then delete and verify the absence of the active legacy SQL connection-string secret without purging soft-deleted data or deleting the vault.
+4. Apply EF migrations as the SQL Entra administrator and fail closed on unexpected runtime-role permissions, API direct grants, ownership, or extra memberships before granting the exact custom runtime role.
+5. Index the exact Git commit of `docs/knowledge` into Azure AI Search, allowing up to ten minutes for managed-identity RBAC propagation and emitting the final authorization diagnostic on exhaustion.
+6. Publish and deploy the ASP.NET Core API to App Service.
+7. Publish the Blazor WebAssembly client.
+8. Inject the deployed API endpoint into the web configuration.
+9. Deploy the client to Azure Static Web Apps.
+10. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.
 
 The development topology is:
 

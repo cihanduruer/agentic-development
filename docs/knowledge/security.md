@@ -25,7 +25,8 @@ Each development deployment then performs the repeatable data-plane sequence:
 
 1. Apply EF migrations as the Entra deployment principal.
 2. Acquire an Azure SQL access token and run the repository-built `tools/SqlManagedIdentityBootstrapper` with the App Service name and principal object ID emitted by Bicep. The tool uses `Microsoft.Data.SqlClient` token authentication and parameterized inputs, so deployment does not depend on runner-provided SQL tooling or SQLCMD variable preprocessing.
-3. Grant membership only in `hotel_booking_runtime`.
-4. Remove the temporary GitHub runner firewall rule.
+3. Fail closed if the runtime role has permissions beyond the documented object grants, or if the API principal has direct grants, owns securables, or belongs to another database role; then grant membership only in `hotel_booking_runtime`.
+4. After Entra-only SQL and the App Service passwordless connection are verified, remove only the active legacy `sql-connection-string` child resource from the deterministic legacy vault and verify its active absence.
+5. Remove the temporary GitHub runner firewall rule.
 
-No SQL login or SQL administrator password is stored in GitHub, Key Vault, application settings, or the API connection string.
+No SQL login or SQL administrator password is used by the running API or stored in GitHub or application settings. Upgraded environments delete and verify the absence of the active legacy Key Vault secret. Key Vault soft-delete and purge protection can retain a recoverable deleted version for the configured retention period; the deployment does not purge it or delete the vault because permanent purge is a separately approved irreversible operation.

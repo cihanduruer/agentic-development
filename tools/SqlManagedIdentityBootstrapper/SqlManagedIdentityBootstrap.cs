@@ -99,6 +99,132 @@ public static class SqlManagedIdentityBootstrap
             DECLARE @ApiPrincipalSid binary(16) =
                 CONVERT(binary(16), @apiPrincipalObjectId);
             DECLARE @Command nvarchar(max);
+            DECLARE @ExistingApiPrincipalId int =
+                DATABASE_PRINCIPAL_ID(@apiPrincipalName);
+
+            IF @ExistingApiPrincipalId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_permissions
+                   WHERE grantee_principal_id = @ExistingApiPrincipalId
+               )
+            BEGIN
+                THROW 51000, 'The API principal has unexpected direct database permissions.', 1;
+            END;
+
+            IF @ExistingApiPrincipalId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_role_members AS memberships
+                   INNER JOIN sys.database_principals AS roles
+                       ON roles.principal_id = memberships.role_principal_id
+                   WHERE memberships.member_principal_id = @ExistingApiPrincipalId
+                     AND roles.name <> N'hotel_booking_runtime'
+               )
+            BEGIN
+                THROW 51001, 'The API principal has unexpected database role memberships.', 1;
+            END;
+
+            IF @ExistingApiPrincipalId IS NOT NULL
+               AND (
+                   EXISTS (
+                       SELECT 1
+                       FROM sys.schemas
+                       WHERE principal_id = @ExistingApiPrincipalId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.objects
+                       WHERE principal_id = @ExistingApiPrincipalId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.database_principals
+                       WHERE owning_principal_id = @ExistingApiPrincipalId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.databases
+                       WHERE database_id = DB_ID()
+                         AND owner_sid = (
+                             SELECT sid
+                             FROM sys.database_principals
+                             WHERE principal_id = @ExistingApiPrincipalId
+                         )
+                   )
+               )
+            BEGIN
+                THROW 51002, 'The API principal unexpectedly owns database securables.', 1;
+            END;
+
+            DECLARE @ExistingRuntimeRoleId int =
+                DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND (
+                   EXISTS (
+                       SELECT 1
+                       FROM sys.schemas
+                       WHERE principal_id = @ExistingRuntimeRoleId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.objects
+                       WHERE principal_id = @ExistingRuntimeRoleId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.database_principals
+                       WHERE owning_principal_id = @ExistingRuntimeRoleId
+                   )
+                   OR EXISTS (
+                       SELECT 1
+                       FROM sys.databases
+                       WHERE database_id = DB_ID()
+                         AND owner_sid = (
+                             SELECT sid
+                             FROM sys.database_principals
+                             WHERE principal_id = @ExistingRuntimeRoleId
+                         )
+                   )
+               )
+            BEGIN
+                THROW 51003, 'The runtime role unexpectedly owns database securables.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_role_members
+                   WHERE member_principal_id = @ExistingRuntimeRoleId
+               )
+            BEGIN
+                THROW 51004, 'The runtime role is unexpectedly nested in another database role.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.grantee_principal_id = @ExistingRuntimeRoleId
+                     AND NOT (
+                         permissions.class = 1
+                         AND permissions.minor_id = 0
+                         AND permissions.state = N'G'
+                         AND (
+                             (permissions.major_id = OBJECT_ID(N'dbo.Hotels')
+                                 AND permissions.permission_name = N'SELECT')
+                             OR (permissions.major_id = OBJECT_ID(N'dbo.Rooms')
+                                 AND permissions.permission_name = N'SELECT')
+                             OR (permissions.major_id = OBJECT_ID(N'dbo.Reservations')
+                                 AND permissions.permission_name IN (N'SELECT', N'INSERT'))
+                             OR (permissions.major_id = OBJECT_ID(N'dbo.AgentEvents')
+                                 AND permissions.permission_name IN (N'SELECT', N'INSERT', N'DELETE'))
+                         )
+                     )
+               )
+            BEGIN
+                THROW 51005, 'The runtime role has unexpected database permissions.', 1;
+            END;
 
             IF EXISTS (
                 SELECT 1
@@ -146,6 +272,20 @@ public static class SqlManagedIdentityBootstrap
             GRANT SELECT ON OBJECT::dbo.Rooms TO [hotel_booking_runtime];
             GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [hotel_booking_runtime];
             GRANT SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents TO [hotel_booking_runtime];
+
+            DECLARE @RuntimeRoleId int =
+                DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            IF (
+                SELECT COUNT_BIG(*)
+                FROM sys.database_permissions AS permissions
+                WHERE permissions.grantee_principal_id = @RuntimeRoleId
+                  AND permissions.class = 1
+                  AND permissions.minor_id = 0
+                  AND permissions.state = N'G'
+            ) <> 7
+            BEGIN
+                THROW 51006, 'The runtime role does not have the exact expected permission set.', 1;
+            END;
 
             IF COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1
             BEGIN

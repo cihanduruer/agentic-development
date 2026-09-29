@@ -330,3 +330,4 @@ output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
 output searchEndpoint string = 'https://${search.name}.search.windows.net/'
 output sqlServerName string = sqlServer.name
+output legacyKeyVaultName string = '${baseName}-kv'
