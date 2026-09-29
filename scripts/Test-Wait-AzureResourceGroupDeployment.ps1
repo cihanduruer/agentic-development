@@ -90,7 +90,10 @@ foreach ($terminalState in @('Succeeded', 'Failed', 'Canceled')) {
 }
 
 Invoke-Scenario -Responses @(
-    @{ ExitCode = 1; Body = 'DeploymentNotFound' }
+    @{
+        ExitCode = 1
+        Body = "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found."
+    }
 ) -Assertion {
     & $scriptPath `
         -ResourceGroup test-rg `
@@ -99,6 +102,35 @@ Invoke-Scenario -Responses @(
         -PollIntervalSeconds 0 `
         -AllowFailedTerminalState `
         -AllowNotFound
+}
+
+$misleadingNotFoundDiagnostics = @(
+    "(AuthenticationFailed) Selected identity could not be found.",
+    "(ResourceNotFound) Resource 'test-deployment' could not be found.",
+    "(ServiceUnavailable) DeploymentNotFound status could not be confirmed.",
+    "(DeploymentNotFound) Deployment 'other-deployment' could not be found.",
+    "DeploymentNotFound",
+    "ERROR: (DeploymentNotFound) Deployment 'test-deployment' could not be found.`nAdditional text"
+)
+foreach ($diagnostic in $misleadingNotFoundDiagnostics) {
+    Invoke-Scenario -Responses @(
+        @{ ExitCode = 1; Body = $diagnostic }
+    ) -Assertion {
+        try {
+            & $scriptPath `
+                -ResourceGroup test-rg `
+                -DeploymentName test-deployment `
+                -TimeoutSeconds 0 `
+                -PollIntervalSeconds 0 `
+                -AllowFailedTerminalState `
+                -AllowNotFound
+            throw 'A misleading not-found diagnostic was accepted.'
+        } catch {
+            if ($_.Exception.Message -notmatch 'Unable to read deployment') {
+                throw
+            }
+        }
+    }
 }
 
 Invoke-Scenario -Responses @(

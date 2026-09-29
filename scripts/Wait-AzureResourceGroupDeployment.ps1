@@ -31,8 +31,11 @@ while ($true) {
 
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deploymentJson)) {
         $diagnostic = "$deploymentJson".Trim()
+        $escapedDeploymentName = [Regex]::Escape($DeploymentName)
+        $deploymentNotFoundPattern =
+            "^(?:ERROR:\s*)?\(DeploymentNotFound\)\s+Deployment\s+'$escapedDeploymentName'\s+could not be found\.?$"
         if ($AllowNotFound -and
-            $diagnostic -match '(?i)ResourceNotFound|DeploymentNotFound|could not be found') {
+            $diagnostic -match $deploymentNotFoundPattern) {
             Write-Output "Deployment '$DeploymentName' was not submitted."
             return
         }
