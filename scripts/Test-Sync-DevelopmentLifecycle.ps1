@@ -225,9 +225,19 @@ Assert-True (-not ($patch.path -contains "/fields/System.State")) "Lifecycle syn
 Assert-True (
     ($patch | Where-Object path -eq "/fields/System.Tags").value -eq
         "github-synced; delivery-evidence") "Tag hygiene should remove ready-for-triage."
+$comparisonUri = Get-DeployedToMainComparisonUri `
+    -Repository $repository `
+    -DeployedSha $deployedSha
+Assert-True (
+    $comparisonUri -eq "https://api.github.com/repos/$repository/compare/$deployedSha...main"
+) "The comparison must use deployed SHA as base and main as head."
 Assert-True (Test-CommitOnMain -ComparisonStatus "identical") "The exact main tip should be accepted."
-Assert-True (Test-CommitOnMain -ComparisonStatus "behind") "A deployed main ancestor should be accepted."
-Assert-True (-not (Test-CommitOnMain -ComparisonStatus "ahead")) "A commit ahead of main must fail closed."
+Assert-True (
+    Test-CommitOnMain -ComparisonStatus "ahead"
+) "For deployed-base to main-head comparison, a deployed main ancestor should be accepted."
+Assert-True (
+    -not (Test-CommitOnMain -ComparisonStatus "behind")
+) "For deployed-base to main-head comparison, a commit ahead of main must fail closed."
 Assert-True (-not (Test-CommitOnMain -ComparisonStatus "diverged")) "A diverged commit must fail closed."
 
 $existingRelations = @(

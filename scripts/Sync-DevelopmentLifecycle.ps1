@@ -403,9 +403,17 @@ function Get-CanonicalIssueCandidates {
     return $issues.ToArray()
 }
 
+function Get-DeployedToMainComparisonUri {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$DeployedSha
+    )
+    return "https://api.github.com/repos/$Repository/compare/$DeployedSha...main"
+}
+
 function Test-CommitOnMain {
     param([Parameter(Mandatory)][string]$ComparisonStatus)
-    return $ComparisonStatus -in @("identical", "behind")
+    return $ComparisonStatus -in @("identical", "ahead")
 }
 
 function Invoke-DevelopmentLifecycleSync {
@@ -428,7 +436,9 @@ function Invoke-DevelopmentLifecycleSync {
     $deployment = Invoke-GitHubApi -Uri (
         "https://api.github.com/repos/$Repository/actions/runs/$DeploymentRunId")
     $comparison = Invoke-GitHubApi -Uri (
-        "https://api.github.com/repos/$Repository/compare/$DeployedSha...main")
+        Get-DeployedToMainComparisonUri `
+            -Repository $Repository `
+            -DeployedSha $DeployedSha)
     $deployment | Add-Member -NotePropertyName on_main -NotePropertyValue (
         Test-CommitOnMain -ComparisonStatus $comparison.status) -Force
 
