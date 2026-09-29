@@ -62,8 +62,22 @@ foreach ($workflow in @($development, $production)) {
     }
     $artifactReadiness = $workflow.IndexOf(
         'Verify migration-disabled API artifact before existing-environment cutover')
-    $apiCutoverName = 'Apply and prove managed-identity API configuration with rollback'
+    $cutoverLoginName = 'Refresh Azure login immediately before managed-identity API cutover'
+    $apiCutoverName = 'Apply managed-identity API configuration'
+    $apiReadinessName = 'Prove managed-identity SQL-backed API readiness'
+    $rollbackLoginName = 'Refresh Azure login for managed-identity API rollback'
+    $rollbackName = 'Restore and prove prior API SQL configuration'
+    $capturedConfigurationCleanupName = 'Remove captured prior API SQL configuration'
+    $firewallCleanupLoginName =
+        'Refresh Azure login for deployment runner SQL firewall cleanup'
     $apiCutover = $workflow.IndexOf($apiCutoverName)
+    $cutoverLogin = $workflow.IndexOf($cutoverLoginName)
+    $apiReadiness = $workflow.IndexOf($apiReadinessName)
+    $rollbackLogin = $workflow.IndexOf($rollbackLoginName)
+    $rollback = $workflow.IndexOf($rollbackName)
+    $capturedConfigurationCleanup = $workflow.IndexOf($capturedConfigurationCleanupName)
+    $firewallCleanupLogin = $workflow.IndexOf($firewallCleanupLoginName)
+    $firewallCleanup = $workflow.IndexOf('Remove deployment runner SQL firewall rule')
     $readiness = if ($workflow -eq $development) {
         $workflow.IndexOf('Verify operations authorization and persistence')
     }
@@ -82,6 +96,19 @@ foreach ($workflow in @($development, $production)) {
         -Workflow $workflow `
         -Name 'Configure initial API after SQL bootstrap'
     $apiCutoverBody = Get-NamedStepBody -Workflow $workflow -Name $apiCutoverName
+    $cutoverLoginBody = Get-NamedStepBody -Workflow $workflow -Name $cutoverLoginName
+    $apiReadinessBody = Get-NamedStepBody -Workflow $workflow -Name $apiReadinessName
+    $rollbackLoginBody = Get-NamedStepBody -Workflow $workflow -Name $rollbackLoginName
+    $rollbackBody = Get-NamedStepBody -Workflow $workflow -Name $rollbackName
+    $capturedConfigurationCleanupBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name $capturedConfigurationCleanupName
+    $firewallCleanupLoginBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name $firewallCleanupLoginName
+    $firewallCleanupBody = Get-NamedStepBody `
+        -Workflow $workflow `
+        -Name 'Remove deployment runner SQL firewall rule'
     $sqlCutoverBody = Get-NamedStepBody `
         -Workflow $workflow `
         -Name 'Enforce SQL Entra-only after managed-identity API readiness'
@@ -89,8 +116,13 @@ foreach ($workflow in @($development, $production)) {
         $identity -lt $foundation -or
         $bootstrap -lt $identity -or $initialApiConfiguration -lt $bootstrap -or
         $artifactDeploy -lt $initialApiConfiguration -or
-        $artifactReadiness -lt $artifactDeploy -or $apiCutover -lt $artifactReadiness -or
+        $artifactReadiness -lt $artifactDeploy -or $cutoverLogin -lt $artifactReadiness -or
+        $apiCutover -lt $cutoverLogin -or $apiReadiness -lt $apiCutover -or
+        $rollbackLogin -lt $apiReadiness -or $rollback -lt $rollbackLogin -or
+        $capturedConfigurationCleanup -lt $rollback -or
         $readiness -lt $apiCutover -or $sqlCutover -lt $readiness -or
+        $firewallCleanupLogin -lt $sqlCutover -or
+        $firewallCleanup -lt $firewallCleanupLogin -or
         $postCutoverReadiness -lt $sqlCutover -or
         $initialConfigurationBody -notmatch
             "if: steps\.api-identity\.outputs\.configuredApi == 'false'" -or
@@ -111,8 +143,26 @@ foreach ($workflow in @($development, $production)) {
         $apiCutoverBody -notmatch 'configureApi=true' -or
         $apiCutoverBody -notmatch 'configureSql=false' -or
         $apiCutoverBody -notmatch 'previousConnection' -or
-        $apiCutoverBody -notmatch 'webapp config appsettings set' -or
-        $apiCutoverBody -notmatch 'prior app SQL connection was restored and proven ready' -or
+        $apiCutoverBody -notmatch 'continue-on-error: true' -or
+        $apiCutoverBody -notmatch 'RUNNER_TEMP' -or
+        $apiCutoverBody -notmatch 'chmod 600' -or
+        $apiReadinessBody -notmatch 'continue-on-error: true' -or
+        $apiReadinessBody -notmatch 'api-cutover-error\.txt' -or
+        $cutoverLoginBody -notmatch 'uses: azure/login@v2' -or
+        $rollbackLoginBody -notmatch 'always\(\)' -or
+        $rollbackLoginBody -notmatch 'uses: azure/login@v2' -or
+        $rollbackLoginBody -notmatch 'api-cutover\.outcome' -or
+        $rollbackLoginBody -notmatch 'api-cutover-readiness\.outcome' -or
+        $rollbackBody -notmatch 'webapp config appsettings set' -or
+        $rollbackBody -notmatch 'prior app SQL connection was restored and proven ready' -or
+        $rollbackBody -notmatch 'api-rollback-login\.outcome' -or
+        $capturedConfigurationCleanupBody -notmatch 'always\(\)' -or
+        $capturedConfigurationCleanupBody -notmatch 'Remove-Item' -or
+        $capturedConfigurationCleanupBody -notmatch 'previous-sql-connection\.txt' -or
+        $capturedConfigurationCleanupBody -notmatch 'api-cutover-error\.txt' -or
+        $firewallCleanupLoginBody -notmatch 'always\(\)' -or
+        $firewallCleanupLoginBody -notmatch 'uses: azure/login@v2' -or
+        $firewallCleanupBody -notmatch 'sql-firewall-cleanup-login\.outcome' -or
         $sqlCutoverBody -notmatch 'configureApi=false' -or
         $sqlCutoverBody -notmatch 'configureSql=true' -or
         $identityBody -notmatch 'webapp config appsettings list' -or
@@ -225,6 +275,17 @@ if ($program -notmatch 'ShouldApplyDatabaseMigrations' -or
     $program -notmatch 'Database:ApplyMigrations' -or
     $platform -notmatch "name: 'Database__ApplyMigrations'\s+value: 'false'") {
     throw 'The replacement API must disable startup migrations before any runtime-only identity cutover.'
+}
+if ($platform -notmatch
+        'Authentication=Active Directory Managed Identity' -or
+    $platform -match 'Authentication=Active Directory Default' -or
+    $cleanup -notmatch 'Authentication=Active Directory Managed Identity') {
+    throw 'The App Service runtime must explicitly authenticate to SQL with its managed identity.'
+}
+foreach ($workflow in @($development, $production)) {
+    if ($workflow -notmatch 'Authentication=Active Directory Default') {
+        throw 'The GitHub deployment runner must retain workload-compatible SQL authentication.'
+    }
 }
 if (-not $platform.Contains(
         "resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = if (configureSql) {") -or

@@ -179,7 +179,7 @@ resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
         }
         {
           name: 'ConnectionStrings__HotelBooking'
-          value: 'Server=tcp:${sqlServerName}.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+          value: 'Server=tcp:${sqlServerName}.database.windows.net,1433;Initial Catalog=hotelbooking;Authentication=Active Directory Managed Identity;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
         }
         {
           name: 'Database__ApplyMigrations'

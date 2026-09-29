@@ -58,7 +58,7 @@ $connectionString = Invoke-AzTsv @(
     '--query', "[?name=='ConnectionStrings__HotelBooking'].value | [0]"
 )
 if ([string]::IsNullOrWhiteSpace($connectionString) -or
-    $connectionString -notmatch 'Authentication=Active Directory Default' -or
+    $connectionString -notmatch 'Authentication=Active Directory Managed Identity' -or
     $connectionString -match '(?i)Password=|User ID=|@Microsoft\.KeyVault') {
     throw "App Service '$ApiAppName' does not have the expected passwordless SQL connection."
 }

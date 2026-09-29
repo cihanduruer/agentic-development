@@ -9,7 +9,7 @@ try {
 $command = $args -join ' '
 if ($command -match 'ad-only-auth get') { 'true'; exit 0 }
 if ($command -match 'appsettings list') {
-    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
+    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Managed Identity;Encrypt=True;'
     exit 0
 }
 if ($command -match 'keyvault list') {
@@ -75,7 +75,7 @@ exit 1
 $command = $args -join ' '
 if ($command -match 'ad-only-auth get') { 'true'; exit 0 }
 if ($command -match 'appsettings list') {
-    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
+    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Managed Identity;Encrypt=True;'
     exit 0
 }
 if ($command -match 'keyvault list') { ''; exit 0 }
@@ -93,7 +93,7 @@ exit 1
 $command = $args -join ' '
 if ($command -match 'ad-only-auth get') { 'true'; exit 0 }
 if ($command -match 'appsettings list') {
-    'Server=tcp:test.database.windows.net;Authentication=Active Directory Default;' + 'Pass' + 'word=legacy;'
+    'Server=tcp:test.database.windows.net;Authentication=Active Directory Managed Identity;' + 'Pass' + 'word=legacy;'
     exit 0
 }
 exit 1
@@ -118,7 +118,32 @@ exit 1
 $command = $args -join ' '
 if ($command -match 'ad-only-auth get') { 'true'; exit 0 }
 if ($command -match 'appsettings list') {
-    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Default;Encrypt=True;'
+    'Server=tcp:test.database.windows.net;Authentication=Active Directory Default;Encrypt=True;'
+    exit 0
+}
+exit 1
+'@ | Set-Content $azPath
+    try {
+        & $scriptPath `
+            -ResourceGroup test-rg `
+            -SqlServerName test-sql `
+            -ApiAppName test-api `
+            -LegacyVaultName test-kv `
+            -Approved `
+            -RuntimeReadinessVerified
+        throw 'A default credential-chain runtime connection was accepted.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'expected passwordless') {
+            throw
+        }
+    }
+
+    @'
+$command = $args -join ' '
+if ($command -match 'ad-only-auth get') { 'true'; exit 0 }
+if ($command -match 'appsettings list') {
+    'Server=tcp:test.database.windows.net,1433;Authentication=Active Directory Managed Identity;Encrypt=True;'
     exit 0
 }
 if ($command -match 'keyvault list') {

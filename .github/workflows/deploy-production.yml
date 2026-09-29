@@ -527,8 +527,18 @@ jobs:
           }
           throw "The migration-disabled production API artifact was not ready before managed-identity configuration: $lastError"
 
-      - name: Apply and prove managed-identity API configuration with rollback
+      - name: Refresh Azure login immediately before managed-identity API cutover
         if: steps.api-identity.outputs.configuredApi == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Apply managed-identity API configuration
+        id: api-cutover
+        if: steps.api-identity.outputs.configuredApi == 'true'
+        continue-on-error: true
         shell: pwsh
         env:
           AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
@@ -545,6 +555,11 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousConnection)) {
             throw 'The configured production API SQL connection could not be captured before cutover.'
           }
+          Set-Content `
+            -Path (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt') `
+            -Value $previousConnection `
+            -NoNewline
+          chmod 600 -- (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt')
           try {
             az deployment group create `
               --name "production-api-cutover-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
@@ -563,73 +578,132 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw 'The managed-identity API configuration deployment failed or returned an ambiguous result.'
             }
-            $lastError = ''
-            for ($attempt = 1; $attempt -le 12; $attempt++) {
-              try {
-                $healthResponse = Invoke-WebRequest `
-                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/health' `
-                  -TimeoutSec 15 `
-                  -UseBasicParsing
-                $catalogResponse = Invoke-WebRequest `
-                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
-                  -TimeoutSec 30 `
-                  -UseBasicParsing
-                if ($healthResponse.StatusCode -eq 200 -and $catalogResponse.StatusCode -eq 200) {
-                  exit 0
-                }
-                $lastError = "Health HTTP $($healthResponse.StatusCode); catalog HTTP $($catalogResponse.StatusCode)"
-              }
-              catch {
-                $lastError = $_.Exception.Message
-              }
-              if ($attempt -lt 12) {
-                Start-Sleep -Seconds 10
-              }
-            }
-            throw "The managed-identity SQL-backed readiness proof failed: $lastError"
           }
           catch {
-            $cutoverError = $_.Exception.Message
-            az webapp config appsettings set `
-              --resource-group agentic-hotelbookingprod `
-              --name '${{ steps.infrastructure.outputs.apiAppName }}' `
-              --settings "ConnectionStrings__HotelBooking=$previousConnection" `
-              --output none `
-              --only-show-errors
-            if ($LASTEXITCODE -ne 0) {
-              throw "Production API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
-            }
-            $rollbackReady = $false
-            for ($attempt = 1; $attempt -le 12; $attempt++) {
-              try {
-                $response = Invoke-WebRequest `
-                  -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
-                  -TimeoutSec 30 `
-                  -UseBasicParsing
-                if ($response.StatusCode -eq 200) {
-                  $rollbackReady = $true
-                  break
-                }
-              }
-              catch {
-                if ($attempt -eq 12) {
-                  $rollbackError = $_.Exception.Message
-                }
-              }
-              if ($attempt -lt 12) {
-                Start-Sleep -Seconds 10
-              }
-            }
-            if (-not $rollbackReady) {
-              throw "Production API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
-            }
-            $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
-              'legacy' { 'server-side legacy SQL authentication remains enabled' }
-              'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
-              default { 'the SQL authentication state remains unchanged' }
-            }
-            throw "Production API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+            Set-Content `
+              -Path (Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt') `
+              -Value $_.Exception.Message `
+              -NoNewline
+            throw
           }
+
+      - name: Prove managed-identity SQL-backed API readiness
+        id: api-cutover-readiness
+        if: steps.api-cutover.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $lastError = ''
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              $healthResponse = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/health' `
+                -TimeoutSec 15 `
+                -UseBasicParsing
+              $catalogResponse = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($healthResponse.StatusCode -eq 200 -and $catalogResponse.StatusCode -eq 200) {
+                exit 0
+              }
+              $lastError = "Health HTTP $($healthResponse.StatusCode); catalog HTTP $($catalogResponse.StatusCode)"
+            }
+            catch {
+              $lastError = $_.Exception.Message
+            }
+            if ($attempt -lt 12) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          Set-Content `
+            -Path (Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt') `
+            -Value "The managed-identity SQL-backed readiness proof failed: $lastError" `
+            -NoNewline
+          throw "The managed-identity SQL-backed readiness proof failed: $lastError"
+
+      - name: Refresh Azure login for managed-identity API rollback
+        id: api-rollback-login
+        if: >-
+          always() &&
+          steps.api-identity.outputs.configuredApi == 'true' &&
+          (steps.api-cutover.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'failure')
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Restore and prove prior API SQL configuration
+        if: >-
+          always() &&
+          steps.api-rollback-login.outcome == 'success' &&
+          (steps.api-cutover.outcome == 'failure' ||
+          steps.api-cutover-readiness.outcome == 'failure')
+        shell: pwsh
+        run: |
+          $previousConnectionPath = Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt'
+          $cutoverErrorPath = Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt'
+          if (-not (Test-Path $previousConnectionPath)) {
+            throw 'Production API cutover failed before the prior SQL connection was captured. SQL-only enforcement and cleanup remain blocked.'
+          }
+          $previousConnection = Get-Content $previousConnectionPath -Raw
+          $cutoverError = if (Test-Path $cutoverErrorPath) {
+            Get-Content $cutoverErrorPath -Raw
+          }
+          else {
+            'The managed-identity API cutover failed without a captured diagnostic.'
+          }
+          az webapp config appsettings set `
+            --resource-group agentic-hotelbookingprod `
+            --name '${{ steps.infrastructure.outputs.apiAppName }}' `
+            --settings "ConnectionStrings__HotelBooking=$previousConnection" `
+            --output none `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0) {
+            throw "Production API cutover failed and the prior SQL connection could not be restored. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+          }
+          $rollbackReady = $false
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              $response = Invoke-WebRequest `
+                -Uri '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels' `
+                -TimeoutSec 30 `
+                -UseBasicParsing
+              if ($response.StatusCode -eq 200) {
+                $rollbackReady = $true
+                break
+              }
+            }
+            catch {
+              if ($attempt -eq 12) {
+                $rollbackError = $_.Exception.Message
+              }
+            }
+            if ($attempt -lt 12) {
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not $rollbackReady) {
+            throw "Production API cutover failed; the prior SQL setting was restored but runtime rollback could not be proven. SQL-only enforcement and cleanup remain blocked. Rollback error: $rollbackError. Original failure: $cutoverError"
+          }
+          $sqlState = switch ('${{ steps.sql-state.outputs.preExistingSqlAuthMode }}') {
+            'legacy' { 'server-side legacy SQL authentication remains enabled' }
+            'entraOnly' { 'SQL was already Entra-only and remains Entra-only' }
+            default { 'the SQL authentication state remains unchanged' }
+          }
+          throw "Production API cutover failed; the prior app SQL connection was restored and proven ready, and $sqlState. SQL-only enforcement and cleanup remain blocked. Original failure: $cutoverError"
+
+      - name: Remove captured prior API SQL configuration
+        if: always() && steps.api-identity.outputs.configuredApi == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item `
+            (Join-Path $env:RUNNER_TEMP 'production-previous-sql-connection.txt'), `
+            (Join-Path $env:RUNNER_TEMP 'production-api-cutover-error.txt') `
+            -Force `
+            -ErrorAction SilentlyContinue
 
       - name: Enforce SQL Entra-only after managed-identity API readiness
         shell: pwsh
@@ -729,8 +803,20 @@ jobs:
           output_location: ''
           skip_app_build: true
 
-      - name: Remove deployment runner SQL firewall rule
+      - name: Refresh Azure login for deployment runner SQL firewall cleanup
+        id: sql-firewall-cleanup-login
         if: always() && steps.sql-firewall.outcome == 'success'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Remove deployment runner SQL firewall rule
+        if: >-
+          always() &&
+          steps.sql-firewall.outcome == 'success' &&
+          steps.sql-firewall-cleanup-login.outcome == 'success'
         run: >-
           az sql server firewall-rule delete
           --resource-group agentic-hotelbookingprod
