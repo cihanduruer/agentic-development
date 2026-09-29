@@ -7,6 +7,7 @@ param tags object
 
 var suffix = uniqueString(subscription().id, resourceGroup().id, environment)
 var baseName = 'ahb-${environment}-${suffix}'
+var routingDeploymentName = 'gpt-4.1-mini'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${baseName}-log'
@@ -25,6 +26,39 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logAnalytics.id
+  }
+}
+
+resource aiServices 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
+  name: '${baseName}-ai'
+  location: 'swedencentral'
+  kind: 'AIServices'
+  tags: tags
+  sku: {
+    name: 'S0'
+  }
+  properties: {
+    customSubDomainName: '${baseName}-ai'
+    disableLocalAuth: true
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource routingModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: aiServices
+  name: routingDeploymentName
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 10
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4.1-mini'
+      version: '2025-04-14'
+    }
+    raiPolicyName: 'Microsoft.Default'
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
 }
 
@@ -69,6 +103,18 @@ resource api 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'AllowedOrigins__0'
           value: 'https://${staticWebApp.properties.defaultHostname}'
+        }
+        {
+          name: 'MicrosoftRouting__ModelEnabled'
+          value: 'true'
+        }
+        {
+          name: 'MicrosoftRouting__Endpoint'
+          value: 'https://${aiServices.name}.openai.azure.com/'
+        }
+        {
+          name: 'MicrosoftRouting__Deployment'
+          value: routingModel.name
         }
       ]
     }
@@ -182,7 +228,22 @@ resource apiSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiServices.id, api.id, 'cognitive-services-openai-user')
+  scope: aiServices
+  properties: {
+    principalId: api.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    )
+  }
+}
+
 output apiUrl string = 'https://${api.properties.defaultHostName}'
+output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
+output routingDeploymentName string = routingModel.name
 output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
 output sqlServerName string = sqlServer.name

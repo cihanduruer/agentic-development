@@ -18,4 +18,6 @@ The API exposes a typed event-ingestion endpoint and broadcasts accepted events 
 
 ## Agent workflow
 
-Microsoft Agent Framework hosts the workflow. GitHub Copilot agents perform repository work. Jev makes narrow typed routing, evidence, completion, and action-guard decisions. Azure AI Search supplies revisioned knowledge. Microsoft Foundry evaluators and Azure AI Content Safety check retrieval, groundedness, task adherence, and prompt attacks.
+GitHub Copilot agents perform repository work. Deterministic C# policy owns safety, evidence, and approval gates. For ambiguous safe routes, Microsoft Agent Framework obtains strict typed output from an Azure OpenAI deployment and validates the suggestion against the live worker menu and confidence threshold. Azure AI Search supplies revisioned knowledge. Microsoft Foundry evaluators and Azure AI Content Safety provide retrieval, groundedness, task-adherence, and prompt-attack signals; signals never grant authorization.
+
+The API authenticates to Azure AI Services with its Entra managed identity. Model input is restricted to routing metadata and worker IDs. All decisions are emitted through the existing operations event stream and correlated in Application Insights.

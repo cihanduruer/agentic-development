@@ -1,14 +1,14 @@
 # Agentic Hotel Booking
 
-A Microsoft-first sample for evidence-grounded agentic software delivery. The repository combines a hotel-booking application with a real-time operations dashboard for Jev routes, worker activity, evidence gates, and human approvals.
+A Microsoft-first sample for evidence-grounded agentic software delivery. The repository combines a hotel-booking application with a real-time operations dashboard for routing decisions, worker activity, evidence gates, and human approvals.
 
 ## Components
 
 - **Blazor WebAssembly:** guest booking journey and agent operations dashboard.
-- **ASP.NET Core API:** catalog, availability, reservations, typed agent-event ingestion, SignalR, and Jev routing.
-- **Jev adapter:** TypeSafe System One `choice` request with live worker menus, confidence gating, shadow mode, and safe human fallback.
+- **ASP.NET Core API:** catalog, availability, reservations, typed agent-event ingestion, SignalR, and Microsoft-native routing.
+- **Microsoft Agent Framework router:** deterministic C# safety policy first, then typed Azure OpenAI structured output for ambiguous live-worker choices.
 - **Knowledge center:** versioned product, domain, architecture, delivery, and security context under `docs/knowledge`.
-- **Azure:** Bicep for Static Web Apps, App Service, Application Insights, Log Analytics, Key Vault, and Azure AI Search.
+- **Azure:** Bicep for Static Web Apps, App Service, Application Insights, Log Analytics, Key Vault, Azure AI Search, and Azure AI Services.
 - **Delivery:** Azure Boards for work visibility and GitHub Actions for validation and deployment.
 
 ## Fully agentic intake
@@ -45,7 +45,7 @@ $body = @{
   kind = 1
   correlationId = "flow-001"
   workItemId = "AB#958"
-  agent = "jev"
+  agent = "microsoft-router"
   summary = "Selected QA agent from the live worker menu"
   decision = "qa-agent"
   outcome = "shadow"
@@ -60,21 +60,22 @@ Invoke-RestMethod -Method Post `
   -Body $body
 ```
 
-## Jev activation
+## Microsoft-native routing
 
-Jev is deliberately disabled and in shadow mode by default. Set `TYPESAFE_API_KEY` through a secure environment or Key Vault reference, then override:
+Locally, model-assisted routing is disabled and deterministic policy remains active. Configure an Azure AI Services endpoint to enable ambiguous routing:
 
 ```json
 {
-  "Jev": {
-    "Enabled": true,
-    "Shadow": true,
-    "MinimumConfidence": 0.8
+  "MicrosoftRouting": {
+    "ModelEnabled": true,
+    "MinimumConfidence": 0.8,
+    "Deployment": "gpt-4.1-mini",
+    "Endpoint": "https://<resource>.openai.azure.com/"
   }
 }
 ```
 
-Run in shadow mode until routing accuracy, false-completion rate, latency, and cost meet an approved threshold. The adapter transmits capability labels and evidence metadata only. It never sends repository source, prompts, secrets, personal data, or document bodies.
+Azure uses the App Service managed identity and the Cognitive Services OpenAI User role; no model API key is stored. High-risk, irreversible, ungrounded, low-confidence, invalid, and failed model decisions always resolve to `human_review`. The model receives only task labels, capability labels, evidence state, risk, and live worker IDs. It never receives repository source, prompts, secrets, personal data, work-item descriptions, or document bodies.
 
 ## Validate
 

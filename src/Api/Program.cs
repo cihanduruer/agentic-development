@@ -14,17 +14,15 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSignalR();
 builder.Services.AddHotelBookingPersistence(builder.Configuration.GetConnectionString("HotelBooking"));
 builder.Services.AddSingleton<IAgentEventStore, InMemoryAgentEventStore>();
-builder.Services.AddSingleton(new JevRouterOptions(
-    builder.Configuration.GetValue("Jev:Enabled", false),
-    builder.Configuration.GetValue("Jev:Shadow", true),
-    builder.Configuration.GetValue("Jev:MinimumConfidence", 0.8),
-    builder.Configuration["Jev:Model"] ?? "jev-latest",
-    builder.Configuration["TYPESAFE_API_KEY"]));
-builder.Services.AddHttpClient<IAgentRouter, JevAgentRouter>(client =>
-{
-    client.BaseAddress = new Uri("https://api.typesafe.ai/");
-    client.Timeout = TimeSpan.FromSeconds(10);
-});
+var routerOptions = new MicrosoftRouterOptions(
+    builder.Configuration.GetValue("MicrosoftRouting:ModelEnabled", false),
+    builder.Configuration.GetValue("MicrosoftRouting:MinimumConfidence", 0.8),
+    builder.Configuration["MicrosoftRouting:Deployment"] ?? "gpt-4.1-mini",
+    builder.Configuration["MicrosoftRouting:Endpoint"],
+    builder.Configuration["MicrosoftRouting:PolicyVersion"] ?? "2026-09-29");
+builder.Services.AddSingleton(routerOptions);
+builder.Services.AddSingleton<IAmbiguousRouteResolver, MicrosoftAgentFrameworkRouteResolver>();
+builder.Services.AddSingleton<IAgentRouter, MicrosoftAgentRouter>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5166"])
         .AllowAnyHeader()
@@ -117,7 +115,7 @@ app.MapPost("/api/orchestration/route", async (
         AgentEventKind.RouteDecided,
         request.CorrelationId,
         request.WorkItemId,
-        "jev",
+        "microsoft-router",
         decision.Reason,
         decision.SuggestedWorker,
         decision.EffectiveWorker,
