@@ -63,7 +63,14 @@ try {
     $modes = @('unconfigured', 'legacy', 'managedIdentityDefault', 'managedIdentityExplicit')
     $catalogStates = @($false, $true)
     $events = @('push', 'workflow_dispatch')
-    $confirmations = @('', 'RECOVER-STRANDED-MANAGED-IDENTITY', 'recover-stranded-managed-identity')
+    $confirmations = @(
+        '',
+        'RECOVER-STRANDED-MANAGED-IDENTITY',
+        'recover-stranded-managed-identity',
+        "'; throw 'injected",
+        "`nWrite-Output injected",
+        '$(throw "injected")'
+    )
     foreach ($mode in $modes) {
         foreach ($catalogReady in $catalogStates) {
             foreach ($eventName in $events) {

@@ -90,7 +90,7 @@ foreach ($workflow in @($development, $production)) {
         $workflow.IndexOf('Verify operations authorization and persistence')
     }
     else {
-        $apiCutover
+        $apiReadiness
     }
     $sqlCutover = $workflow.IndexOf('Enforce SQL Entra-only after managed-identity API readiness')
     $postCutoverReadiness = $workflow.IndexOf('Verify API after SQL Entra-only enforcement')
@@ -129,6 +129,7 @@ foreach ($workflow in @($development, $production)) {
         $rollbackLogin -lt $apiReadiness -or $rollback -lt $rollbackLogin -or
         $capturedConfigurationCleanup -lt $rollback -or
         $readiness -lt $apiCutover -or $sqlCutover -lt $readiness -or
+        $sqlCutover -lt $apiReadiness -or
         $firewallCleanupLogin -lt $sqlCutover -or
         $firewallCleanup -lt $firewallCleanupLogin -or
         $postCutoverReadiness -lt $sqlCutover -or
@@ -209,6 +210,10 @@ foreach ($workflow in @($development, $production)) {
 }
 if ($development -notmatch 'stranded_managed_identity_recovery_confirmation' -or
     $development -notmatch 'RECOVER-STRANDED-MANAGED-IDENTITY' -or
+    $development -notmatch
+        'RECOVERY_CONFIRMATION: \$\{\{ inputs\.stranded_managed_identity_recovery_confirmation \}\}' -or
+    $development -match
+        "-RecoveryConfirmation '\$\{\{ inputs\.stranded_managed_identity_recovery_confirmation \}\}'" -or
     $development -notmatch 'Get-AppSqlConfigurationState\.ps1' -or
     $development -notmatch 'Resolve-DevelopmentPreCutoverState\.ps1' -or
     $sqlConfigurationState -notmatch 'managedIdentityDefault' -or
@@ -306,7 +311,8 @@ if ($program -notmatch 'ShouldApplyDatabaseMigrations' -or
 if ($platform -notmatch
         'Authentication=Active Directory Managed Identity' -or
     $platform -match 'Authentication=Active Directory Default' -or
-    $cleanup -notmatch 'Authentication=Active Directory Managed Identity') {
+    $cleanup -notmatch 'Get-AppSqlConfigurationState\.ps1' -or
+    $cleanup -notmatch "configurationState -ne 'managedIdentityExplicit'") {
     throw 'The App Service runtime must explicitly authenticate to SQL with its managed identity.'
 }
 foreach ($workflow in @($development, $production)) {

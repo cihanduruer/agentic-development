@@ -369,6 +369,8 @@ jobs:
       - name: Verify migration-disabled API artifact before existing-environment cutover
         id: pre-cutover-readiness
         shell: pwsh
+        env:
+          RECOVERY_CONFIRMATION: ${{ inputs.stranded_managed_identity_recovery_confirmation }}
         run: |
           $readinessUri = '${{ steps.infrastructure.outputs.apiUrl }}/api/hotels'
           $lastError = ''
@@ -396,7 +398,7 @@ jobs:
             -ConfiguredSqlMode '${{ steps.api-identity.outputs.configuredSqlMode }}' `
             -CatalogReady $catalogReady `
             -EventName '${{ github.event_name }}' `
-            -RecoveryConfirmation '${{ inputs.stranded_managed_identity_recovery_confirmation }}' `
+            -RecoveryConfirmation $env:RECOVERY_CONFIRMATION `
             -FailureDiagnostic $lastError
           "state=$state" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Refresh Azure login immediately before managed-identity API cutover
