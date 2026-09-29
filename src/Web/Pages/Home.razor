@@ -64,14 +64,17 @@ else
 
         @if (selectedRoom is not null)
         {
-            <dl class="stay-total">
-                <dt>Nightly rate</dt>
-                <dd>@FormatEuro(selectedRoom.NightlyRate)</dd>
-                <dt>Number of nights</dt>
-                <dd>@NumberOfNights</dd>
-                <dt>Total stay price</dt>
-                <dd><strong>@FormatEuro(TotalStayPrice)</strong></dd>
-            </dl>
+            @if (IsStayValid)
+            {
+                <dl class="stay-total">
+                    <dt>Nightly rate</dt>
+                    <dd>@FormatEuro(selectedRoom.NightlyRate)</dd>
+                    <dt>Number of nights</dt>
+                    <dd>@NumberOfNights</dd>
+                    <dt>Total stay price</dt>
+                    <dd><strong>@FormatEuro(TotalStayPrice)</strong></dd>
+                </dl>
+            }
             <div class="confirm-row">
                 <label>Guest name <input @bind="guestName" /></label>
                 <button class="btn btn-success" @onclick="BookRoom">Confirm booking</button>
@@ -102,6 +105,8 @@ else
     private DateOnly checkIn = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
     private DateOnly checkOut = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
     private int NumberOfNights => checkOut.DayNumber - checkIn.DayNumber;
+    private bool IsStayValid =>
+        checkIn >= DateOnly.FromDateTime(DateTime.Today) && NumberOfNights > 0;
     private decimal TotalStayPrice => selectedRoom?.NightlyRate * NumberOfNights ?? 0m;
 
     private static string FormatEuro(decimal amount) =>
