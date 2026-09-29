@@ -145,3 +145,4 @@ finally {
 }
 
 Write-Output 'Development deployment recovery tests passed.'
+exit 0
