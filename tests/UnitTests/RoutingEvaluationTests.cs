@@ -65,7 +65,7 @@ public sealed class RoutingEvaluationTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"userPromptAnalysis":{"attackDetected":false},"documentsAnalysis":[{"attackDetected":true}]}""")
+                    """{"userPromptAnalysis":{"attackDetected":false},"documentsAnalysis":[{"attackDetected":true},{"attackDetected":false}]}""")
             };
         });
         var shield = new AzurePromptShield(
@@ -85,6 +85,38 @@ public sealed class RoutingEvaluationTests
             "/contentsafety/text:shieldPrompt?api-version=2024-09-01",
             captured.RequestUri!.PathAndQuery);
         Assert.Equal("Bearer", captured.Headers.Authorization!.Scheme);
+    }
+
+    [Fact]
+    public async Task PromptShieldRejectsMalformedSuccessfulResponse()
+    {
+        var shield = new AzurePromptShield(
+            new RoutingEvaluationOptions(
+                true,
+                "https://example.cognitiveservices.azure.com/",
+                "https://example.search.windows.net/",
+                "knowledge"),
+            new StubTokenCredential(),
+            new HttpClient(new StubHttpMessageHandler(_ =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"userPromptAnalysis":{}}""")
+                })));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            shield.IsAttackDetectedAsync(CreateRequest(), CancellationToken.None));
+    }
+
+    [Fact]
+    public void GroundingQueryUsesOnlyLiteralTermsAndRequiresContext()
+    {
+        var query = AzureSearchGroundingEvaluator.BuildGroundingQuery(
+            "quality-assurance",
+            "browser-testing OR *");
+
+        Assert.Equal("quality assurance browser testing OR", query);
+        Assert.Throws<InvalidDataException>(() =>
+            AzureSearchGroundingEvaluator.BuildGroundingQuery("*", "?"));
     }
 
     private static MicrosoftRoutingEvaluationGate CreateGate(

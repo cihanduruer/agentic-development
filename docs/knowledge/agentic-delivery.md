@@ -38,7 +38,7 @@ Synchronization never changes work-item state. It adds `delivery-evidence`, remo
 | `completion_gate` | `complete`, `verify_more`, `incomplete` |
 | `action_guard` | `allow`, `confirm`, `human_review`, `deny` |
 
-Deterministic policy handles incomplete evidence, high-risk actions, and irreversible actions. Every request first invokes Azure AI Content Safety Prompt Shields and requires Azure AI Search grounding for the exact knowledge revision. Microsoft Agent Framework invokes Azure OpenAI only when those checks pass and multiple safe workers are eligible. Structured output is validated against the live menu. Prompt attack detection, absent revision grounding, low confidence, invalid output, configuration failure, or any evaluation/model service failure routes to `human_review`.
+Deterministic policy immediately routes incomplete evidence, high-risk actions, and irreversible actions to `human_review`. Every otherwise-eligible request invokes Azure AI Content Safety Prompt Shields and requires Azure AI Search grounding for the exact knowledge revision. Microsoft Agent Framework invokes Azure OpenAI only when those checks pass and multiple safe workers are eligible. Structured output is validated against the live menu. Prompt attack detection, absent revision grounding, malformed evaluation responses, low confidence, invalid output, configuration failure, or any evaluation/model service failure routes to `human_review`.
 
 The model receives labels and evidence metadata, not source code, prompts, secrets, personal data, work-item descriptions, or full internal documents. Application Insights records latency and failures; the operations event stream records the effective route, confidence, policy/model identifier, outcome, and knowledge revision.
 

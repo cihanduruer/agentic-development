@@ -106,7 +106,21 @@ jobs:
           --logger "trx;LogFileName=grounding-evaluation.trx"
           --results-directory EvaluationResults
       - name: Vulnerability scan
-        run: dotnet list package --vulnerable --include-transitive
+        shell: pwsh
+        run: |
+          dotnet list package --vulnerable --include-transitive --format json |
+            Set-Content vulnerabilities.json
+          $report = Get-Content vulnerabilities.json -Raw | ConvertFrom-Json
+          $findings = @(
+            $report.projects.frameworks.topLevelPackages |
+              Where-Object { $_.vulnerabilities.Count -gt 0 }
+            $report.projects.frameworks.transitivePackages |
+              Where-Object { $_.vulnerabilities.Count -gt 0 }
+          )
+          if ($findings.Count -gt 0) {
+            $findings | ConvertTo-Json -Depth 10
+            throw "NuGet vulnerability scan found $($findings.Count) vulnerable package entries."
+          }
       - name: Build Bicep
         uses: azure/cli@v2
         with:

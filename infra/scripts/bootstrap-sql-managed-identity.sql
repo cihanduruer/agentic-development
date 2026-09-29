@@ -29,6 +29,7 @@ END;
 GRANT SELECT ON OBJECT::dbo.Hotels TO [hotel_booking_runtime];
 GRANT SELECT ON OBJECT::dbo.Rooms TO [hotel_booking_runtime];
 GRANT SELECT, INSERT ON OBJECT::dbo.Reservations TO [hotel_booking_runtime];
+GRANT SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents TO [hotel_booking_runtime];
 
 IF IS_ROLEMEMBER(N'hotel_booking_runtime', N'$(ApiPrincipalName)') <> 1
 BEGIN

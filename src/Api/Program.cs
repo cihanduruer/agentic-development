@@ -80,7 +80,9 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 
 var app = builder.Build();
 
-if (builder.Configuration.GetValue("Database:ApplyMigrations", app.Environment.IsDevelopment()))
+if (Program.ShouldApplyDatabaseMigrations(
+        app.Environment.IsDevelopment(),
+        builder.Configuration.GetValue("Database:ApplyMigrations", false)))
 {
     await using var scope = app.Services.CreateAsyncScope();
     var database = scope.ServiceProvider.GetRequiredService<HotelBookingDbContext>();
@@ -195,4 +197,8 @@ app.MapHub<OperationsHub>("/hubs/operations");
 
 app.Run();
 
-public partial class Program;
+public partial class Program
+{
+    public static bool ShouldApplyDatabaseMigrations(bool isDevelopment, bool configured) =>
+        isDevelopment && configured;
+}

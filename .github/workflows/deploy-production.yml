@@ -218,12 +218,22 @@ jobs:
         id: infrastructure
         shell: pwsh
         env:
+          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
           RESOURCE_GROUP: agentic-hotelbookingprod
-          SQL_ADMIN_PASSWORD: ${{ secrets.SQL_ADMIN_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:OPERATIONS_API_AUDIENCE)) {
-            throw 'The production OPERATIONS_API_AUDIENCE environment variable is required.'
+          $requiredValues = @(
+            'AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID',
+            'AZURE_SQL_ENTRA_ADMIN_NAME',
+            'AZURE_TENANT_ID',
+            'OPERATIONS_API_AUDIENCE'
+          )
+          foreach ($name in $requiredValues) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "The production $name environment variable is required."
+            }
           }
           $outputsJson = az deployment group create `
             --name "production-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
@@ -231,7 +241,10 @@ jobs:
             --template-file infra/resource-group.bicep `
             --parameters infra/production.parameters.json `
               "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
-              "sqlAdminPassword=$env:SQL_ADMIN_PASSWORD" `
+              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
+              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
+              "tenantId=$env:AZURE_TENANT_ID" `
+              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
             --query properties.outputs `
             --output json `
             --only-show-errors
@@ -239,7 +252,15 @@ jobs:
             throw 'Production resource-group deployment failed without returning outputs.'
           }
           $outputs = $outputsJson | ConvertFrom-Json
-          $requiredOutputs = @('apiAppName', 'apiUrl', 'staticWebAppName')
+          $requiredOutputs = @(
+            'apiAppName',
+            'apiName',
+            'apiPrincipalId',
+            'apiUrl',
+            'searchEndpoint',
+            'sqlServerName',
+            'staticWebAppName'
+          )
           foreach ($name in $requiredOutputs) {
             $value = $outputs.$name.value
             if ([string]::IsNullOrWhiteSpace($value)) {
@@ -249,6 +270,75 @@ jobs:
           }
           "resourceGroupName=$env:RESOURCE_GROUP" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore deployment tools
+        run: |
+          dotnet tool restore
+          dotnet restore --locked-mode
+
+      - name: Allow deployment runner to reach SQL
+        id: sql-firewall
+        shell: pwsh
+        run: |
+          $ip = (Invoke-RestMethod 'https://api.ipify.org').Trim()
+          az sql server firewall-rule create `
+            --resource-group agentic-hotelbookingprod `
+            --server '${{ steps.infrastructure.outputs.sqlServerName }}' `
+            --name github-production-runner `
+            --start-ip-address $ip `
+            --end-ip-address $ip
+
+      - name: Apply database migrations
+        env:
+          ConnectionStrings__HotelBooking: >-
+            Server=tcp:${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net,1433;
+            Initial Catalog=hotelbooking;
+            Authentication=Active Directory Default;
+            Encrypt=True;
+            TrustServerCertificate=False;
+        run: >-
+          dotnet ef database update
+          --project src/Infrastructure/AgenticHotelBooking.Infrastructure.csproj
+          --startup-project src/Api/AgenticHotelBooking.Api.csproj
+          --connection "$ConnectionStrings__HotelBooking"
+
+      - name: Bootstrap API managed identity database role
+        shell: pwsh
+        run: |
+          $env:SQLCMDACCESS_TOKEN = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          sqlcmd `
+            -S '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
+            -d hotelbooking `
+            -G `
+            -C `
+            -b `
+            -i infra/scripts/bootstrap-sql-managed-identity.sql `
+            -v ApiPrincipalName='${{ steps.infrastructure.outputs.apiName }}' `
+               ApiPrincipalObjectId='${{ steps.infrastructure.outputs.apiPrincipalId }}'
+
+      - name: Index canonical knowledge
+        run: |
+          for attempt in {1..12}; do
+            dotnet run \
+              --project tools/KnowledgeIndexer/KnowledgeIndexer.csproj \
+              --no-restore \
+              -- \
+              --root docs/knowledge \
+              --endpoint '${{ steps.infrastructure.outputs.searchEndpoint }}' \
+              --revision '${{ inputs.commit_sha }}' \
+              --index knowledge && break
+            if [ "$attempt" -eq 12 ]; then
+              exit 1
+            fi
+            sleep 15
+          done
 
       - name: Deploy API artifact
         uses: azure/webapps-deploy@v3
@@ -292,3 +382,11 @@ jobs:
           app_location: deployed-web/wwwroot
           output_location: ''
           skip_app_build: true
+
+      - name: Remove deployment runner SQL firewall rule
+        if: always() && steps.sql-firewall.outcome == 'success'
+        run: >-
+          az sql server firewall-rule delete
+          --resource-group agentic-hotelbookingprod
+          --server '${{ steps.infrastructure.outputs.sqlServerName }}'
+          --name github-production-runner

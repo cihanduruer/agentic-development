@@ -22,8 +22,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: evaluation/requirements.txt
       - name: Install Microsoft evaluation SDK
-        run: pip install azure-ai-evaluation==1.18.7 azure-identity==1.25.1
+        run: pip install --requirement evaluation/requirements.txt
       - name: Run groundedness evaluation
         env:
           AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_AI_ENDPOINT }}

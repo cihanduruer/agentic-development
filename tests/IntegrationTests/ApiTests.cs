@@ -15,6 +15,19 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
         client = factory.CreateClient();
     }
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void RuntimeMigrationPolicyRequiresExplicitDevelopmentOptIn(
+        bool isDevelopment,
+        bool configured,
+        bool expected)
+    {
+        Assert.Equal(expected, Program.ShouldApplyDatabaseMigrations(isDevelopment, configured));
+    }
+
     [Fact]
     public async Task HealthReturnsHealthy()
     {

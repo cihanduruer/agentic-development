@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AgenticHotelBooking.Application;
 using Azure.Core;
 using Azure.Search.Documents;
@@ -112,24 +113,53 @@ public sealed class AzurePromptShield(
         await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var result = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken);
 
-        if (AttackDetected(result.RootElement, "userPromptAnalysis"))
+        if (ReadAttackDetected(result.RootElement, "userPromptAnalysis"))
         {
             return true;
         }
 
-        return result.RootElement.TryGetProperty("documentsAnalysis", out var documents) &&
-               documents.EnumerateArray().Any(item =>
-                   item.TryGetProperty("attackDetected", out var detected) && detected.GetBoolean());
+        if (!result.RootElement.TryGetProperty("documentsAnalysis", out var documents) ||
+            documents.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("Prompt Shields response omitted document analysis.");
+        }
+
+        var analyses = documents.EnumerateArray().ToArray();
+        if (analyses.Length != request.AvailableWorkers.Count)
+        {
+            throw new InvalidDataException("Prompt Shields returned an unexpected document count.");
+        }
+
+        return analyses.Any(ReadAttackDetected);
     }
 
-    private static bool AttackDetected(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var analysis) &&
-        analysis.TryGetProperty("attackDetected", out var detected) &&
-        detected.GetBoolean();
+    private static bool ReadAttackDetected(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var analysis))
+        {
+            throw new InvalidDataException($"Prompt Shields response omitted {propertyName}.");
+        }
+
+        return ReadAttackDetected(analysis);
+    }
+
+    private static bool ReadAttackDetected(JsonElement analysis)
+    {
+        if (!analysis.TryGetProperty("attackDetected", out var detected) ||
+            detected.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+        {
+            throw new InvalidDataException("Prompt Shields response omitted attackDetected.");
+        }
+
+        return detected.GetBoolean();
+    }
 }
 
 public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
 {
+    private static readonly Regex SearchTerms = new(
+        "[A-Za-z0-9]+",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private readonly RoutingEvaluationOptions options;
     private readonly TokenCredential credential;
 
@@ -148,11 +178,14 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
             options.SearchIndex,
             credential);
         var escapedRevision = request.KnowledgeRevision.Replace("'", "''", StringComparison.Ordinal);
+        var query = BuildGroundingQuery(request.TaskCategory, request.RequiredCapability);
         var response = await searchClient.SearchAsync<KnowledgeSearchDocument>(
-            $"{request.TaskCategory} {request.RequiredCapability}",
+            query,
             new SearchOptions
             {
                 Filter = $"{nameof(KnowledgeSearchDocument.Revision)} eq '{escapedRevision}'",
+                SearchMode = SearchMode.All,
+                QueryType = SearchQueryType.Simple,
                 Size = 1,
                 Select = { nameof(KnowledgeSearchDocument.Id) }
             },
@@ -164,5 +197,20 @@ public sealed class AzureSearchGroundingEvaluator : IKnowledgeGroundingEvaluator
         }
 
         return false;
+    }
+
+    public static string BuildGroundingQuery(string taskCategory, string requiredCapability)
+    {
+        var terms = SearchTerms.Matches($"{taskCategory} {requiredCapability}")
+            .Select(match => match.Value)
+            .Where(term => term.Length >= 2)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (terms.Length < 2)
+        {
+            throw new InvalidDataException("Grounding queries require at least two literal search terms.");
+        }
+
+        return string.Join(' ', terms);
     }
 }
