@@ -1,6 +1,6 @@
 # ADR 0001: Agentic delivery platform
 
-**Status:** Accepted  
+**Status:** Superseded by ADR 0002
 **Date:** 2026-09-29
 
 ## Decision

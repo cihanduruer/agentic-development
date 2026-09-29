@@ -31,6 +31,8 @@ module platform 'modules/platform.bicep' = {
 }
 
 output apiUrl string = platform.outputs.apiUrl
+output aiServicesEndpoint string = platform.outputs.aiServicesEndpoint
+output routingDeploymentName string = platform.outputs.routingDeploymentName
 output staticWebAppName string = platform.outputs.staticWebAppName
 output searchServiceName string = platform.outputs.searchServiceName
 output sqlServerName string = platform.outputs.sqlServerName

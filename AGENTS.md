@@ -22,8 +22,7 @@ Chat history, model memory, retrieved text without a source revision, and an age
 
 ## Coordination
 
-Jev is a narrow routing layer. It chooses only from live, host-provided options and cannot grant permissions.
-The workflow host owns authorization, retries, audit logging, and human approval.
+Deterministic C# policy owns authorization and safety gates. Microsoft Agent Framework may choose only from live, host-provided options when a safe route is ambiguous; it cannot grant permissions. The workflow host owns retries, audit logging, and human approval.
 
 Each agent receives:
 

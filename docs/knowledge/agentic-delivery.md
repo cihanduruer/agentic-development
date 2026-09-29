@@ -6,7 +6,7 @@
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.
 
-## Jev decision contracts
+## Decision contracts
 
 | Decision | Allowed outputs |
 |---|---|
@@ -15,7 +15,9 @@ Azure Boards stores work state. GitHub stores code, pull requests, checks, immut
 | `completion_gate` | `complete`, `verify_more`, `incomplete` |
 | `action_guard` | `allow`, `confirm`, `human_review`, `deny` |
 
-Jev receives labels and evidence metadata, not source code, secrets, personal data, or full internal documents. It begins in shadow mode. Activation requires measured routing accuracy, false-completion rate, latency, and cost plus a tested kill switch.
+Deterministic policy handles incomplete evidence, high-risk actions, irreversible actions, and single eligible workers without a model call. Microsoft Agent Framework invokes Azure OpenAI only when multiple safe workers are eligible. Structured output is validated against the live menu, and low confidence, invalid output, configuration failure, or service failure routes to `human_review`.
+
+The model receives labels and evidence metadata, not source code, prompts, secrets, personal data, work-item descriptions, or full internal documents. Application Insights records latency and failures; the operations event stream records the effective route, confidence, policy/model identifier, outcome, and knowledge revision.
 
 ## Autonomy
 

@@ -173,6 +173,15 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
         CancellationToken cancellationToken)
     {
         request.Validate(DateOnly.FromDateTime(DateTime.UtcNow));
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(
+            () => CreateReservationCoreAsync(request, cancellationToken));
+    }
+
+    private async Task<Reservation> CreateReservationCoreAsync(
+        BookingRequest request,
+        CancellationToken cancellationToken)
+    {
         var transaction = dbContext.Database.IsRelational()
             ? await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
             : null;

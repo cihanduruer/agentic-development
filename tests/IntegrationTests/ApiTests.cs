@@ -39,7 +39,7 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
             AgentEventKind.RouteDecided,
             "flow-42",
             "AB#958",
-            "jev",
+            "microsoft-router",
             "Selected the QA worker from the live worker menu.",
             "qa-agent",
             "shadow",
@@ -55,7 +55,7 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task DisabledJevRoutesSafelyToHumanReview()
+    public async Task DeterministicPolicyRoutesToOnlyEligibleWorker()
     {
         var request = new RoutingRequest(
             "route-42",
@@ -75,7 +75,7 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
         var decision = await response.Content.ReadFromJsonAsync<RoutingDecision>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("human_review", decision!.EffectiveWorker);
-        Assert.True(decision.Shadow);
+        Assert.Equal("qa-agent", decision!.EffectiveWorker);
+        Assert.False(decision.Shadow);
     }
 }
