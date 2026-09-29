@@ -175,6 +175,20 @@ $authorizedEvent = Invoke-ApiRequest `
     -Headers $authorizedHeaders
 Assert-Status -Response $authorizedEvent -Expected 201 -Operation 'Authorized operations ingestion'
 Write-Output "Verified OIDC-authorized operations ingestion: HTTP 201 for '$correlationId'."
+
+$authorizedRoute = Invoke-ApiRequest `
+    -Method POST `
+    -Uri "$api/api/orchestration/route" `
+    -Body $routeBody `
+    -Headers $authorizedHeaders
+Assert-Status -Response $authorizedRoute -Expected 200 -Operation 'Authorized orchestration routing'
+$routeDecision = $authorizedRoute.Content | ConvertFrom-Json
+if ($routeDecision.effectiveWorker -ne 'qa-agent' -or
+    $routeDecision.model -notmatch '^policy:') {
+    throw "Authorized routing returned an unexpected deterministic decision."
+}
+Write-Output "Verified OIDC-authorized deterministic routing: HTTP 200; worker=$($routeDecision.effectiveWorker); model=$($routeDecision.model)."
+
 $token = $null
 $authorizedHeaders.Clear()
 
@@ -231,9 +245,13 @@ Write-Output 'Verified post-restart API health recovery: HTTP 200.'
 $persistedResponse = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=500"
 Assert-Status -Response $persistedResponse -Expected 200 -Operation 'Post-restart operations read'
 $persistedEvents = @($persistedResponse.Content | ConvertFrom-Json)
-if (-not ($persistedEvents | Where-Object correlationId -EQ $correlationId)) {
-    throw "Authorized event '$correlationId' was not persisted across the App Service restart."
+$missingCorrelations = @(
+    $correlationId
+    "$correlationId-route"
+) | Where-Object { $correlation = $_; -not ($persistedEvents | Where-Object correlationId -EQ $correlation) }
+if ($missingCorrelations.Count -gt 0) {
+    throw "Authorized events were not persisted across the App Service restart: $($missingCorrelations -join ', ')."
 }
 
-Write-Output "Verified post-restart event persistence for correlation '$correlationId'."
+Write-Output "Verified post-restart event persistence for correlations '$correlationId' and '$correlationId-route'."
 Write-Output 'Development operations smoke check passed.'
