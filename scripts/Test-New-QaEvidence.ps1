@@ -522,6 +522,11 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
             SemanticExtraRun = $true
         },
         @{
+            Name = 'nested-explicit-run-key'
+            Old = '      - name: Build Bicep'
+            New = "      - name: Extra explicit run`n        ? run`n        : `"dotnet\u0020test Other.slnx`"`n`n      - name: Build Bicep"
+        },
+        @{
             Name = 'explicit-block-indent'
             Old = '      - name: Build Bicep'
             New = "      - run: >2-`n          dotnet test Other.slnx`n`n      - name: Build Bicep"
