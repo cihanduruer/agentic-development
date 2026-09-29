@@ -16,9 +16,11 @@ The `production` environment is restricted to `main`. Required reviewers and wai
 Required `production` environment configuration:
 
 - OIDC variables or secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+- Environment variable: `OPERATIONS_API_AUDIENCE`.
 - Secret: `SQL_ADMIN_PASSWORD`.
 - Azure federated credential restricted to this repository's `production` environment subject.
-- Azure role assignments scoped to the production subscription/resource group resources needed by Bicep and application deployment, including `Microsoft.Web/staticSites/listSecrets/action`.
+- The precreated `agentic-hotelbookingprod` resource group in West Europe.
+- Contributor and Role Based Access Control Administrator for the GitHub deployment service principal, scoped only to `agentic-hotelbookingprod`, including permission for `Microsoft.Web/staticSites/listSecrets/action`.
 
 The production Static Web Apps deployment token is not a bootstrap secret. After Bicep creates or updates the site, the workflow obtains the token with the OIDC-authenticated Azure CLI, masks it, and passes it directly to the deployment action. It is neither logged nor stored as a GitHub secret.
 

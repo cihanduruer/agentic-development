@@ -5,9 +5,6 @@
     "location": {
       "value": "westeurope"
     },
-    "resourceGroupName": {
-      "value": "agentic-hotelbookingprod"
-    },
     "environment": {
       "value": "prod"
     },

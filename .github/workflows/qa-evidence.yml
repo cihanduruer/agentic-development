@@ -1,6 +1,16 @@
 name: QA evidence
 
 on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Open same-repository pull request number
+        required: true
+        type: string
+      head_sha:
+        description: Exact current 40-character pull request head SHA
+        required: true
+        type: string
   workflow_run:
     workflows: [Hotel code review, PR validation]
     types: [completed]
@@ -12,14 +22,15 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: qa-evidence-${{ github.event.workflow_run.id }}
+  group: qa-evidence-${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event.workflow_run.id }}
   cancel-in-progress: false
 
 jobs:
   qa:
     name: Independent QA evidence gate
     if: >-
-      (github.event.workflow_run.name == 'Hotel code review'
+      github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.name == 'Hotel code review'
         && github.event.workflow_run.event == 'pull_request_target'
         && github.event.workflow_run.conclusion == 'success')
       || (github.event.workflow_run.name == 'PR validation'
@@ -33,38 +44,73 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
+            const manual = context.eventName === 'workflow_dispatch';
             const run = context.payload.workflow_run;
+            const baseRepository = `${context.repo.owner}/${context.repo.repo}`;
             let pull;
-            let sourceRepository = context.repo.owner + '/' + context.repo.repo;
-            let sourceSha = run.head_sha;
-            if (run.pull_requests?.length) {
-              const triggeringPull = run.pull_requests[0];
+            let sourceRepository = baseRepository;
+            let sourceSha;
+            if (manual) {
+              if (context.ref !== 'refs/heads/main') {
+                core.setFailed('Manual QA fallback must run from main.');
+                return;
+              }
+              const number = Number(context.payload.inputs.pull_request_number);
+              const requestedSha = context.payload.inputs.head_sha;
+              if (!Number.isInteger(number) || number < 1 || !/^[0-9a-f]{40}$/.test(requestedSha)) {
+                core.setFailed('Manual QA requires a valid PR number and exact lowercase 40-character head SHA.');
+                return;
+              }
               pull = (await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: triggeringPull.number
+                pull_number: number
               })).data;
+              const expectedRepository = `${context.repo.owner}/${context.repo.repo}`;
+              if (pull.state !== 'open'
+                  || pull.base.ref !== 'main'
+                  || pull.head.repo?.full_name !== expectedRepository
+                  || pull.head.sha !== requestedSha) {
+                core.setFailed('Manual QA target must be the current head of an open same-repository PR to main.');
+                return;
+              }
+              sourceRepository = pull.head.repo.full_name;
+              sourceSha = requestedSha;
             } else {
-              const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: run.head_sha
-              });
-              const candidates = pulls.data.filter(candidate =>
-                candidate.base.repo.full_name === sourceRepository
-                && candidate.base.ref === 'main');
-              pull = run.name === 'Hotel code review'
-                ? candidates.find(candidate => candidate.head.sha === run.head_sha)
-                : candidates
-                    .filter(candidate => candidate.merged_at)
-                    .sort((left, right) => new Date(right.merged_at) - new Date(left.merged_at))[0];
+              if (run.pull_requests?.length) {
+                pull = (await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: run.pull_requests[0].number
+                })).data;
+              } else {
+                const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  commit_sha: run.head_sha
+                });
+                const candidates = pulls.data.filter(candidate =>
+                  candidate.base.repo.full_name === baseRepository
+                  && candidate.base.ref === 'main');
+                pull = run.name === 'Hotel code review'
+                  ? candidates.find(candidate => candidate.head.sha === run.head_sha)
+                  : candidates
+                      .filter(candidate => candidate.merged_at)
+                      .sort((left, right) => new Date(right.merged_at) - new Date(left.merged_at))[0];
+              }
+              sourceSha = run.head_sha;
+              sourceRepository = run.head_repository.full_name;
             }
             if (!pull) {
               core.setFailed('No pull request is associated with the validated commit.');
               return;
             }
+            if (pull.base.repo.full_name !== baseRepository || pull.base.ref !== 'main') {
+              core.setFailed('QA evidence requires a pull request to this repository main branch.');
+              return;
+            }
 
-            if (run.name === 'Hotel code review') {
+            if (!manual && run.name === 'Hotel code review') {
               sourceRepository = pull.head.repo?.full_name;
               sourceSha = pull.head.sha;
               if (!sourceRepository
@@ -78,30 +124,55 @@ jobs:
                 repo: context.repo.repo,
                 pull_number: pull.number
               })).data;
-              if (currentPull.head.sha !== sourceSha
+              if (currentPull.state !== 'open'
+                  || currentPull.head.sha !== sourceSha
                   || currentPull.head.repo?.full_name !== sourceRepository) {
                 core.setFailed('The pull request head changed after the reviewed workflow run.');
                 return;
               }
+              pull = currentPull;
+            }
+
+            if (manual || run.name === 'Hotel code review') {
               const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
               let validation;
               for (let attempt = 1; attempt <= 60; attempt++) {
-                const checks = await github.rest.checks.listForRef({
+                const runs = await github.rest.actions.listWorkflowRuns({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  ref: sourceSha,
+                  workflow_id: 'pr-validation.yml',
                   per_page: 100
                 });
-                validation = checks.data.check_runs.find(check =>
-                  check.name === 'validate' && check.app?.slug === 'github-actions');
-                if (validation?.status === 'completed') {
+                const candidates = runs.data.workflow_runs.filter(candidate =>
+                  candidate.path === '.github/workflows/pr-validation.yml'
+                  && candidate.conclusion === 'success'
+                  && candidate.event === 'workflow_dispatch'
+                  && candidate.head_branch === 'main');
+                for (const candidate of candidates) {
+                  const artifacts = await github.paginate(
+                    github.rest.actions.listWorkflowRunArtifacts,
+                    {
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      run_id: candidate.id,
+                      per_page: 100
+                    }
+                  );
+                  if (artifacts.some(artifact =>
+                    artifact.name === `pr-validation-evidence-${sourceSha}`
+                    && !artifact.expired)) {
+                    validation = candidate;
+                    break;
+                  }
+                }
+                if (validation) {
                   break;
                 }
-                core.info(`PR validation is not complete (attempt ${attempt}/60).`);
+                core.info(`PR validation evidence is not complete (attempt ${attempt}/60).`);
                 await sleep(10000);
               }
-              if (validation?.conclusion !== 'success') {
-                core.setFailed(`PR validation did not succeed for this commit (result: ${validation?.conclusion || 'not found'}).`);
+              if (!validation) {
+                core.setFailed('No successful trusted PR validation evidence exists for this commit.');
                 return;
               }
             }
@@ -119,6 +190,7 @@ jobs:
             core.setOutput('product-change', productChange.toString());
             core.setOutput('head-sha', sourceSha);
             core.setOutput('source-repository', sourceRepository);
+            core.setOutput('trusted-knowledge-revision', pull.base.sha);
             core.setOutput('body-base64', Buffer.from(pull.body || '', 'utf8').toString('base64'));
 
       - name: Check out trusted QA policy
@@ -173,12 +245,14 @@ jobs:
           PR_TITLE: ${{ steps.context.outputs.title }}
           HEAD_SHA: ${{ steps.context.outputs.head-sha }}
           PRODUCT_CHANGE: ${{ steps.context.outputs.product-change }}
+          TRUSTED_KNOWLEDGE_REVISION: ${{ steps.context.outputs.trusted-knowledge-revision }}
         run: |
           ./trusted/scripts/New-QaEvidence.ps1 `
             -PullRequestNumber $env:PR_NUMBER `
             -PullRequestTitle $env:PR_TITLE `
             -PullRequestBodyPath QaEvidence/pr-body.md `
             -HeadSha $env:HEAD_SHA `
+            -TrustedKnowledgeRevision $env:TRUSTED_KNOWLEDGE_REVISION `
             -TestResultsPath source/TestResults `
             -OutputDirectory QaEvidence `
             -ProductChange $env:PRODUCT_CHANGE

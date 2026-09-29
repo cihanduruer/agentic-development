@@ -31,6 +31,9 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
           PR_NUMBER: ${{ inputs.pull_request_number }}
         run: |
+          if ("${{ github.ref }}" -ne "refs/heads/main") {
+            throw "Manual validation must run from main."
+          }
           if ($env:EXPECTED_HEAD_SHA -notmatch '^[0-9a-f]{40}$') {
             throw "head_sha must be a full 40-character lowercase commit SHA."
           }
@@ -45,12 +48,33 @@ jobs:
           if ($pullRequest.head.repo.full_name -ne "${{ github.repository }}") {
             throw "Pull request #$env:PR_NUMBER comes from another repository."
           }
+          if ($pullRequest.state -ne "open") {
+            throw "Pull request #$env:PR_NUMBER is not open."
+          }
           if ($pullRequest.head.sha -ne $env:EXPECTED_HEAD_SHA) {
             throw "Pull request #$env:PR_NUMBER head is '$($pullRequest.head.sha)', not '$env:EXPECTED_HEAD_SHA'."
           }
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checked-out target commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number || github.event.pull_request.number }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $checkedOutSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOutSha -ne $env:TARGET_SHA) {
+            throw "Checked out commit '$checkedOutSha' does not match target '$env:TARGET_SHA'."
+          }
+
+          if ("${{ github.event_name }}" -in @('pull_request', 'workflow_dispatch')) {
+            $pullRequest = gh api "repos/${{ github.repository }}/pulls/$env:PR_NUMBER" | ConvertFrom-Json
+            if ($pullRequest.state -ne "open" -or $pullRequest.head.sha -ne $env:TARGET_SHA) {
+              throw "Pull request #$env:PR_NUMBER no longer has target head '$env:TARGET_SHA'."
+            }
+          }
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -75,6 +99,26 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: az bicep build --file infra/main.bicep
+      - name: Write validation provenance
+        shell: pwsh
+        env:
+          TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          New-Item -ItemType Directory -Path ValidationEvidence -Force | Out-Null
+          @{
+            workflow = 'pr-validation.yml'
+            event = '${{ github.event_name }}'
+            targetSha = $env:TARGET_SHA
+            checkedOutSha = (git rev-parse HEAD).Trim()
+            runId = '${{ github.run_id }}'
+          } | ConvertTo-Json | Set-Content ValidationEvidence/validation.json
+      - name: Upload validation provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-validation-evidence-${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: ValidationEvidence
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
