@@ -25,10 +25,7 @@ on:
         type: string
 
 permissions:
-  actions: read
   contents: read
-  id-token: write
-  pull-requests: read
 
 concurrency:
   group: lifecycle-${{ github.event_name == 'workflow_dispatch' && inputs.deployed_sha || github.event.workflow_run.head_sha }}
@@ -53,6 +50,11 @@ jobs:
         && github.event.workflow_run.event == 'push'
         && github.event.workflow_run.head_branch == 'main')
     environment: development
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pull-requests: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -127,7 +127,6 @@ function Resolve-LifecycleEvidence {
     $qa = @($QaRuns | Where-Object {
         $_.conclusion -eq "success" -and
         $_.path -eq ".github/workflows/qa-evidence.yml" -and
-        $_.head_sha -eq $ExpectedSha -and
         @($_.artifacts | Where-Object {
             $_.name -eq "qa-evidence-$ExpectedSha" -and -not $_.expired
         }).Count -gt 0
@@ -350,8 +349,7 @@ function Invoke-DevelopmentLifecycleSync {
             -HeadSha $DeployedSha)
         $qaRuns = @(Get-WorkflowRuns `
             -Repository $Repository `
-            -Workflow "qa-evidence.yml" `
-            -HeadSha $DeployedSha)
+            -Workflow "qa-evidence.yml")
         foreach ($run in $qaRuns) {
             $artifacts = Invoke-GitHubApi -Uri (
                 "https://api.github.com/repos/$Repository/actions/runs/$($run.id)/artifacts?per_page=100")

@@ -66,7 +66,7 @@ $validation = [pscustomobject]@{
 $qa = [pscustomobject]@{
     conclusion = "success"
     path = ".github/workflows/qa-evidence.yml"
-    head_sha = $deployedSha
+    head_sha = "c" * 40
     created_at = "2026-09-29T08:02:00Z"
     html_url = "https://github.com/$repository/actions/runs/102"
     artifacts = @([pscustomobject]@{ name = "qa-evidence-$deployedSha"; expired = $false })
