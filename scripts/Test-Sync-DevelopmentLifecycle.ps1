@@ -55,6 +55,7 @@ Evidence for AB#959.
 }
 $metadataDigest = Get-PullRequestMetadataDigest -Title $pull.title -Body $pull.body
 $issue = [pscustomobject]@{
+    id = 500
     number = 5
     title = "[AB#959] Show total stay price"
     body = "Azure Boards work item: [AB#959](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/959)"
@@ -335,7 +336,7 @@ function Invoke-GitHubApi {
         return [pscustomobject]@{
             total_count = 1
             incomplete_results = $false
-            items = @([pscustomobject]@{ number = 5 })
+            items = @([pscustomobject]@{ id = 500; number = 5 })
         }
     }
     if ($Uri -match 'page=1') {
@@ -372,7 +373,7 @@ function Invoke-GitHubApi {
     return [pscustomobject]@{
         total_count = 1
         incomplete_results = $true
-        items = @([pscustomobject]@{ number = 5 })
+        items = @([pscustomobject]@{ id = 500; number = 5 })
     }
 }
 Assert-Throws {
@@ -401,9 +402,9 @@ function Invoke-GitHubApi {
     $script:pageRequestCount++
     $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
     $items = if ($page -eq 1) {
-        @(1..100 | ForEach-Object { [pscustomobject]@{ number = $_ } })
+        @(1..100 | ForEach-Object { [pscustomobject]@{ id = $_; number = $_ } })
     } else {
-        @([pscustomobject]@{ number = 101 })
+        @([pscustomobject]@{ id = 101; number = 101 })
     }
     return [pscustomobject]@{
         total_count = 101
@@ -423,7 +424,7 @@ function Invoke-GitHubApi {
     return [pscustomobject]@{
         total_count = if ($page -eq 1) { 101 } else { 102 }
         incomplete_results = $false
-        items = @(1..100 | ForEach-Object { [pscustomobject]@{ number = $_ } })
+        items = @(1..100 | ForEach-Object { [pscustomobject]@{ id = $_; number = $_ } })
     }
 }
 Assert-Throws {
@@ -445,6 +446,24 @@ Assert-Throws {
     Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
 } "exceeds the 1,000-result completeness limit"
 Assert-True ($script:pageRequestCount -eq 1) "Searches above GitHub's result cap must fail immediately."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 101
+        incomplete_results = $false
+        items = @(1..100 | ForEach-Object { [pscustomobject]@{
+            id = $_
+            number = $_
+        } })
+    }
+}
+Assert-Throws {
+    Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
+} "returned duplicate issue ID"
+Assert-True ($script:pageRequestCount -eq 2) "Duplicate paginated issue IDs must fail on the repeated page."
 
 $changedMetadataPull = $pull.PSObject.Copy()
 $changedMetadataPull.body = "$($pull.body)`nMetadata changed after QA."

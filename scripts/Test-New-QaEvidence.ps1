@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/PullRequestClassification.ps1"
 
 function Assert-Equal {
     param(
@@ -74,6 +75,19 @@ function Invoke-Evidence {
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "New-QaEvidence-$([guid]::NewGuid())"
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
+    $rawBody = "- Azure Boards: N/A`r`n- Platform change: true`r`nCaf$([char]0x00E9)"
+    $serializedBodyPath = Join-Path $testRoot 'serialized-body.md'
+    [IO.File]::WriteAllText(
+        $serializedBodyPath,
+        $rawBody,
+        [Text.UTF8Encoding]::new($false))
+    $serializedBody = [IO.File]::ReadAllText($serializedBodyPath)
+    Assert-Equal $serializedBody $rawBody 'Workflow serialization must preserve PR body bytes.'
+    Assert-Equal `
+        (Get-PullRequestMetadataDigest -Title 'Harden platform' -Body $serializedBody) `
+        (Get-PullRequestMetadataDigest -Title 'Harden platform' -Body $rawBody) `
+        'Producer and consumer metadata digests must match.'
+
     $valid = Invoke-Evidence -CaseName 'valid' -Body @'
 ## Work tracking
 

@@ -366,7 +366,7 @@ function Get-CanonicalIssueCandidates {
     foreach ($id in $Ids) {
         $query = [uri]::EscapeDataString("repo:$Repository is:issue `"AB#$id`"")
         $expectedCount = $null
-        $receivedCount = 0
+        $seenIssueIds = [Collections.Generic.HashSet[long]]::new()
         for ($page = 1; $page -le 10; $page++) {
             $response = Invoke-GitHubApi -Uri (
                 "https://api.github.com/search/issues?q=$query&per_page=100&page=$page")
@@ -386,17 +386,22 @@ function Get-CanonicalIssueCandidates {
 
             $batch = @($response.items)
             foreach ($issue in $batch) {
+                if ($null -eq $issue.id) {
+                    throw "GitHub issue search for AB#$id returned a result without an issue ID."
+                }
+                if (-not $seenIssueIds.Add([long]$issue.id)) {
+                    throw "GitHub issue search for AB#$id returned duplicate issue ID $($issue.id)."
+                }
                 $issues.Add($issue)
             }
-            $receivedCount += $batch.Count
-            if ($receivedCount -ge $expectedCount) {
+            if ($seenIssueIds.Count -ge $expectedCount) {
                 break
             }
             if ($batch.Count -eq 0) {
                 throw "GitHub issue search for AB#$id returned truncated results."
             }
         }
-        if ($receivedCount -lt $expectedCount) {
+        if ($seenIssueIds.Count -lt $expectedCount) {
             throw "GitHub issue search for AB#$id did not return all $expectedCount results."
         }
     }
