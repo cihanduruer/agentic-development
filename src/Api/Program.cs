@@ -116,7 +116,7 @@ app.MapPost("/api/orchestration/route", async (
         request.CorrelationId,
         request.WorkItemId,
         "microsoft-router",
-        decision.Reason,
+        $"{decision.Model}: {decision.Reason}",
         decision.SuggestedWorker,
         decision.EffectiveWorker,
         decision.Confidence,
