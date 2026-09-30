@@ -522,6 +522,32 @@ public sealed class SqlManagedIdentityBootstrapperTests
         }
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    [InlineData("""{"target":{}}""")]
+    [InlineData(
+        """
+        {
+          "target": {"principalName":"","principalObjectId":"not-a-guid"},
+          "databaseName":"hotelbooking",
+          "observer": {},
+          "transactionCount":0,
+          "identityCandidates":[],
+          "directPermissions":[],
+          "roleMemberships":[],
+          "roleOwnership":[],
+          "delegatedPermissions":[],
+          "ownedSecurables":[]
+        }
+        """)]
+    public void DiagnosticJsonValidationRejectsIncompleteEvidence(string json)
+    {
+        Assert.Throws<InvalidDataException>(
+            () => SqlManagedIdentityBootstrap.ValidateDiagnosticJson(json));
+    }
+
     [Fact]
     public void DiagnosticWorkflowIsDevelopmentOnlyExactIpAndAlwaysCleansUp()
     {
