@@ -23,7 +23,7 @@ The Copilot cloud-agent firewall must remain enabled. In repository settings, op
 - `https://dev.azure.com/ai-enabled-ado-org`
 - `https://login.microsoftonline.com`
 
-The confirmed current configuration has the firewall and recommended allowlist enabled, with an empty custom allowlist. Do not disable the firewall, add a proxy, or bypass its policy. The setup job runs before the agent firewall applies, so its successful login and project smoke do not establish that agent tools can reach Azure Boards. Require a real Azure Boards request from the agent tool phase, through the enabled firewall, before reporting cloud-agent access as verified.
+The initial investigation on 2026-09-30 confirmed the firewall and recommended allowlist were enabled, while the custom allowlist was empty at that time. This is a dated snapshot, not a statement of the current configuration. Do not disable the firewall, add a proxy, or bypass its policy. The setup job runs before the agent firewall applies, so its successful login and project smoke do not establish that agent tools can reach Azure Boards. Require a real Azure Boards request from the agent tool phase, through the enabled firewall, before reporting cloud-agent access as verified.
 
 The setup does not configure MCP. If the Azure DevOps MCP server is already configured, it can use `-a azcli`; otherwise use Entra-authenticated REST requests directly. Do not assume Azure DevOps CLI service-principal login is supported. Fresh cloud sessions obtain their own setup login; an already-running session may need to be restarted after the setup workflow is available.
 

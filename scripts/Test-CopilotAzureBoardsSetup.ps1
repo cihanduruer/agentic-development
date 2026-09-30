@@ -61,7 +61,7 @@ function Assert-ReadOnlyCurlRequest {
         throw 'Smoke check must not enable verbose HTTP logging.'
     }
 
-    if ([regex]::IsMatch($curlLine, '(?<!\S)(?:--(?:data(?:-[\w-]+)?|form(?:-string|-escape)?|upload-file|json)|-[A-Za-z]*[dFT][A-Za-z]*)(?=\s|=|$)')) {
+    if ([regex]::IsMatch($curlLine, '(?<!\S)(?:--(?:data(?:-[\w-]+)?|form(?:-string|-escape)?|upload-file|json)|-[A-Za-z]*[dFT])')) {
         throw 'Smoke check must not send request bodies or upload files.'
     }
 }
@@ -129,6 +129,8 @@ $mutations = @(
     [pscustomobject]@{ Name = 'an overridden method'; Smoke = $smoke.Replace('--request GET', '--request PATCH --request GET') }
     [pscustomobject]@{ Name = 'a data option'; Smoke = $smoke.Replace('--request GET', '--request GET --data payload') }
     [pscustomobject]@{ Name = 'an upload option'; Smoke = $smoke.Replace('--request GET', '--request GET --upload-file payload') }
+    [pscustomobject]@{ Name = 'attached -d data'; Smoke = $smoke.Replace('--request GET', '--request GET -d@payload') }
+    [pscustomobject]@{ Name = 'attached -T upload'; Smoke = $smoke.Replace('--request GET', '--request GET -T/tmp/payload') }
     [pscustomobject]@{ Name = 'a multiline -L redirect option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation-L") }
     [pscustomobject]@{ Name = 'a multiline --location redirect option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation--location") }
     [pscustomobject]@{ Name = 'a multiline -v verbose option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation-v") }
