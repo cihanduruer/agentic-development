@@ -37,6 +37,80 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             });
     }
 
+    [SqlServerTheory]
+    [InlineData("baseline-only")]
+    [InlineData("exact-seven")]
+    public async Task CanonicalConnectIsPreservedAcrossBootstrapAndRerun(string initialState)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, "GRANT CONNECT TO [agentic-api] AS [dbo];");
+                var baseline = await ReadDirectPermissions(connection);
+                Assert.Equal(["0:0:0:CONNECT:G:dbo"], baseline);
+                if (initialState == "exact-seven")
+                {
+                    await ExecuteNonQuery(connection, ExactDirectGrants);
+                    Assert.Equal(8, await CountDirectPermissions(connection));
+                }
+                else
+                {
+                    await ExecuteBootstrap(connection, principalObjectId);
+                    await AssertRuntimeRoleContract(connection);
+                }
+
+                await ExecuteBootstrap(connection, principalObjectId);
+                Assert.Equal(baseline, await ReadDirectPermissions(connection));
+                await AssertRuntimeRoleContract(connection);
+                await ExecuteBootstrap(connection, principalObjectId);
+                Assert.Equal(baseline, await ReadDirectPermissions(connection));
+                await AssertRuntimeRoleContract(connection);
+            });
+    }
+
+    [SqlServerTheory]
+    [InlineData("deny")]
+    [InlineData("grant-option")]
+    [InlineData("grantor")]
+    [InlineData("extra-database-permission")]
+    public async Task NoncanonicalConnectOrDatabasePermissionFailsClosed(string mutation)
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                var sql = mutation switch
+                {
+                    "deny" => "DENY CONNECT TO [agentic-api];",
+                    "grant-option" => "GRANT CONNECT TO [agentic-api] WITH GRANT OPTION;",
+                    "grantor" =>
+                        """
+                        CREATE USER [connect_grantor] WITHOUT LOGIN;
+                        GRANT CONNECT TO [connect_grantor] WITH GRANT OPTION;
+                        GRANT CONNECT TO [agentic-api] AS [connect_grantor];
+                        """,
+                    "extra-database-permission" =>
+                        """
+                        GRANT CONNECT TO [agentic-api];
+                        GRANT VIEW DEFINITION TO [agentic-api];
+                        """,
+                    _ => throw new ArgumentOutOfRangeException(nameof(mutation)),
+                };
+                await ExecuteNonQuery(connection, sql);
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                var before = await ReadDirectPermissions(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrap(connection, principalObjectId));
+
+                Assert.Equal(51000, exception.Number);
+                Assert.Equal(before, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoles(connection));
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT @@TRANCOUNT;";
+                Assert.Equal(0, await command.ExecuteScalarAsync());
+            });
+    }
+
     private static async Task AssertDiagnosticEvidenceIsReadOnly(
         SqlConnection connection,
         Guid principalObjectId)
@@ -125,6 +199,7 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             async (connection, principalObjectId) =>
             {
                 await ExecuteNonQuery(connection, DirectGrantsFor(mutation));
+                await ExecuteNonQuery(connection, "GRANT CONNECT TO [agentic-api];");
                 var before = await ReadDirectPermissions(connection);
 
                 var exception = await Assert.ThrowsAsync<SqlException>(
@@ -361,10 +436,13 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             async (connection, principalObjectId) =>
             {
                 await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(connection, "GRANT CONNECT TO [agentic-api];");
                 await ExecuteNonQuery(
                     connection,
                     "CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];");
                 var directBefore = await ReadDirectPermissions(connection);
+                Assert.Equal(8, directBefore.Length);
+                Assert.Contains("0:0:0:CONNECT:G:dbo", directBefore);
 
                 var commandText = SqlManagedIdentityBootstrap.CommandText.Replace(
                     "COMMIT TRANSACTION;",
@@ -776,7 +854,8 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                 permissions.major_id, N':',
                 permissions.minor_id, N':',
                 permissions.permission_name, N':',
-                permissions.state)
+                permissions.state, N':',
+                USER_NAME(permissions.grantor_principal_id))
             FROM sys.database_permissions AS permissions
             INNER JOIN sys.database_principals AS principals
                 ON principals.principal_id = permissions.grantee_principal_id

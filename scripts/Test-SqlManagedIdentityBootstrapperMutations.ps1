@@ -40,7 +40,7 @@ $mutations = @(
         Name = 'skip-direct-removal-postcheck'
         Replacements = @(
             @{
-                Pattern = "(?s)\r?\n                IF EXISTS \(\r?\n                    SELECT 1\r?\n                    FROM sys\.database_permissions\r?\n                    WHERE grantee_principal_id = @ExistingApiPrincipalId\r?\n                \)\r?\n                BEGIN\r?\n                    THROW 51009, 'The API principal still has direct database permissions after legacy migration\.', 1;\r?\n                END;"
+                Pattern = "(?s)\r?\n                IF EXISTS \(\r?\n                    SELECT 1\r?\n                    FROM sys\.database_permissions AS permissions\r?\n                    WHERE permissions\.grantee_principal_id = @ExistingApiPrincipalId\r?\n                      AND NOT \(.*?\r?\n                      \)\r?\n                \)\r?\n                BEGIN\r?\n                    THROW 51009, 'The API principal still has direct database permissions after legacy migration\.', 1;\r?\n                END;"
                 Value = ''
             }
         )
@@ -150,19 +150,73 @@ $mutations = @(
                 Value = '@apiAuthenticationType'
             }
         )
+    },
+    @{
+        Name = 'reject-canonical-connect-baseline'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~CanonicalConnectIsPreservedAcrossBootstrapAndRerun'
+        Replacements = @(
+            @{
+                Pattern = 'permissions\.class = 0'
+                Value = 'permissions.class = -1'
+                ExpectedMatches = 4
+            }
+        )
+    },
+    @{
+        Name = 'accept-noncanonical-connect-state'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~NoncanonicalConnectOrDatabasePermissionFailsClosed'
+        Replacements = @(
+            @{
+                Pattern = "(AND permissions\.permission_name = N'CONNECT'\r?\n)\s+AND permissions\.state = N'G'\r?\n"
+                Value = '$1'
+                ExpectedMatches = 4
+            }
+        )
+    },
+    @{
+        Name = 'accept-noncanonical-connect-grantor'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~NoncanonicalConnectOrDatabasePermissionFailsClosed'
+        Replacements = @(
+            @{
+                Pattern = '\r?\n\s+AND permissions\.grantor_principal_id = @DboPrincipalId'
+                Value = ''
+                ExpectedMatches = 4
+            }
+        )
     }
 )
 
 try {
+    foreach ($baselineProject in @($unitTestProject, $integrationTestProject)) {
+        $baselineFilter = if ($baselineProject -eq $unitTestProject) {
+            'FullyQualifiedName~SqlManagedIdentityBootstrapperTests'
+        }
+        else {
+            'FullyQualifiedName~SqlManagedIdentityBootstrapperSqlServerTests'
+        }
+        & dotnet test $baselineProject --configuration Release --no-restore `
+            --filter $baselineFilter --verbosity quiet
+        if ($LASTEXITCODE -ne 0) {
+            throw 'The unmutated bootstrapper baseline failed.'
+        }
+    }
+
     foreach ($mutation in $mutations) {
         $mutated = $original
         foreach ($replacement in $mutation.Replacements) {
             $regex = [regex]::new($replacement.Pattern)
-            if ($regex.Matches($mutated).Count -ne 1) {
-                throw "Mutation '$($mutation.Name)' did not match exactly one source block."
+            $expectedMatches = if ($replacement.ExpectedMatches) {
+                $replacement.ExpectedMatches
+            }
+            else { 1 }
+            if ($regex.Matches($mutated).Count -ne $expectedMatches) {
+                throw "Mutation '$($mutation.Name)' did not match exactly $expectedMatches source blocks."
             }
 
-            $mutated = $regex.Replace($mutated, $replacement.Value, 1)
+            $mutated = $regex.Replace($mutated, $replacement.Value, $expectedMatches)
         }
 
         [System.IO.File]::WriteAllText($sourcePath, $mutated, $utf8)
@@ -179,6 +233,7 @@ try {
             'FullyQualifiedName~SqlManagedIdentityBootstrapperTests'
         }
         & dotnet test $testProject `
+            --configuration Release `
             --no-restore `
             --filter $filter `
             --verbosity quiet
