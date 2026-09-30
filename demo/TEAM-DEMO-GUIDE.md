@@ -2,6 +2,8 @@
 
 **Audience:** a nontechnical product owner. **Length:** 5-10 minutes using existing evidence.
 
+For click-by-click facilitation, copy-paste prompts, expected results, and troubleshooting, use the [step-by-step showcase](../docs/development-pipeline/SHOWCASE.md).
+
 **Say:** "We describe a guest need, let cloud agents develop it, and follow the result into our development site. Checks stay mandatory; production stays manual."
 
 ## Before the meeting

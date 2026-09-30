@@ -2,7 +2,7 @@
 
 This folder documents how the Hotel Booking system is developed, validated, observed, and deployed. Azure Boards provides product-work visibility, GitHub is the code and delivery system, GitHub Copilot agents perform bounded software work, and Azure hosts the development environment and Microsoft-native AI services.
 
-For a nontechnical 5-10 minute walkthrough, use the [team demo guide](../../demo/TEAM-DEMO-GUIDE.md) or its [short showcase entry point](SHOWCASE.md).
+For a nontechnical 5-10 minute overview, use the [team demo guide](../../demo/TEAM-DEMO-GUIDE.md). For exact actions, copy-paste prompts, expected results, and recovery guidance, use the [step-by-step showcase](SHOWCASE.md).
 
 For developers and architects, start with the [Azure service responsibilities and harness diagrams](AZURE-SERVICES-AND-HARNESS.md). The [technical presentation](PRESENTATION.md) is an optional deeper explanation.
 
