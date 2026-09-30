@@ -232,7 +232,7 @@ $expectedRunEntries = @(
             'dotnet test AgenticHotelBooking.slnx ' +
             '--configuration Debug ' +
             '--no-build ' +
-            '--filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests ' +
+            '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests. ' +
             '--logger trx ' +
             '--results-directory TestResults'
         Styles = @('', '>')
@@ -412,7 +412,7 @@ $expectedCommand =
     'dotnet test AgenticHotelBooking.slnx ' +
     '--configuration Debug ' +
     '--no-build ' +
-    '--filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests ' +
+    '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests. ' +
     '--logger trx ' +
     '--results-directory TestResults'
 if (-not [string]::Equals(

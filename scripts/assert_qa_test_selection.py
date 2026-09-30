@@ -98,7 +98,8 @@ expected_steps = [
         "run": (
             "dotnet test AgenticHotelBooking.slnx "
             "--configuration Debug --no-build "
-            "--filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests "
+            "--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests."
+            "SqlManagedIdentityBootstrapperSqlServerTests. "
             "--logger trx --results-directory TestResults"
         ),
         "working-directory": "source",

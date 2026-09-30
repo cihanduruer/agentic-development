@@ -210,8 +210,13 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
     $selectionMutations = @(
         @{
             Name = 'overbroad-filter'
-            Old = '--filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests'
-            New = '--filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests&FullyQualifiedName!~SqlManagedIdentityBootstrapperTests'
+            Old = '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.'
+            New = '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.&FullyQualifiedName!~SqlManagedIdentityBootstrapperTests'
+        },
+        @{
+            Name = 'near-name-substring-filter'
+            Old = '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.'
+            New = '--filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests'
         },
         @{
             Name = 'unit-tests-only'
@@ -949,7 +954,7 @@ if str(actual) != expected:
         '          dotnet test AgenticHotelBooking\.slnx\r?\n' +
         '          --configuration Debug\r?\n' +
         '          --no-build\r?\n' +
-        '          --filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests\r?\n' +
+        '          --filter FullyQualifiedName!~AgenticHotelBooking\.IntegrationTests\.SqlManagedIdentityBootstrapperSqlServerTests\.\r?\n' +
         '          --logger trx\r?\n' +
         '          --results-directory TestResults\r?$'
     $foldedRunRegex = [regex]::new($foldedRunPattern)
@@ -959,7 +964,7 @@ if str(actual) != expected:
         'The valid inline-format fixture must replace exactly one run block.'
     $inlineWorkflow = $foldedRunRegex.Replace(
         $qaWorkflow,
-        '        run: dotnet test AgenticHotelBooking.slnx --configuration Debug --no-build --filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests --logger trx --results-directory TestResults',
+        '        run: dotnet test AgenticHotelBooking.slnx --configuration Debug --no-build --filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests. --logger trx --results-directory TestResults',
         1)
     $inlineWorkflow | Set-Content -LiteralPath $inlineWorkflowPath
     & "$PSScriptRoot/Assert-QaTestSelection.ps1" `
@@ -974,7 +979,7 @@ if str(actual) != expected:
           dotnet test AgenticHotelBooking.slnx
           --configuration Debug
           --no-build
-          --filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests
+          --filter FullyQualifiedName!~AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests.
           --logger trx
           --results-directory TestResults
 '@,
