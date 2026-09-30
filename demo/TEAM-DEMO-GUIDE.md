@@ -78,10 +78,12 @@ Snapshot on **2026-09-30**; refresh PR and deployment status before presenting:
 
 | Change | Evidence boundary |
 |---|---|
-| Brand palette, [PR #35](https://github.com/cihanduruer/agentic-development/pull/35) | Cloud browser evidence exists; do not call the palette live until its development deployment succeeds. |
-| Default capture instructions, [PR #36](https://github.com/cihanduruer/agentic-development/pull/36) | Open at this snapshot. The default is agreed in this session; a fresh checkout needs the instructions available before relying on it automatically. |
-| Search MCP, [PR #38](https://github.com/cihanduruer/agentic-development/pull/38) | In progress; do not claim chat or developer-agent connectivity without actual tool calls. |
-| Clearer check names, [PR #40](https://github.com/cihanduruer/agentic-development/pull/40) | Proposed; new labels apply to future runs after merge, not historical runs. |
+| Brand palette, [PR #35](https://github.com/cihanduruer/agentic-development/pull/35) | Merged and live after [development deployment](https://github.com/cihanduruer/agentic-development/actions/runs/36700919960). All five colors were verified in live CSS. Check AB#960 separately for evidence synchronization and closure. |
+| Default capture instructions, [PR #36](https://github.com/cihanduruer/agentic-development/pull/36) | Merged. Current `main` includes `.github/copilot-instructions.md`; use a current checkout for the automatic capture default. |
+| Search MCP, [PR #38](https://github.com/cihanduruer/agentic-development/pull/38) | Use the live PR and deployment evidence for readiness. Credentials or a protocol check alone do not prove chat or developer-agent connectivity; show each actual client tool call. |
+| Clearer check names, [PR #40](https://github.com/cihanduruer/agentic-development/pull/40) | Merged. New runs distinguish the actual review from `Copilot review not required`; historical run labels are unchanged. |
+
+The GitHub open lists contain unfinished work; completed issues and merged PRs remain available in the closed lists. Open the completed example's direct links before presenting rather than expecting it in the open list.
 
 Agent Operations is optional: it shows ingested runtime events, not a mirror of chat, Boards, or Actions. Do not wait there for a requirement-capture decision.
 

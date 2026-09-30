@@ -27,7 +27,7 @@ Do not promise a new feature will finish during the meeting. The intake schedule
 
 For a historical completed requirement, use [AB#959](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/959), [issue #5](https://github.com/cihanduruer/agentic-development/issues/5), and [PR #6](https://github.com/cihanduruer/agentic-development/pull/6), which introduced the total stay price. Do not reopen or redispatch that closed work. Historical delivery is not a claim that it passed every gate added later.
 
-For the newer brand-palette example, use [AB#960](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/960), [issue #34](https://github.com/cihanduruer/agentic-development/issues/34), and [PR #35](https://github.com/cihanduruer/agentic-development/pull/35). Check its current status first. An open PR is an in-progress example, not a delivered feature.
+For the newer brand-palette example, use [AB#960](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/960), [issue #34](https://github.com/cihanduruer/agentic-development/issues/34), and [PR #35](https://github.com/cihanduruer/agentic-development/pull/35). The PR is merged, its [development deployment](https://github.com/cihanduruer/agentic-development/actions/runs/36700919960) succeeded, and all five colors were verified in live CSS. The completed GitHub issue is closed. Check the current Boards state separately: product deployment and final evidence synchronization are distinct milestones.
 
 **Prepare an evidence record:** note the story ID, issue, PR, exact source commit, validation run, review, QA artifact, development deployment, and knowledge revision. Keep secret values and real guest details out of the shared screen.
 
