@@ -34,6 +34,7 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 app.UseMiddleware<KnowledgeMcpAuthorizationMiddleware>(bearerToken);
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapMcp("/mcp");
 
 await app.RunAsync();

@@ -105,8 +105,7 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
         var escapedRevision = revision.Replace("'", "''", StringComparison.Ordinal);
         return new SearchOptions
         {
-            Filter = $"{nameof(KnowledgeSearchHit.Revision)} eq '{escapedRevision}' and " +
-                "startswith(Path, 'docs/knowledge/')",
+            Filter = $"{nameof(KnowledgeSearchHit.Revision)} eq '{escapedRevision}'",
             SearchMode = SearchMode.Any,
             QueryType = SearchQueryType.Simple,
             SearchFields = { nameof(KnowledgeSearchHit.Title), nameof(KnowledgeSearchHit.Content) },
@@ -224,7 +223,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
 
         var segments = path.Split('/');
         return segments.Length > 2 &&
-            segments[^1].EndsWith(".md", StringComparison.OrdinalIgnoreCase) &&
+            segments[^1].EndsWith(".md", StringComparison.Ordinal) &&
             segments.All(segment =>
                 segment.Length > 0 &&
                 segment is not ("." or "..") &&
@@ -262,8 +261,7 @@ public sealed class KnowledgeMcpAuthorizationMiddleware(RequestDelegate next, st
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.Request.Path.StartsWithSegments("/mcp") &&
-            !KnowledgeMcpToken.IsAuthorized(context.Request.Headers.Authorization, accessToken))
+        if (!KnowledgeMcpToken.IsAuthorized(context.Request.Headers.Authorization, accessToken))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;

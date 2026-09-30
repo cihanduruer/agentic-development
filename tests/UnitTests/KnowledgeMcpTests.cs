@@ -116,8 +116,9 @@ public sealed class KnowledgeMcpTests
         var options = AzureKnowledgeSearchRepository.CreateSearchOptions(Revision, KnowledgeSearchService.MaximumResults);
 
         Assert.Equal(
-            $"Revision eq '{Revision}' and startswith(Path, 'docs/knowledge/')",
+            $"Revision eq '{Revision}'",
             options.Filter);
+        Assert.DoesNotContain("startswith", options.Filter, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(KnowledgeSearchService.MaximumResults, options.Size);
         Assert.Contains(nameof(McpSearchHit.Content), options.Select);
         Assert.Contains(nameof(McpSearchHit.Revision), options.Select);
@@ -139,6 +140,33 @@ public sealed class KnowledgeMcpTests
             .OrderBy(field => field.Name, StringComparer.Ordinal);
 
         Assert.Equal(indexedFields, retrievedFields);
+    }
+
+    [Theory]
+    [InlineData("docs/knowledge/security.md", true)]
+    [InlineData("docs/knowledge/nested/security.md", true)]
+    [InlineData("docs/knowledge/../secrets.md", false)]
+    [InlineData("docs/knowledge/..\\secrets.md", false)]
+    [InlineData("docs/other/security.md", false)]
+    [InlineData("docs/knowledge/readme.txt", false)]
+    [InlineData("docs/knowledge/readme.MD", false)]
+    public async Task SearchReturnsOnlyCanonicalMarkdownPaths(string path, bool expectedEvidence)
+    {
+        var service = new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document(path, Revision)));
+
+        var result = await service.SearchAsync("security policy", Revision, CancellationToken.None);
+
+        Assert.Equal(expectedEvidence, result.HasEvidence);
+        if (expectedEvidence)
+        {
+            Assert.Equal(path, Assert.Single(result.Passages).Path);
+        }
+        else
+        {
+            Assert.Equal("no_evidence", result.Status);
+            Assert.Empty(result.Passages);
+        }
     }
 
     [Fact]
@@ -166,8 +194,11 @@ public sealed class KnowledgeMcpTests
         Assert.False(KnowledgeMcpToken.IsValidAccessToken(new string('é', KnowledgeMcpToken.MinimumLength)));
     }
 
-    [Fact]
-    public async Task McpEndpointMiddlewareRejectsRequestsWithoutTheBearerToken()
+    [Theory]
+    [InlineData("/mcp")]
+    [InlineData("/health")]
+    [InlineData("/unmapped")]
+    public async Task McpEndpointMiddlewareRejectsRequestsWithoutTheBearerToken(string path)
     {
         var nextCalled = false;
         var middleware = new KnowledgeMcpAuthorizationMiddleware(
@@ -178,7 +209,7 @@ public sealed class KnowledgeMcpTests
             },
             "0123456789abcdef0123456789abcdef");
         var context = new DefaultHttpContext();
-        context.Request.Path = "/mcp";
+        context.Request.Path = path;
 
         await middleware.InvokeAsync(context);
 

@@ -1,0 +1,199 @@
+name: Deploy Knowledge MCP POC
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_source_sha:
+        description: Exact reviewed source SHA on main to build and deploy
+        required: true
+        type: string
+      knowledge_revision:
+        description: Full indexed knowledge SHA for live Search readiness evidence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-knowledge-mcp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: development
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      public_endpoint: ${{ steps.infrastructure.outputs.mcp_endpoint }}
+    steps:
+      - name: Initialize sanitized evidence artifact
+        shell: pwsh
+        env:
+          EVIDENCE_PATH: ${{ runner.temp }}/knowledge-mcp-smoke.json
+          KNOWLEDGE_REVISION: ${{ inputs.knowledge_revision }}
+        run: |
+          @{
+            status = 'not_started'
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            sourceSha = $env:GITHUB_SHA
+            knowledgeRevision = $env:KNOWLEDGE_REVISION
+          } | ConvertTo-Json -Depth 6 |
+            Out-File -FilePath $env:EVIDENCE_PATH -Encoding utf8
+      - name: Verify main branch and exact reviewed source
+        shell: pwsh
+        env:
+          REVIEWED_SOURCE_SHA: ${{ inputs.reviewed_source_sha }}
+          KNOWLEDGE_REVISION: ${{ inputs.knowledge_revision }}
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw 'Knowledge MCP deployment can run only from main.'
+          }
+          if ($env:REVIEWED_SOURCE_SHA -notmatch '^[0-9a-f]{40}$' -or
+              $env:REVIEWED_SOURCE_SHA -ne $env:GITHUB_SHA) {
+            throw 'reviewed_source_sha must equal the full SHA of this main workflow run.'
+          }
+          if ($env:KNOWLEDGE_REVISION -notmatch '^[0-9a-f]{40}$') {
+            throw 'knowledge_revision must be a full lowercase 40-character indexed SHA.'
+          }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.reviewed_source_sha }}
+      - name: Verify checked out source
+        shell: pwsh
+        env:
+          REVIEWED_SOURCE_SHA: ${{ inputs.reviewed_source_sha }}
+        run: |
+          $checkedOutSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOutSha -ne $env:REVIEWED_SOURCE_SHA) {
+            throw 'Checked out source does not match the reviewed source SHA.'
+          }
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Restore and publish MCP service
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore tools/KnowledgeMcp/KnowledgeMcp.csproj --locked-mode
+          dotnet publish tools/KnowledgeMcp/KnowledgeMcp.csproj \
+            --configuration Release --no-restore --output "$RUNNER_TEMP/knowledge-mcp-publish"
+          (cd "$RUNNER_TEMP/knowledge-mcp-publish" && zip -q -r "$RUNNER_TEMP/knowledge-mcp.zip" .)
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Prepare protected deployment parameters
+        shell: pwsh
+        env:
+          KNOWLEDGE_MCP_ACCESS_TOKEN: ${{ secrets.KNOWLEDGE_MCP_ACCESS_TOKEN }}
+        run: |
+          $token = $env:KNOWLEDGE_MCP_ACCESS_TOKEN
+          if ($token -notmatch '^[A-Za-z0-9._~-]{32,128}$') {
+            throw 'The development KNOWLEDGE_MCP_ACCESS_TOKEN secret must be 32–128 URL-safe ASCII characters.'
+          }
+          Write-Output "::add-mask::$token"
+          $parameterPath = Join-Path $env:RUNNER_TEMP 'knowledge-mcp-secure-parameters.json'
+          $parameters = @{
+            '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'
+            contentVersion = '1.0.0.0'
+            parameters = @{
+              accessToken = @{ value = $token }
+            }
+          } | ConvertTo-Json -Depth 8 -Compress
+          [System.IO.File]::WriteAllText(
+            $parameterPath,
+            $parameters,
+            [System.Text.UTF8Encoding]::new($false))
+          & chmod 600 $parameterPath
+          if ($LASTEXITCODE -ne 0) {
+            Remove-Item -LiteralPath $parameterPath -Force -ErrorAction SilentlyContinue
+            throw 'Unable to restrict access to the temporary secure parameter file.'
+          }
+      - name: Deploy isolated F1 app and scoped Search reader
+        id: infrastructure
+        shell: pwsh
+        run: |
+          $parameterPath = Join-Path $env:RUNNER_TEMP 'knowledge-mcp-secure-parameters.json'
+          if (-not (Test-Path -LiteralPath $parameterPath)) {
+            throw 'The protected deployment parameter file is missing.'
+          }
+          $deploymentName = "knowledge-mcp-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $outputsJson = az deployment group create `
+            --name $deploymentName `
+            --resource-group agentic-hotelbookingdev `
+            --template-file infra/knowledge-mcp.bicep `
+            --parameters "@$parameterPath" `
+            --query properties.outputs `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($outputsJson)) {
+            throw 'The isolated Knowledge MCP infrastructure deployment failed.'
+          }
+          $outputs = $outputsJson | ConvertFrom-Json
+          if ($outputs.appName.value -ne 'ahb-dev-knowledge-mcp' -or
+              $outputs.appUrl.value -ne 'https://ahb-dev-knowledge-mcp.azurewebsites.net') {
+            throw 'Knowledge MCP infrastructure returned an unexpected app identity or endpoint.'
+          }
+          "app_name=$($outputs.appName.value)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "app_url=$($outputs.appUrl.value)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "mcp_endpoint=$($outputs.appUrl.value)/mcp" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "Knowledge MCP public endpoint: $($outputs.appUrl.value)/mcp" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+      - name: Deploy MCP package
+        shell: pwsh
+        env:
+          MCP_APP_NAME: ${{ steps.infrastructure.outputs.app_name }}
+        run: |
+          az webapp deploy `
+            --resource-group agentic-hotelbookingdev `
+            --name $env:MCP_APP_NAME `
+            --src-path "$env:RUNNER_TEMP/knowledge-mcp.zip" `
+            --type zip `
+            --only-show-errors `
+            --output none
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Knowledge MCP package deployment failed.'
+          }
+      - name: Run bounded authenticated MCP and Search smoke
+        shell: bash
+        env:
+          MCP_URL: ${{ steps.infrastructure.outputs.app_url }}/mcp
+          KNOWLEDGE_MCP_ACCESS_TOKEN: ${{ secrets.KNOWLEDGE_MCP_ACCESS_TOKEN }}
+          KNOWLEDGE_REVISION: ${{ inputs.knowledge_revision }}
+          SOURCE_SHA: ${{ inputs.reviewed_source_sha }}
+          EVIDENCE_PATH: ${{ runner.temp }}/knowledge-mcp-smoke.json
+        run: |
+          python3 scripts/Test-KnowledgeMcpEndpoint.py \
+            --url "$MCP_URL" \
+            --revision "$KNOWLEDGE_REVISION" \
+            --source-sha "$SOURCE_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$EVIDENCE_PATH"
+      - name: Remove secure parameter file
+        if: always()
+        shell: pwsh
+        run: |
+          $parameterPath = Join-Path $env:RUNNER_TEMP 'knowledge-mcp-secure-parameters.json'
+          if (Test-Path -LiteralPath $parameterPath) {
+            Remove-Item -LiteralPath $parameterPath -Force
+          }
+          if (Test-Path -LiteralPath $parameterPath) {
+            throw 'Secure deployment parameter cleanup could not be proven.'
+          }
+      - name: Upload sanitized MCP smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-mcp-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/knowledge-mcp-smoke.json
+          if-no-files-found: error
+          retention-days: 30
