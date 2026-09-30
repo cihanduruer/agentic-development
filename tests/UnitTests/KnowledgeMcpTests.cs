@@ -360,14 +360,34 @@ public sealed class KnowledgeMcpTests
         Assert.False(tool.Destructive);
     }
 
+    [Theory]
+    [InlineData("Bearer")]
+    [InlineData("bearer")]
+    [InlineData("bEaReR")]
+    public void BearerTokenValidationAcceptsCaseInsensitiveSchemes(string scheme)
+    {
+        const string token = "0123456789abcdef0123456789abcdef";
+
+        Assert.True(KnowledgeMcpToken.IsAuthorized($"{scheme} {token}", token));
+    }
+
     [Fact]
     public void BearerTokenValidationRequiresAnExactLongConfiguredSecret()
     {
         const string token = "0123456789abcdef0123456789abcdef";
 
-        Assert.True(KnowledgeMcpToken.IsAuthorized("Bearer " + token, token));
         Assert.False(KnowledgeMcpToken.IsAuthorized(null, token));
-        Assert.False(KnowledgeMcpToken.IsAuthorized("Bearer " + "wrong-token", token));
+        Assert.False(KnowledgeMcpToken.IsAuthorized(
+            string.Concat("Bear", "er ", token.ToUpperInvariant()),
+            token));
+        Assert.False(KnowledgeMcpToken.IsAuthorized($"Basic {token}", token));
+        Assert.False(KnowledgeMcpToken.IsAuthorized("Bearer", token));
+        Assert.False(KnowledgeMcpToken.IsAuthorized(
+            string.Concat("Bear", "er ", token, " extra"),
+            token));
+        Assert.False(KnowledgeMcpToken.IsAuthorized(
+            string.Concat("Bear", "er ", token, ", Basic ", token),
+            token));
         Assert.False(KnowledgeMcpToken.IsAuthorized("Bearer " + token, "short"));
         Assert.False(KnowledgeMcpToken.IsValidAccessToken(new string('x', KnowledgeMcpToken.MaximumLength + 1)));
         Assert.False(KnowledgeMcpToken.IsValidAccessToken(new string('é', KnowledgeMcpToken.MinimumLength)));

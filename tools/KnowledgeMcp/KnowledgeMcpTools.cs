@@ -432,15 +432,17 @@ public static class KnowledgeMcpToken
 
     public static bool IsAuthorized(string? authorizationHeader, string accessToken)
     {
-        if (string.IsNullOrEmpty(authorizationHeader) ||
+        if (string.IsNullOrWhiteSpace(authorizationHeader) ||
             !IsValidAccessToken(accessToken) ||
-            authorizationHeader.Length != accessToken.Length + "Bearer ".Length)
+            !System.Net.Http.Headers.AuthenticationHeaderValue.TryParse(authorizationHeader, out var parsedHeader) ||
+            !string.Equals(parsedHeader.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) ||
+            parsedHeader.Parameter is not { } suppliedToken)
         {
             return false;
         }
 
-        var expected = System.Text.Encoding.UTF8.GetBytes("Bearer " + accessToken);
-        var actual = System.Text.Encoding.UTF8.GetBytes(authorizationHeader);
+        var expected = System.Text.Encoding.UTF8.GetBytes(accessToken);
+        var actual = System.Text.Encoding.UTF8.GetBytes(suppliedToken);
         return expected.Length == actual.Length &&
             System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expected, actual);
     }
