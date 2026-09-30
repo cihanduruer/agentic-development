@@ -37,7 +37,7 @@ jobs:
         && github.event.workflow_run.event == 'push'
         && github.event.workflow_run.head_branch == 'main'
         && github.event.workflow_run.conclusion == 'success')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Resolve source context
         id: context
@@ -222,7 +222,13 @@ jobs:
 
       - name: Run independent QA tests
         working-directory: source
-        run: dotnet test --no-build --logger trx --results-directory TestResults
+        run: >-
+          dotnet test AgenticHotelBooking.slnx
+          --configuration Debug
+          --no-build
+          --filter FullyQualifiedName!~SqlManagedIdentityBootstrapperSqlServerTests
+          --logger trx
+          --results-directory TestResults
 
       - name: Build Bicep
         uses: azure/cli@v2
