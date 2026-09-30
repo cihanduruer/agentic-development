@@ -4,7 +4,7 @@
 
 Knowledge sources on current `main` were read at revision `cfb4afb0025517260c896f9a737541eec91b1f52`.
 
-The repository contains a separate remote MCP service at `tools/KnowledgeMcp`; it is not part of the Hotel API or web app. The service exposes only `search_knowledge`, uses the fixed `knowledge` index, and returns up to five canonical knowledge passages (up to 3,000 characters each) with their full Git revision, repository path/link, owner, last-reviewed date, and content hash. It requires a full 40-character revision, limits queries to 256 characters, and returns explicit `revision_required`, `invalid_revision`, or `no_evidence` results rather than substituting another revision or local content.
+The repository contains a separate remote MCP service at `tools/KnowledgeMcp`; it is not part of the Hotel API or web app. The service exposes only `search_knowledge`, uses the fixed `knowledge` index, and returns up to five canonical knowledge passages (up to 3,000 characters each) with their full Git revision, repository path/link, owner, last-reviewed date, and content hash. It requires a full 40-character revision, limits queries to 256 characters, rejects any wildcard or operator-only query with `invalid_query`, and sends only alphanumeric terms to Search. Long source documents are excerpted around a matching query term when one occurs in the content; otherwise the bounded source prefix is returned. It returns explicit no-evidence results rather than substituting another revision or local content.
 
 **This change is source, unit-test, and proposed workflow evidence only. It has not been deployed, assigned Search RBAC, configured in a Copilot client, or used for a live retrieval demonstration.** No Search index revision is assumed to exist. The deployment workflow must run from `main` with `reviewed_source_sha` equal to that exact main run's SHA and a coordinator-verified indexed `knowledge_revision`; do not merge or deploy before reviewed-source gates.
 
@@ -71,7 +71,7 @@ dotnet restore tools/KnowledgeMcp/KnowledgeMcp.csproj --locked-mode
 dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj --no-restore --filter FullyQualifiedName~KnowledgeMcpTests
 ```
 
-These tests exercise validation, exact revision filtering, result bounds, citation metadata, canonical paths, no-evidence behavior, token checking, deployment-scope contracts, and the read-only tool annotation. They do not use live Azure Search or prove either Copilot client integration. No live endpoint, Azure RBAC, deployment, or workflow artifact is claimed by this runbook.
+These tests exercise validation, wildcard/operator rejection before repository access, exact revision filtering, result bounds, query-centered excerpts, citation metadata, canonical paths, no-evidence behavior, token checking, deployment-scope contracts, and the read-only tool annotation. They do not use live Azure Search or prove either Copilot client integration. No live endpoint, Azure RBAC, deployment, or workflow artifact is claimed by this runbook.
 
 A hosted-runner loopback smoke additionally confirmed: an unauthenticated POST to `/mcp` returned HTTP 401; authenticated `tools/list` returned only `search_knowledge` with `readOnlyHint: true`; and an authenticated `tools/call` with an empty revision returned `revision_required` with no evidence. It used a dummy token and deliberately invalid Search endpoint, so it did not query Azure, establish a cited revision/no-hit against the live index, or demonstrate either Copilot client.
 

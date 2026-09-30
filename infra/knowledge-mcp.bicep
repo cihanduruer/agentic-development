@@ -73,16 +73,11 @@ resource app 'Microsoft.Web/sites@2023-12-01' = {
   }
 }
 
-resource searchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(search.id, app.id, 'knowledge-mcp-search-index-data-reader')
-  scope: search
-  properties: {
+module searchReaderRole 'modules/knowledge-mcp-search-role.bicep' = {
+  name: 'knowledge-mcp-search-reader'
+  params: {
     principalId: app.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '1407120a-92aa-4202-b7e9-c0e197c71c8f'
-    )
+    searchServiceName: search.name
   }
 }
 

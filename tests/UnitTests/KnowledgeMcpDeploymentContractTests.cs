@@ -24,6 +24,7 @@ public sealed class KnowledgeMcpDeploymentContractTests
     public void InfrastructureUsesOnlyAnIsolatedFreePlanAndSearchReaderRole()
     {
         var template = File.ReadAllText(FindRepositoryFile("infra/knowledge-mcp.bicep"));
+        var roleTemplate = File.ReadAllText(FindRepositoryFile("infra/modules/knowledge-mcp-search-role.bicep"));
 
         Assert.Contains("name: 'ahb-dev-knowledge-mcp-f1-plan'", template, StringComparison.Ordinal);
         Assert.Contains("name: 'F1'", template, StringComparison.Ordinal);
@@ -31,7 +32,9 @@ public sealed class KnowledgeMcpDeploymentContractTests
         Assert.Contains("alwaysOn: false", template, StringComparison.Ordinal);
         Assert.Contains("httpsOnly: true", template, StringComparison.Ordinal);
         Assert.Contains("name: 'ahb-dev-bj5rmi3w3ntgq-search'", template, StringComparison.Ordinal);
-        Assert.Contains("'1407120a-92aa-4202-b7e9-c0e197c71c8f'", template, StringComparison.Ordinal);
+        Assert.Contains("principalId: app.identity.principalId", template, StringComparison.Ordinal);
+        Assert.Contains("guid(search.id, principalId,", roleTemplate, StringComparison.Ordinal);
+        Assert.Contains("'1407120a-92aa-4202-b7e9-c0e197c71c8f'", roleTemplate, StringComparison.Ordinal);
         Assert.DoesNotContain("B1", template, StringComparison.Ordinal);
         Assert.DoesNotContain("Microsoft.Sql", template, StringComparison.Ordinal);
         Assert.Contains("@secure()", template, StringComparison.Ordinal);

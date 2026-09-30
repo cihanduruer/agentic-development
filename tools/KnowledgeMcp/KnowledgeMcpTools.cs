@@ -163,9 +163,26 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
                 $"Knowledge queries are limited to {MaximumQueryLength} characters.");
         }
 
+        if (boundedQuery.Contains('*'))
+        {
+            return NoEvidence(
+                revision,
+                "invalid_query",
+                "Knowledge queries cannot contain wildcard operators.");
+        }
+
+        var queryTerms = GetQueryTerms(boundedQuery);
+        if (queryTerms.Length == 0)
+        {
+            return NoEvidence(
+                revision,
+                "invalid_query",
+                "Knowledge queries must contain at least one searchable term.");
+        }
+
         var normalizedRevision = revision.ToLowerInvariant();
         var documents = await repository.SearchAsync(
-            boundedQuery,
+            string.Join(' ', queryTerms),
             normalizedRevision,
             MaximumResults,
             cancellationToken);
@@ -174,7 +191,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
                 string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
                 IsCanonicalKnowledgePath(document.Path))
             .Take(MaximumResults)
-            .Select(ToPassage)
+            .Select(document => ToPassage(document, queryTerms))
             .ToArray();
 
         return passages.Length == 0
@@ -193,10 +210,37 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
     private static KnowledgeSearchResult NoEvidence(string? revision, string status, string message) =>
         new(revision, false, status, message, []);
 
-    private static KnowledgePassage ToPassage(KnowledgeSearchHit document)
+    private static string[] GetQueryTerms(string query)
+    {
+        var terms = new List<string>();
+        var termStart = -1;
+        for (var index = 0; index < query.Length; index++)
+        {
+            if (char.IsLetterOrDigit(query[index]))
+            {
+                termStart = termStart < 0 ? index : termStart;
+            }
+            else if (termStart >= 0)
+            {
+                terms.Add(query[termStart..index]);
+                termStart = -1;
+            }
+        }
+
+        if (termStart >= 0)
+        {
+            terms.Add(query[termStart..]);
+        }
+
+        return [.. terms];
+    }
+
+    private static KnowledgePassage ToPassage(KnowledgeSearchHit document, IReadOnlyList<string> queryTerms)
     {
         var truncated = document.Content.Length > MaximumPassageLength;
-        var passage = truncated ? document.Content[..MaximumPassageLength] : document.Content;
+        var passageStart = truncated ? FindExcerptStart(document.Content, queryTerms) : 0;
+        var passageLength = Math.Min(MaximumPassageLength, document.Content.Length - passageStart);
+        var passage = document.Content.Substring(passageStart, passageLength);
         var escapedPath = string.Join(
             '/',
             document.Path.Split('/').Select(Uri.EscapeDataString));
@@ -211,6 +255,38 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
             document.Owner,
             document.LastReviewed,
             document.ContentHash);
+    }
+
+    private static int FindExcerptStart(string content, IReadOnlyList<string> queryTerms)
+    {
+        var matchStart = -1;
+        foreach (var term in queryTerms)
+        {
+            var occurrence = content.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+            while (occurrence >= 0)
+            {
+                var matchEnd = occurrence + term.Length;
+                var startsTerm = occurrence == 0 || !char.IsLetterOrDigit(content[occurrence - 1]);
+                var endsTerm = matchEnd == content.Length || !char.IsLetterOrDigit(content[matchEnd]);
+                if (startsTerm && endsTerm)
+                {
+                    matchStart = matchStart < 0 ? occurrence : Math.Min(matchStart, occurrence);
+                    break;
+                }
+
+                occurrence = content.IndexOf(term, occurrence + 1, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        if (matchStart < 0)
+        {
+            return 0;
+        }
+
+        var start = Math.Max(0, matchStart - MaximumPassageLength / 2);
+        return start + MaximumPassageLength > content.Length
+            ? content.Length - MaximumPassageLength
+            : start;
     }
 
     private static bool IsCanonicalKnowledgePath(string path)

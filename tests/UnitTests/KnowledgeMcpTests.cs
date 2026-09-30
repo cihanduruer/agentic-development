@@ -110,6 +110,47 @@ public sealed class KnowledgeMcpTests
         Assert.Equal(0, repository.CallCount);
     }
 
+    [Theory]
+    [InlineData("*")]
+    [InlineData("* security policy")]
+    [InlineData("+++")]
+    [InlineData("()")]
+    public async Task SearchRejectsWildcardsAndOperatorOnlyQueriesBeforeCallingSearch(string query)
+    {
+        var repository = new FakeKnowledgeSearchRepository();
+        var service = new KnowledgeSearchService(repository);
+
+        var result = await service.SearchAsync(query, Revision, CancellationToken.None);
+
+        Assert.False(result.HasEvidence);
+        Assert.Equal("invalid_query", result.Status);
+        Assert.Empty(result.Passages);
+        Assert.Equal(0, repository.CallCount);
+    }
+
+    [Fact]
+    public async Task SearchReturnsBoundedExcerptAroundMatchingTermAfterPassageLimit()
+    {
+        const string matchingEvidence = "The applicable security evidence is managed identity access.";
+        var content = new string('x', 13_000) + matchingEvidence + new string('y', 13_000);
+        var service = new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content)));
+
+        var result = await service.SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        var passage = Assert.Single(result.Passages);
+        Assert.True(result.HasEvidence);
+        Assert.True(passage.PassageTruncated);
+        Assert.True(passage.Passage.Length <= KnowledgeSearchService.MaximumPassageLength);
+        Assert.Contains(matchingEvidence, passage.Passage, StringComparison.Ordinal);
+        Assert.Equal(Revision, result.Revision);
+        Assert.Equal(new string('b', 64), passage.ContentHash);
+        Assert.StartsWith(
+            $"https://github.com/cihanduruer/agentic-development/blob/{Revision}/",
+            passage.SourceLink,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AzureSearchFilterPinsRevisionAndCanonicalKnowledgePaths()
     {
@@ -217,17 +258,20 @@ public sealed class KnowledgeMcpTests
         Assert.False(nextCalled);
     }
 
-    private static McpSearchHit Document(string path, string revision) => new()
-    {
-        Id = new string('c', 64),
-        Path = path,
-        Revision = revision,
-        Owner = "Security owner",
-        LastReviewed = "2026-09-30",
-        Title = "Managed identity",
-        Content = new string('x', KnowledgeSearchService.MaximumPassageLength + 1),
-        ContentHash = new string('b', 64)
-    };
+    private static McpSearchHit Document(
+        string path,
+        string revision,
+        string? content = null) => new()
+        {
+            Id = new string('c', 64),
+            Path = path,
+            Revision = revision,
+            Owner = "Security owner",
+            LastReviewed = "2026-09-30",
+            Title = "Managed identity",
+            Content = content ?? new string('x', KnowledgeSearchService.MaximumPassageLength + 1),
+            ContentHash = new string('b', 64)
+        };
 
     private sealed class FakeKnowledgeSearchRepository(params McpSearchHit[] documents)
         : IKnowledgeSearchRepository
