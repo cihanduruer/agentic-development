@@ -4,6 +4,7 @@ namespace AgenticHotelBooking.UnitTests;
 
 public sealed class BrandPaletteTests
 {
+    private static readonly double[] LuminanceWeights = [0.2126, 0.7152, 0.0722];
     private static readonly Dictionary<string, string> Palette = new()
     {
         ["--brand-dark-blue"] = "#164A61",
@@ -32,7 +33,10 @@ public sealed class BrandPaletteTests
     {
         var foreground = Hex(Palette[foregroundToken]);
         var background = Hex(Palette[backgroundToken]);
-        var ratio = (Luminance(foreground) + 0.05) / (Luminance(background) + 0.05);
+        var foregroundLuminance = Luminance(foreground) + 0.05;
+        var backgroundLuminance = Luminance(background) + 0.05;
+        var ratio = Math.Max(foregroundLuminance, backgroundLuminance) /
+                    Math.Min(foregroundLuminance, backgroundLuminance);
 
         Assert.True(ratio >= minimum, $"{foregroundToken} on {backgroundToken} has contrast {ratio:F2}:1.");
     }
@@ -66,6 +70,6 @@ public sealed class BrandPaletteTests
                 var normalized = channel / 255d;
                 return normalized <= 0.03928 ? normalized / 12.92 : Math.Pow((normalized + 0.055) / 1.055, 2.4);
             })
-            .Select((channel, index) => channel * new[] { 0.2126, 0.7152, 0.0722 }[index])
+            .Select((channel, index) => channel * LuminanceWeights[index])
             .Sum();
 }
