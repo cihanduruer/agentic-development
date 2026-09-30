@@ -113,6 +113,7 @@ def main():
                 stop_server(cross_host, cross_thread)
 
             tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
             tls_context.load_cert_chain(certificate, private_key)
             downgrade, downgrade_thread = start_server(target_url, tls_context)
             try:
