@@ -674,6 +674,10 @@ public static class SqlManagedIdentityBootstrap
             @apiPrincipalName AS [target.principalName],
             CONVERT(nvarchar(36), @apiPrincipalObjectId) AS [target.principalObjectId],
             DB_NAME() AS [databaseName],
+            SUSER_SNAME() AS [observer.name],
+            IS_ROLEMEMBER(N'db_owner') AS [observer.isDatabaseOwner],
+            HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'VIEW DEFINITION')
+                AS [observer.canViewDefinition],
             @@TRANCOUNT AS [transactionCount],
             JSON_QUERY(COALESCE((
                 SELECT
@@ -703,8 +707,8 @@ public static class SqlManagedIdentityBootstrap
                     permissions.permission_name AS permission,
                     grantor.name AS grantor
                 FROM sys.database_permissions AS permissions
-                INNER JOIN identity_candidates AS candidate
-                    ON candidate.principal_id = permissions.grantee_principal_id
+                INNER JOIN relevant_principals AS relevant
+                    ON relevant.principal_id = permissions.grantee_principal_id
                 INNER JOIN sys.database_principals AS grantee
                     ON grantee.principal_id = permissions.grantee_principal_id
                 LEFT JOIN sys.objects AS object_value
@@ -740,12 +744,6 @@ public static class SqlManagedIdentityBootstrap
                     ON role_value.principal_id = memberships.role_principal_id
                 INNER JOIN sys.database_principals AS member_value
                     ON member_value.principal_id = memberships.member_principal_id
-                WHERE memberships.member_principal_id IN (
-                          SELECT principal_id FROM relevant_principals
-                      )
-                   OR memberships.role_principal_id IN (
-                          SELECT principal_id FROM relevant_principals
-                      )
                 ORDER BY role_value.name, member_value.name
                 FOR JSON PATH
             ), N'[]')) AS roleMemberships,
@@ -851,6 +849,9 @@ public static class SqlManagedIdentityBootstrap
             Encrypt = true,
             TrustServerCertificate = false,
             ConnectTimeout = 30,
+            ApplicationIntent = options.Mode == SqlBootstrapMode.Diagnostic
+                ? ApplicationIntent.ReadOnly
+                : ApplicationIntent.ReadWrite,
         }.ConnectionString;
 
         return new SqlConnection(connectionString)

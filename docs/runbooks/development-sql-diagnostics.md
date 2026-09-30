@@ -25,16 +25,25 @@ The artifact contains:
 
 - firewall pre-state and post-state with rule names and exact IP bounds;
 - API identity candidates matching the expected name or object-ID SID;
-- direct database permissions, including state, class, schema, object, column,
-  permission, and grantor when available;
+- direct database permissions for those candidates and `hotel_booking_runtime`,
+  including state, class, schema, object, column, permission, and grantor when
+  available;
 - relevant role memberships, role ownership, delegated database-principal
-  permissions, owned securables, and `@@TRANCOUNT`.
+  permissions, owned securables, observer metadata visibility, and `@@TRANCOUNT`.
 
-The SQL tool runs a parameterized `SELECT` statement and writes JSON directly to the
-artifact directory. It never emits the SQL access token. The workflow creates one
-run-unique firewall rule whose start and end address are the same validated public
-runner IPv4 address. An `always()` cleanup path obtains a fresh OIDC login, deletes
-only that exact rule, captures post-state, and fails unless the rule is absent.
+The SQL tool requests `ApplicationIntent=ReadOnly`, runs a fixed parameterized
+`SELECT` statement, and writes JSON directly to the artifact directory. Application
+intent is defense in depth, not an authorization boundary; the command itself remains
+free of DDL, DML, permission changes, dynamic SQL, and user-supplied SQL. It never
+emits the SQL access token. The workflow creates one run-unique firewall rule whose
+start and end address are the same validated public runner IPv4 address. An
+`always()` cleanup path obtains a fresh OIDC login, deletes only that exact rule,
+captures post-state, and fails unless the rule is absent.
+
+`@@TRANCOUNT` describes only the diagnostic connection's current session. It cannot
+prove whether a prior deployment transaction committed or rolled back. Treat empty
+catalog arrays as conclusive only when the recorded observer facts show sufficient
+metadata visibility.
 
 If target resolution, token acquisition, SQL authentication, evidence collection, or
 cleanup fails, treat the run as incomplete. Do not infer permission state from a

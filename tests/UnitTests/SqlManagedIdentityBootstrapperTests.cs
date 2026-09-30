@@ -1,4 +1,5 @@
 using AgenticHotelBooking.SqlManagedIdentityBootstrapper;
+using Microsoft.Data.SqlClient;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -106,6 +107,9 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Equal("access-token", connection.AccessToken);
         Assert.Equal("example.database.windows.net", connection.DataSource);
         Assert.Equal("hotelbooking", connection.Database);
+        Assert.Equal(
+            ApplicationIntent.ReadWrite,
+            new SqlConnectionStringBuilder(connection.ConnectionString).ApplicationIntent);
         Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
         Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
         Assert.Equal("E", command.Parameters["@apiPrincipalType"].Value);
@@ -464,9 +468,14 @@ public sealed class SqlManagedIdentityBootstrapperTests
         using var command =
             SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
 
+        Assert.Equal(
+            ApplicationIntent.ReadOnly,
+            new SqlConnectionStringBuilder(connection.ConnectionString).ApplicationIntent);
         Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
         Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
         Assert.Contains("identityCandidates", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("observer.isDatabaseOwner", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("observer.canViewDefinition", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("directPermissions", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("permissions.state", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("permissions.class", command.CommandText, StringComparison.Ordinal);

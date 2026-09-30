@@ -38,12 +38,14 @@ Failed development bootstrap runs may be investigated through the manual
 canonical tagged development SQL server, `hotelbooking` database, and development API
 managed identity. It requires an exact typed confirmation, verifies the configured
 GitHub OIDC identity is still SQL Entra administrator, creates one run-unique exact-IP
-firewall rule, and executes only the bootstrapper's parameterized diagnostic `SELECT`.
-Its sanitized artifact records identity candidates, direct permissions, memberships,
-ownership and delegated-permission facts, and `@@TRANCOUNT`. A fresh OIDC login in an
-`always()` cleanup deletes only the exact temporary rule and proves its absence. The
-diagnostic cannot target production, deploy resources, change application
-configuration, or issue SQL permission or data mutations.
+firewall rule, and executes only the bootstrapper's fixed parameterized diagnostic
+`SELECT` with `ApplicationIntent=ReadOnly`. Its sanitized artifact records identity
+candidates, direct permissions, all role-membership edges, ownership and
+delegated-permission facts, observer metadata visibility, and `@@TRANCOUNT` for the
+diagnostic session. A fresh OIDC login in an `always()` cleanup deletes only the exact
+temporary rule and proves its absence. The diagnostic cannot target production,
+deploy resources, change application configuration, or issue SQL permission or data
+mutations.
 
 No SQL login or SQL administrator password is used by the running API or stored in GitHub or application settings. After the explicitly approved cleanup, upgraded environments verify the absence of the active legacy Key Vault secret. Key Vault soft-delete and purge protection can retain a recoverable deleted version for the configured retention period; the deployment does not purge it or delete the vault because permanent purge is a separately approved irreversible operation.
 

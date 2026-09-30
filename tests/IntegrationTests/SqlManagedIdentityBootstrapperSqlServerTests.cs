@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using AgenticHotelBooking.SqlManagedIdentityBootstrapper;
 using Microsoft.Data.SqlClient;
 
@@ -15,6 +16,14 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             async (connection, principalObjectId) =>
             {
                 await ExecuteNonQuery(connection, ExactDirectGrants);
+                var beforeDiagnostic = await ReadDirectPermissions(connection);
+
+                await AssertDiagnosticEvidenceIsReadOnly(
+                    connection,
+                    principalObjectId);
+
+                Assert.Equal(beforeDiagnostic, await ReadDirectPermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoles(connection));
 
                 await ExecuteBootstrap(connection, principalObjectId);
 
@@ -26,6 +35,71 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                 Assert.Equal(0, await CountDirectPermissions(connection));
                 await AssertRuntimeRoleContract(connection);
             });
+    }
+
+    private static async Task AssertDiagnosticEvidenceIsReadOnly(
+        SqlConnection connection,
+        Guid principalObjectId)
+    {
+        var options = new SqlBootstrapOptions(
+            connection.DataSource,
+            connection.Database,
+            PrincipalName,
+            principalObjectId,
+            "not-used-by-the-open-test-connection",
+            SqlBootstrapMode.Diagnostic,
+            "not-written-by-this-command.json");
+        await using var command =
+            SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
+
+        var result = await command.ExecuteScalarAsync();
+        var json = Assert.IsType<string>(result);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        Assert.Equal(
+            PrincipalName,
+            root.GetProperty("target").GetProperty("principalName").GetString());
+        Assert.Equal(
+            principalObjectId,
+            root.GetProperty("target").GetProperty("principalObjectId").GetGuid());
+        Assert.Equal(0, root.GetProperty("transactionCount").GetInt32());
+
+        var candidates = root.GetProperty("identityCandidates");
+        Assert.Equal(JsonValueKind.Array, candidates.ValueKind);
+        Assert.Single(candidates.EnumerateArray());
+
+        var permissions = root.GetProperty("directPermissions");
+        Assert.Equal(JsonValueKind.Array, permissions.ValueKind);
+        Assert.Equal(7, permissions.GetArrayLength());
+        foreach (var permission in permissions.EnumerateArray())
+        {
+            Assert.Equal(1, permission.GetProperty("class").GetInt32());
+            Assert.Equal("G", permission.GetProperty("state").GetString());
+            Assert.Equal("dbo", permission.GetProperty("schemaName").GetString());
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    permission.GetProperty("objectName").GetString()));
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    permission.GetProperty("permission").GetString()));
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    permission.GetProperty("grantor").GetString()));
+        }
+
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("roleMemberships").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("roleOwnership").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("delegatedPermissions").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("ownedSecurables").ValueKind);
     }
 
     [SqlServerTheory]
