@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedTotal = 34
+$expectedTotal = 54
 
 if (-not (Test-Path -LiteralPath $TrxPath -PathType Leaf)) {
     throw "SQL bootstrapper TRX '$TrxPath' does not exist."
@@ -107,6 +107,26 @@ $expectedIdentities = @(
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grant-option`")"
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grantor`")"
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"extra-database-permission`")"
+    "${testClassPrefix}ClientIdSidIsUsedForNewAndExistingPrincipals(initialState: `"new`")"
+    "${testClassPrefix}ClientIdSidIsUsedForNewAndExistingPrincipals(initialState: `"corrected`")"
+    "${testClassPrefix}KnownObjectIdSidRequiresOptInAndRepairsIdempotently"
+    "${testClassPrefix}ObjectIdSidRepairFailureRollsBackExactCatalog(fault: `"after-drop`")"
+    "${testClassPrefix}ObjectIdSidRepairFailureRollsBackExactCatalog(fault: `"before-commit`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"client-sid-candidate`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"object-sid-candidate`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"arbitrary-old-sid`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"direct-permission`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"deny-connect`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"extra-membership`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"missing-membership`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"missing-role-grant`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"role-grantor`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-target`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-grantor`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"schema-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"type-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"queue-activation`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"credential-owner`")"
 )
 $expectedIdentitySet =
     [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)

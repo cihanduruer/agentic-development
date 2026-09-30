@@ -10,9 +10,11 @@ public sealed record SqlBootstrapOptions(
     string Database,
     string PrincipalName,
     Guid PrincipalObjectId,
+    Guid PrincipalClientId,
     string AccessToken,
     SqlBootstrapMode Mode = SqlBootstrapMode.Bootstrap,
-    string? DiagnosticOutputPath = null)
+    string? DiagnosticOutputPath = null,
+    bool RepairObjectIdSid = false)
 {
     public static SqlBootstrapOptions Parse(
         string[] args,
@@ -41,6 +43,8 @@ public sealed record SqlBootstrapOptions(
             "--database",
             "--principal-name",
             "--principal-object-id",
+            "--principal-client-id",
+            "--repair-object-id-sid",
             "--mode",
             "--output",
         };
@@ -60,9 +64,17 @@ public sealed record SqlBootstrapOptions(
         }
 
         var principalObjectIdValue = RequireValue(values, "--principal-object-id");
-        if (!Guid.TryParse(principalObjectIdValue, out var principalObjectId))
+        if (!Guid.TryParse(principalObjectIdValue, out var principalObjectId)
+            || principalObjectId == Guid.Empty)
         {
             throw new ArgumentException("--principal-object-id must be a valid GUID.", nameof(args));
+        }
+
+        if (!Guid.TryParse(RequireValue(values, "--principal-client-id"), out var principalClientId)
+            || principalClientId == Guid.Empty || principalClientId == principalObjectId)
+        {
+            throw new ArgumentException(
+                "--principal-client-id must be a nonempty GUID distinct from --principal-object-id.", nameof(args));
         }
 
         var accessToken = getEnvironmentVariable("AZURE_SQL_ACCESS_TOKEN");
@@ -97,14 +109,24 @@ public sealed record SqlBootstrapOptions(
                 nameof(args));
         }
 
+        var repairObjectIdSid = values.TryGetValue("--repair-object-id-sid", out var repairConfirmation);
+        if (repairObjectIdSid
+            && (mode != SqlBootstrapMode.Bootstrap || repairConfirmation != "REPAIR-OBJECT-ID-SID"))
+        {
+            throw new ArgumentException(
+                "--repair-object-id-sid requires REPAIR-OBJECT-ID-SID in bootstrap mode.", nameof(args));
+        }
+
         return new SqlBootstrapOptions(
             server,
             database,
             principalName,
             principalObjectId,
+            principalClientId,
             accessToken,
             mode,
-            outputPath);
+            outputPath,
+            repairObjectIdSid);
     }
 
     private static string RequireValue(
@@ -182,16 +204,29 @@ public static class SqlManagedIdentityBootstrap
             BEGIN TRANSACTION;
 
             DECLARE @ApiPrincipalSid binary(16) =
+                CONVERT(binary(16), @apiPrincipalClientId);
+            DECLARE @ObjectIdSid binary(16) =
                 CONVERT(binary(16), @apiPrincipalObjectId);
             DECLARE @Command nvarchar(max);
             DECLARE @ExistingApiPrincipalId int =
                 DATABASE_PRINCIPAL_ID(@apiPrincipalName);
+            DECLARE @RepairSid bit = 0;
+            DECLARE @ExpectedExistingSid binary(16) = @ApiPrincipalSid;
+            IF @repairObjectIdSid = 1 AND EXISTS (
+                SELECT 1 FROM sys.database_principals
+                WHERE principal_id = @ExistingApiPrincipalId
+                  AND sid = @ObjectIdSid
+            )
+            BEGIN
+                SET @RepairSid = 1;
+                SET @ExpectedExistingSid = @ObjectIdSid;
+            END;
 
             IF (
                 SELECT COUNT_BIG(*)
                 FROM sys.database_principals
                 WHERE name = @apiPrincipalName
-                   OR sid = @ApiPrincipalSid
+                   OR sid IN (@ApiPrincipalSid, @ObjectIdSid)
             ) > 1
                OR (
                    @ExistingApiPrincipalId IS NOT NULL
@@ -200,7 +235,7 @@ public static class SqlManagedIdentityBootstrap
                        FROM sys.database_principals
                        WHERE principal_id = @ExistingApiPrincipalId
                          AND name = @apiPrincipalName
-                         AND sid = @ApiPrincipalSid
+                         AND sid = @ExpectedExistingSid
                          AND type = @apiPrincipalType
                          AND authentication_type_desc = @apiAuthenticationType
                    )
@@ -210,7 +245,7 @@ public static class SqlManagedIdentityBootstrap
                    AND EXISTS (
                        SELECT 1
                        FROM sys.database_principals
-                       WHERE sid = @ApiPrincipalSid
+                       WHERE sid IN (@ApiPrincipalSid, @ObjectIdSid)
                    )
                )
             BEGIN
@@ -219,7 +254,7 @@ public static class SqlManagedIdentityBootstrap
                     SELECT COUNT_BIG(*)
                     FROM sys.database_principals
                     WHERE name = @apiPrincipalName
-                       OR sid = @ApiPrincipalSid
+                       OR sid IN (@ApiPrincipalSid, @ObjectIdSid)
                 ) > 1
                 BEGIN
                     SET @ActualApiAuthenticationType = N'<ambiguous>';
@@ -230,7 +265,7 @@ public static class SqlManagedIdentityBootstrap
                         authentication_type_desc
                     FROM sys.database_principals
                     WHERE name = @apiPrincipalName
-                       OR sid = @ApiPrincipalSid;
+                       OR sid IN (@ApiPrincipalSid, @ObjectIdSid);
                 END;
                 DECLARE @IdentityMismatchMessage nvarchar(2048) = CONCAT(
                     N'The API principal name, SID, type, or authentication type does not match the expected identity. ',
@@ -458,6 +493,79 @@ public static class SqlManagedIdentityBootstrap
                       AND permissions.grantor_principal_id = @DboPrincipalId
                   )
             );
+            IF @RepairSid = 1
+            BEGIN
+                IF COALESCE(HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'CONTROL'), 0) <> 1
+                   OR @ExistingDirectPermissionCount <> 0
+                   OR @ExistingRuntimeRoleId IS NULL
+                   OR (SELECT COUNT_BIG(*) FROM sys.database_permissions
+                       WHERE grantee_principal_id = @ExistingApiPrincipalId) <> 1
+                   OR NOT EXISTS (
+                       SELECT 1 FROM sys.database_role_members
+                       WHERE role_principal_id = @ExistingRuntimeRoleId
+                         AND member_principal_id = @ExistingApiPrincipalId
+                   )
+                   OR (SELECT COUNT_BIG(*) FROM sys.database_permissions
+                       WHERE grantee_principal_id = @ExistingRuntimeRoleId) <> 7
+                   OR EXISTS (
+                       SELECT 1 FROM sys.database_permissions AS actual
+                       LEFT JOIN @ExpectedRuntimePermissions AS expected
+                         ON actual.class = expected.class
+                        AND actual.major_id = expected.major_id
+                        AND actual.minor_id = expected.minor_id
+                        AND actual.permission_name COLLATE DATABASE_DEFAULT = expected.permission_name
+                        AND actual.state COLLATE DATABASE_DEFAULT = expected.state
+                       WHERE actual.grantee_principal_id = @ExistingRuntimeRoleId
+                         AND (expected.major_id IS NULL OR actual.grantor_principal_id <> @DboPrincipalId)
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM sys.database_permissions
+                       WHERE (class = 4 AND major_id = @ExistingApiPrincipalId)
+                          OR grantor_principal_id IN (@ExistingApiPrincipalId, @ExistingRuntimeRoleId)
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM sys.database_principals
+                       WHERE principal_id = @ExistingApiPrincipalId
+                         AND (COALESCE(default_schema_name, N'dbo') <> N'dbo'
+                              OR allow_encrypted_value_modifications = 1)
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM (
+                           SELECT principal_id FROM sys.assemblies
+                           UNION ALL SELECT principal_id FROM sys.types
+                           UNION ALL SELECT principal_id FROM sys.xml_schema_collections
+                           UNION ALL SELECT principal_id FROM sys.certificates
+                           UNION ALL SELECT principal_id FROM sys.asymmetric_keys
+                           UNION ALL SELECT principal_id FROM sys.symmetric_keys
+                           UNION ALL SELECT principal_id FROM sys.fulltext_catalogs
+                           UNION ALL SELECT principal_id FROM sys.fulltext_stoplists
+                           UNION ALL SELECT principal_id FROM sys.services
+                           UNION ALL SELECT principal_id FROM sys.service_contracts
+                           UNION ALL SELECT principal_id FROM sys.service_message_types
+                           UNION ALL SELECT principal_id FROM sys.routes
+                           UNION ALL SELECT principal_id FROM sys.remote_service_bindings
+                           UNION ALL SELECT principal_id FROM sys.database_scoped_credentials
+                       ) AS owned
+                       WHERE owned.principal_id IN (@ExistingApiPrincipalId, @ExistingRuntimeRoleId)
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM sys.sql_modules
+                       WHERE execute_as_principal_id = @ExistingApiPrincipalId
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM sys.service_queues
+                       WHERE execute_as_principal_id = @ExistingApiPrincipalId
+                   )
+                BEGIN
+                    THROW 51019, 'Object-ID SID repair requires the exact canonical identity, CONNECT, role, and dependency-free catalog.', 1;
+                END;
+
+                SET @Command =
+                    N'ALTER ROLE [hotel_booking_runtime] DROP MEMBER ' + QUOTENAME(@apiPrincipalName) + N';' +
+                    N'DROP USER ' + QUOTENAME(@apiPrincipalName) + N';';
+                EXEC sys.sp_executesql @Command;
+            END;
+
             IF @ExistingDirectPermissionCount > 0
             BEGIN
                 IF @ExistingDirectPermissionCount <> 7
@@ -673,6 +781,32 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51018, 'The runtime role has delegated database-principal permissions after bootstrap.', 1;
             END;
 
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.database_principals
+                WHERE principal_id = @ExistingApiPrincipalId
+                  AND name = @apiPrincipalName AND sid = @ApiPrincipalSid
+                  AND type = @apiPrincipalType
+                  AND authentication_type_desc = @apiAuthenticationType
+            )
+            BEGIN
+                THROW 51020, 'The final API principal does not have the client-ID SID.', 1;
+            END;
+
+            IF @RepairSid = 1 AND (
+                (SELECT COUNT_BIG(*) FROM sys.database_permissions
+                 WHERE grantee_principal_id = @ExistingApiPrincipalId) <> 1
+                OR NOT EXISTS (
+                    SELECT 1 FROM sys.database_permissions
+                    WHERE grantee_principal_id = @ExistingApiPrincipalId
+                      AND class = 0 AND major_id = 0 AND minor_id = 0
+                      AND permission_name = N'CONNECT' AND state = N'G'
+                      AND grantor_principal_id = @DboPrincipalId
+                )
+            )
+            BEGIN
+                THROW 51021, 'Object-ID SID repair did not preserve canonical CONNECT.', 1;
+            END;
+
             COMMIT TRANSACTION;
         END TRY
         BEGIN CATCH
@@ -697,6 +831,7 @@ public static class SqlManagedIdentityBootstrap
             FROM sys.database_principals AS principals
             WHERE principals.name = @apiPrincipalName
                OR principals.sid = CONVERT(binary(16), @apiPrincipalObjectId)
+               OR principals.sid = CONVERT(binary(16), @apiPrincipalClientId)
         ),
         relevant_principals AS (
             SELECT principal_id
@@ -709,6 +844,8 @@ public static class SqlManagedIdentityBootstrap
         SELECT
             @apiPrincipalName AS [target.principalName],
             CONVERT(nvarchar(36), @apiPrincipalObjectId) AS [target.principalObjectId],
+            CONVERT(nvarchar(36), @apiPrincipalClientId) AS [target.principalClientId],
+            sys.fn_varbintohexstr(CONVERT(binary(16), @apiPrincipalClientId)) AS [target.expectedSid],
             DB_NAME() AS [databaseName],
             SUSER_SNAME() AS [observer.name],
             IS_ROLEMEMBER(N'db_owner') AS [observer.isDatabaseOwner],
@@ -720,6 +857,9 @@ public static class SqlManagedIdentityBootstrap
                     candidate.principal_id AS principalId,
                     candidate.name,
                     sys.fn_varbintohexstr(candidate.sid) AS sid,
+                    CASE WHEN DATALENGTH(candidate.sid) = 16
+                         THEN CONVERT(nvarchar(36), CONVERT(uniqueidentifier, candidate.sid))
+                    END AS sidGuid,
                     candidate.type,
                     candidate.type_desc AS typeDescription,
                     candidate.authentication_type_desc AS authenticationType,
@@ -933,6 +1073,16 @@ public static class SqlManagedIdentityBootstrap
                 Value = options.PrincipalObjectId,
             });
         command.Parameters.Add(
+            new SqlParameter("@apiPrincipalClientId", SqlDbType.UniqueIdentifier)
+            {
+                Value = options.PrincipalClientId,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@repairObjectIdSid", SqlDbType.Bit)
+            {
+                Value = options.RepairObjectIdSid,
+            });
+        command.Parameters.Add(
             new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
             {
                 Value = "E",
@@ -971,6 +1121,11 @@ public static class SqlManagedIdentityBootstrap
             new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
             {
                 Value = options.PrincipalObjectId,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalClientId", SqlDbType.UniqueIdentifier)
+            {
+                Value = options.PrincipalClientId,
             });
         return command;
     }
@@ -1032,6 +1187,9 @@ public static class SqlManagedIdentityBootstrap
                 || target.GetProperty("principalObjectId").ValueKind
                     != JsonValueKind.String
                 || !target.GetProperty("principalObjectId").TryGetGuid(out _)
+                || target.GetProperty("principalClientId").ValueKind != JsonValueKind.String
+                || !target.GetProperty("principalClientId").TryGetGuid(out _)
+                || target.GetProperty("expectedSid").ValueKind != JsonValueKind.String
                 || root.GetProperty("databaseName").ValueKind != JsonValueKind.String
                 || observer.ValueKind != JsonValueKind.Object
                 || observer.GetProperty("name").ValueKind != JsonValueKind.String

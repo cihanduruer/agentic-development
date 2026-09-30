@@ -15,6 +15,12 @@
 
 Artifacts created before metadata-digest binding or without the current deployment-contract manifest are read-only historical proof. They are not eligible for a new production promotion, including the historical `c6c4e0de0b4e8a21c0db561baea732fd42be73e2` showcase QA and release baseline.
 
+The current `entra-sql-managed-identity` contract version is **2** (client-ID SQL SID
+binding and scoped App Service identity resolution). Version-1 artifacts are also
+ineligible, even when their older validator would accept them. Production preflight
+uses policy from the trusted `main` dispatch revision; deployment source remains the
+exact approved release commit.
+
 The `production` environment is restricted to `main`. Required reviewers and wait timers are not available for this private repository on the current GitHub billing plan (the settings API returned HTTP 422), so the environment does not currently provide a reviewer prompt. Branch protection and rulesets are also unavailable (HTTP 403). Repository write access, manual dispatch, exact typed confirmation, immutable run/SHA validation, direct revalidation of QA and PR-validation evidence, and checksums are mandatory compensating controls. A plan upgrade requires administrators to add environment reviewers and required checks before relying on GitHub settings as approval and merge gates.
 
 Required `production` environment configuration:

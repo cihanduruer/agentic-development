@@ -3,6 +3,10 @@ name: Deploy production
 on:
   workflow_dispatch:
     inputs:
+      sql_object_id_sid_repair_confirmation:
+        description: Type REPAIR-OBJECT-ID-SID to transactionally replace only the verified historical object-ID SID
+        required: false
+        type: string
       release_run_id:
         description: Successful Release proposal workflow run ID
         required: true
@@ -95,7 +99,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download selected release artifact
@@ -397,6 +401,15 @@ jobs:
           }
           "principalId=$($principalId.Trim())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $sqlIdentity = ./scripts/Resolve-AppServiceSqlIdentity.ps1 `
+            -ResourceGroup agentic-hotelbookingprod `
+            -AppName '${{ steps.infrastructure.outputs.apiAppName }}' `
+            -ExpectedTenantId '${{ secrets.AZURE_TENANT_ID }}'
+          if ($sqlIdentity.PrincipalObjectId -ne $principalId.Trim()) {
+            throw 'The App Service identity changed during SQL identity resolution.'
+          }
+          "clientId=$($sqlIdentity.PrincipalClientId)" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "configuredApi=$($configuredApi.ToString().ToLowerInvariant())" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -437,7 +450,17 @@ jobs:
 
       - name: Bootstrap API managed identity database role
         shell: pwsh
+        env:
+          SID_REPAIR_CONFIRMATION: ${{ inputs.sql_object_id_sid_repair_confirmation }}
         run: |
+          $repairArguments = @()
+          if (-not [string]::IsNullOrEmpty($env:SID_REPAIR_CONFIRMATION)) {
+            if ('${{ github.event_name }}' -ne 'workflow_dispatch' -or
+                $env:SID_REPAIR_CONFIRMATION -cne 'REPAIR-OBJECT-ID-SID') {
+              throw 'SQL SID repair requires an explicitly confirmed manual deployment.'
+            }
+            $repairArguments = @('--repair-object-id-sid', $env:SID_REPAIR_CONFIRMATION)
+          }
           $env:AZURE_SQL_ACCESS_TOKEN = az account get-access-token `
             --resource https://database.windows.net/ `
             --query accessToken `
@@ -452,7 +475,10 @@ jobs:
             --server '${{ steps.infrastructure.outputs.sqlServerName }}.database.windows.net' `
             --database hotelbooking `
             --principal-name '${{ steps.infrastructure.outputs.apiName }}' `
-            --principal-object-id '${{ steps.api-identity.outputs.principalId }}'
+            --principal-object-id '${{ steps.api-identity.outputs.principalId }}' `
+            --principal-client-id '${{ steps.api-identity.outputs.clientId }}' `
+            @repairArguments
+          if ($LASTEXITCODE -ne 0) { throw 'SQL managed identity bootstrap failed.' }
       - name: Configure initial API after SQL bootstrap
         if: steps.api-identity.outputs.configuredApi == 'false'
         shell: pwsh

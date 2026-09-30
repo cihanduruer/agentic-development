@@ -24,7 +24,13 @@ administrator.
 The artifact contains:
 
 - firewall pre-state and post-state with rule names and exact IP bounds;
-- API identity candidates matching the expected name or object-ID SID;
+- safe ARM identity binding (`managed-identity.json`) with separate principal object ID,
+  application/client ID, tenant ID, and exact App Service resource ID;
+- SQL target fields `principalObjectId`, `principalClientId`, and `expectedSid` (the
+  client ID in SQL binary representation);
+- API identity candidates matching the expected name, client-ID SID, or historical
+  object-ID SID; each candidate's `sid` is observed binary hex and `sidGuid` is its
+  GUID interpretation, not a claim that the SID is an object ID;
 - direct database permissions for those candidates and `hotel_booking_runtime`,
   including state, class, schema, object, column, permission, and grantor when
   available;
@@ -49,3 +55,14 @@ If target resolution, token acquisition, SQL authentication, evidence collection
 cleanup fails, treat the run as incomplete. Do not infer permission state from a
 partial artifact, and do not change grants manually. Resolve any retained exact rule
 under an approved incident procedure before retrying.
+
+For service principals/managed identities, compare the observed SID to the verified
+**client ID**, not the directory object ID. The latter is used for identity binding
+and RBAC. Resolution uses the exact App Service's scoped ARM managed-identity
+metadata; it does not require Graph grants and never follows a credential URL.
+
+A diagnosed historical object-ID SID may be corrected only through the separately
+approved deployment confirmation `REPAIR-OBJECT-ID-SID`, with the preconditions in
+`docs/knowledge/security.md`. This diagnostic remains SELECT-only and cannot request
+repair. A passing local SQL regression or successful bootstrap is not a live API
+login proof; verify the SQL-backed catalog after the authorized repair.

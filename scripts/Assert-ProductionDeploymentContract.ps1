@@ -49,7 +49,7 @@ $evidenceVersionIsInteger =
 if (-not $contractSchemaIsInteger -or $contract.schemaVersion -ne 1 -or
     $contract.name -isnot [string] -or
     $contract.name -cne 'entra-sql-managed-identity' -or
-    -not $contractVersionIsInteger -or $contract.version -ne 1 -or
+    -not $contractVersionIsInteger -or $contract.version -ne 2 -or
     -not $evidenceSchemaIsInteger -or $evidence.schemaVersion -ne 2 -or
     $evidence.deploymentContract -isnot [string] -or
     $evidence.deploymentContract -cne $contract.name -or

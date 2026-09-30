@@ -47,6 +47,26 @@ $expectedNames = @(
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grant-option`")"
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grantor`")"
     "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"extra-database-permission`")"
+    "${testClassPrefix}ClientIdSidIsUsedForNewAndExistingPrincipals(initialState: `"new`")"
+    "${testClassPrefix}ClientIdSidIsUsedForNewAndExistingPrincipals(initialState: `"corrected`")"
+    "${testClassPrefix}KnownObjectIdSidRequiresOptInAndRepairsIdempotently"
+    "${testClassPrefix}ObjectIdSidRepairFailureRollsBackExactCatalog(fault: `"after-drop`")"
+    "${testClassPrefix}ObjectIdSidRepairFailureRollsBackExactCatalog(fault: `"before-commit`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"client-sid-candidate`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"object-sid-candidate`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"arbitrary-old-sid`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"direct-permission`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"deny-connect`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"extra-membership`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"missing-membership`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"missing-role-grant`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"role-grantor`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-target`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-grantor`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"schema-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"type-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"queue-activation`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"credential-owner`")"
 )
 
 function New-CaseSet {
@@ -117,9 +137,9 @@ function New-TestTrx {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 34,
-        [int] $Executed = 34,
-        [int] $Passed = 34,
+        [int] $Total = 54,
+        [int] $Executed = 54,
+        [int] $Passed = 54,
         [int] $NotExecuted = 0
     )
 
@@ -192,9 +212,9 @@ function Assert-Rejected {
     param(
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 34,
-        [int] $Executed = 34,
-        [int] $Passed = 34,
+        [int] $Total = 54,
+        [int] $Executed = 54,
+        [int] $Passed = 54,
         [int] $NotExecuted = 0
     )
 
@@ -253,7 +273,7 @@ try {
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases | ForEach-Object { $_.Outcome = 'NotExecuted' }
-    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 34
+    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 54
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases[10].ResultName = $cases[9].ResultName
@@ -406,12 +426,14 @@ try {
     $cases[27].DefinitionMethod = Get-MethodName $cases[27].ResultName
     Assert-Rejected -Name '42-replaced-ambiguity-case' -Cases $cases
 
-    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26 + 28..33] `
-        -Total 33 -Executed 33 -Passed 33
+    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26 + 28..53] `
+        -Total 53 -Executed 53 -Passed 53
+    Assert-Rejected -Name '44-missing-sid-repair-case' -Cases $baseCases[0..35 + 37..53] `
+        -Total 53 -Executed 53 -Passed 53
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
 }
 
-Write-Host 'SQL bootstrapper evidence assertion tests passed: 3 valid variants and 43 challenges.'
+Write-Host 'SQL bootstrapper evidence assertion tests passed: 3 valid variants and 44 challenges.'
 exit 0

@@ -124,6 +124,7 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             connection.DataSource,
             connection.Database,
             PrincipalName,
+            Guid.NewGuid(),
             principalObjectId,
             "not-used-by-the-open-test-connection",
             SqlBootstrapMode.Diagnostic,
@@ -140,8 +141,12 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             PrincipalName,
             root.GetProperty("target").GetProperty("principalName").GetString());
         Assert.Equal(
-            principalObjectId,
+            options.PrincipalObjectId,
             root.GetProperty("target").GetProperty("principalObjectId").GetGuid());
+        Assert.Equal(principalObjectId,
+            root.GetProperty("target").GetProperty("principalClientId").GetGuid());
+        Assert.Equal(principalObjectId,
+            root.GetProperty("identityCandidates")[0].GetProperty("sidGuid").GetGuid());
         Assert.Equal(0, root.GetProperty("transactionCount").GetInt32());
 
         var candidates = root.GetProperty("identityCandidates");
@@ -596,7 +601,17 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
             {
+                Value = Guid.NewGuid(),
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalClientId", SqlDbType.UniqueIdentifier)
+            {
                 Value = principalObjectId,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@repairObjectIdSid", SqlDbType.Bit)
+            {
+                Value = false,
             });
         command.Parameters.Add(
             new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
@@ -609,6 +624,235 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                 Value = authenticationType,
             });
         await command.ExecuteNonQueryAsync();
+    }
+
+    [SqlServerTheory]
+    [InlineData("new")]
+    [InlineData("corrected")]
+    public async Task ClientIdSidIsUsedForNewAndExistingPrincipals(string initialState)
+    {
+        await InSidDatabase(async (connection, options) =>
+        {
+            if (initialState == "new")
+            {
+                await ExecuteNonQuery(connection, "DROP USER [agentic-api];");
+            }
+            await ExecuteSidBootstrap(connection, options);
+            Assert.Equal(options.PrincipalClientId, await ReadApiSid(connection));
+            Assert.NotEqual(options.PrincipalObjectId, await ReadApiSid(connection));
+            await AssertRuntimeRoleContract(connection);
+            var before = await ReadSecurityCatalog(connection);
+            await ExecuteSidBootstrap(connection, options);
+            Assert.Equal(before, await ReadSecurityCatalog(connection));
+        });
+    }
+
+    [SqlServerFact]
+    public async Task KnownObjectIdSidRequiresOptInAndRepairsIdempotently()
+    {
+        await InSidDatabase(async (connection, options) =>
+        {
+            await CreateKnownWrongSid(connection, options);
+            Assert.Equal(options.PrincipalObjectId, await ReadApiSid(connection));
+            var before = await ReadSecurityCatalog(connection);
+            var exception = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteSidBootstrap(connection, options));
+            Assert.Equal(51007, exception.Number);
+            Assert.Equal(before, await ReadSecurityCatalog(connection));
+
+            await ExecuteSidBootstrap(connection, options with { RepairObjectIdSid = true });
+            Assert.Equal(options.PrincipalClientId, await ReadApiSid(connection));
+            Assert.Equal(["0:0:0:CONNECT:G:dbo"], await ReadDirectPermissions(connection));
+            await AssertRuntimeRoleContract(connection);
+            var repaired = await ReadSecurityCatalog(connection);
+            await ExecuteSidBootstrap(connection, options with { RepairObjectIdSid = true });
+            await ExecuteSidBootstrap(connection, options);
+            Assert.Equal(repaired, await ReadSecurityCatalog(connection));
+        });
+    }
+
+    [SqlServerTheory]
+    [InlineData("after-drop")]
+    [InlineData("before-commit")]
+    public async Task ObjectIdSidRepairFailureRollsBackExactCatalog(string fault)
+    {
+        await InSidDatabase(async (connection, options) =>
+        {
+            await CreateKnownWrongSid(connection, options);
+            var before = await ReadSecurityCatalog(connection);
+            var source = SqlManagedIdentityBootstrap.CommandText;
+            var anchor = fault == "after-drop"
+                ? "IF @ExistingDirectPermissionCount > 0"
+                : "COMMIT TRANSACTION;";
+            Assert.Equal(1, source.Split(anchor, StringSplitOptions.None).Length - 1);
+            source = source.Replace(anchor, "THROW 51999, 'Injected repair failure.', 1;\n" + anchor,
+                StringComparison.Ordinal);
+            var exception = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteSidBootstrap(connection, options with { RepairObjectIdSid = true }, source));
+            Assert.Equal(51999, exception.Number);
+            Assert.Equal(before, await ReadSecurityCatalog(connection));
+            Assert.Equal(options.PrincipalObjectId, await ReadApiSid(connection));
+            await AssertNoTransaction(connection);
+        });
+    }
+
+    [SqlServerTheory]
+    [InlineData("client-sid-candidate")]
+    [InlineData("object-sid-candidate")]
+    [InlineData("arbitrary-old-sid")]
+    [InlineData("direct-permission")]
+    [InlineData("deny-connect")]
+    [InlineData("extra-membership")]
+    [InlineData("missing-membership")]
+    [InlineData("missing-role-grant")]
+    [InlineData("role-grantor")]
+    [InlineData("principal-target")]
+    [InlineData("principal-grantor")]
+    [InlineData("schema-owner")]
+    [InlineData("type-owner")]
+    [InlineData("queue-activation")]
+    [InlineData("credential-owner")]
+    public async Task ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(string mutation)
+    {
+        await InSidDatabase(async (connection, options) =>
+        {
+            await CreateKnownWrongSid(connection, options);
+            var clientLogin = await ReadLoginName(connection, options.PrincipalClientId);
+            var sql = mutation switch
+            {
+                "client-sid-candidate" => $"CREATE USER [other] FOR LOGIN [{clientLogin}];",
+                "object-sid-candidate" => "ALTER USER [agentic-api] WITH NAME = [other]; CREATE USER [agentic-api] WITHOUT LOGIN;",
+                "arbitrary-old-sid" => "",
+                "direct-permission" => "GRANT SELECT ON dbo.Hotels TO [agentic-api];",
+                "deny-connect" => "DENY CONNECT TO [agentic-api];",
+                "extra-membership" => "CREATE ROLE [extra]; ALTER ROLE [extra] ADD MEMBER [agentic-api];",
+                "missing-membership" => "ALTER ROLE [hotel_booking_runtime] DROP MEMBER [agentic-api];",
+                "missing-role-grant" => "REVOKE SELECT ON dbo.Hotels FROM [hotel_booking_runtime];",
+                "role-grantor" =>
+                    """
+                    CREATE USER [grantor] WITHOUT LOGIN;
+                    GRANT SELECT ON dbo.Hotels TO [grantor] WITH GRANT OPTION;
+                    REVOKE SELECT ON dbo.Hotels FROM [hotel_booking_runtime];
+                    GRANT SELECT ON dbo.Hotels TO [hotel_booking_runtime] AS [grantor];
+                    """,
+                "principal-target" => "CREATE USER [other] WITHOUT LOGIN; GRANT IMPERSONATE ON USER::[agentic-api] TO [other];",
+                "principal-grantor" =>
+                    """
+                    CREATE USER [other] WITHOUT LOGIN;
+                    GRANT SELECT ON dbo.Hotels TO [agentic-api] WITH GRANT OPTION;
+                    GRANT SELECT ON dbo.Hotels TO [other] AS [agentic-api];
+                    """,
+                "schema-owner" => "CREATE SCHEMA [owned] AUTHORIZATION [agentic-api];",
+                "type-owner" => "CREATE TYPE dbo.OwnedType FROM int; ALTER AUTHORIZATION ON TYPE::dbo.OwnedType TO [agentic-api];",
+                "queue-activation" =>
+                    """
+                    EXEC(N'CREATE PROCEDURE dbo.QueueReceiver AS SELECT 1;');
+                    CREATE QUEUE dbo.ActivationQueue WITH ACTIVATION (
+                        STATUS = OFF, PROCEDURE_NAME = dbo.QueueReceiver,
+                        MAX_QUEUE_READERS = 1, EXECUTE AS 'agentic-api');
+                    """,
+                "credential-owner" =>
+                    """
+                    CREATE DATABASE SCOPED CREDENTIAL [owned] WITH IDENTITY = 'Managed Identity';
+                    ALTER AUTHORIZATION ON DATABASE SCOPED CREDENTIAL::[owned] TO [agentic-api];
+                    """,
+                _ => throw new ArgumentOutOfRangeException(nameof(mutation)),
+            };
+            if (sql.Length > 0)
+            {
+                await ExecuteNonQuery(connection, sql);
+            }
+            if (mutation == "arbitrary-old-sid")
+            {
+                options = options with { PrincipalObjectId = Guid.NewGuid() };
+            }
+            var before = await ReadSecurityCatalog(connection);
+            // A DDL trigger proves rejection precedes DROP, not merely rollback afterwards.
+            await ExecuteNonQuery(connection,
+                """
+                CREATE TRIGGER [reject_drop] ON DATABASE FOR DROP_USER
+                AS THROW 51998, 'DROP must not be reached for hostile state.', 1;
+                """);
+            var exception = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteSidBootstrap(connection, options with { RepairObjectIdSid = true }));
+            Assert.True(exception.Number is 51001 or 51002 or 51007 or 51012 or 51019,
+                $"Unexpected SQL error {exception.Number}: {exception.Message}");
+            await ExecuteNonQuery(connection, "DROP TRIGGER [reject_drop] ON DATABASE;");
+            Assert.Equal(before, await ReadSecurityCatalog(connection));
+            await AssertNoTransaction(connection);
+        });
+    }
+
+    private static async Task InSidDatabase(Func<SqlConnection, SqlBootstrapOptions, Task> test)
+    {
+        await InIsolatedDatabase(async (connection, clientId) =>
+        {
+            var objectLogin = $"object_login_{Guid.NewGuid():N}";
+            var objectId = await CreateSqlLogin(connection, objectLogin);
+            Assert.NotEqual(objectId, clientId);
+            try
+            {
+                var options = new SqlBootstrapOptions(
+                    connection.DataSource, connection.Database, PrincipalName,
+                    objectId, clientId, "unused-open-test-connection");
+                await ExecuteNonQuery(connection, "GRANT CONNECT TO [agentic-api] AS [dbo];");
+                await test(connection, options);
+            }
+            finally
+            {
+                await ExecuteNonQuery(connection, $"DROP LOGIN [{objectLogin}];");
+            }
+        });
+    }
+
+    private static async Task CreateKnownWrongSid(SqlConnection connection, SqlBootstrapOptions options)
+    {
+        // Reproduce the previous mapping with the real GUID/binary conversion and role bootstrap.
+        await ExecuteNonQuery(connection, "DROP USER [agentic-api];");
+        const string mapping = "CONVERT(binary(16), @apiPrincipalClientId)";
+        Assert.Equal(1, SqlManagedIdentityBootstrap.CommandText.Split(mapping, StringSplitOptions.None).Length - 1);
+        var oldMapping = SqlManagedIdentityBootstrap.CommandText.Replace(
+            mapping, "CONVERT(binary(16), @apiPrincipalObjectId)", StringComparison.Ordinal);
+        await ExecuteSidBootstrap(connection, options, oldMapping);
+    }
+
+    private static async Task ExecuteSidBootstrap(
+        SqlConnection connection, SqlBootstrapOptions options, string? source = null)
+    {
+        await using var command = SqlManagedIdentityBootstrap.CreateCommand(connection, options);
+        source ??= command.CommandText;
+        const string azureCreate = "N' WITH SID = ' + @ApiPrincipalSidHex + N', TYPE = E;'";
+        Assert.Equal(1, source.Split(azureCreate, StringSplitOptions.None).Length - 1);
+        Assert.Equal("E", command.Parameters["@apiPrincipalType"].Value);
+        Assert.Equal("EXTERNAL", command.Parameters["@apiAuthenticationType"].Value);
+        // Local SQL has no Azure external-user DDL. Substitute only CREATE and fixture type/authentication.
+        command.CommandText = source.Replace(azureCreate,
+            "N' FOR LOGIN ' + QUOTENAME(SUSER_SNAME(@ApiPrincipalSid)) + N';'", StringComparison.Ordinal);
+        command.Parameters["@apiPrincipalType"].Value = "S";
+        command.Parameters["@apiAuthenticationType"].Value = "INSTANCE";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<string> ReadLoginName(SqlConnection connection, Guid sid)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT SUSER_SNAME(CONVERT(binary(16), @sid));";
+        command.Parameters.Add(new SqlParameter("@sid", SqlDbType.UniqueIdentifier) { Value = sid });
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<Guid> ReadApiSid(SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT CONVERT(uniqueidentifier, sid) FROM sys.database_principals WHERE name = N'agentic-api';";
+        return (Guid)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task AssertNoTransaction(SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT @@TRANCOUNT;";
+        Assert.Equal(0, await command.ExecuteScalarAsync());
     }
 
     public static TheoryData<string, string, string>

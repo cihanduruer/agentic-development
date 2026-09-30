@@ -98,6 +98,15 @@ jobs:
           "serverName=$($servers[0].name)" | Out-File $env:GITHUB_OUTPUT -Append
           "principalName=$($apps[0].name)" | Out-File $env:GITHUB_OUTPUT -Append
           "principalId=$($apps[0].principalId)" | Out-File $env:GITHUB_OUTPUT -Append
+          $sqlIdentity = ./scripts/Resolve-AppServiceSqlIdentity.ps1 `
+            -ResourceGroup $env:RESOURCE_GROUP `
+            -AppName $apps[0].name `
+            -ExpectedTenantId '${{ secrets.AZURE_TENANT_ID }}'
+          if ($sqlIdentity.PrincipalObjectId -ne $apps[0].principalId) {
+            throw 'The App Service identity changed during SQL diagnostic resolution.'
+          }
+          $sqlIdentity | ConvertTo-Json | Set-Content "$env:EVIDENCE_DIRECTORY/managed-identity.json"
+          "clientId=$($sqlIdentity.PrincipalClientId)" | Out-File $env:GITHUB_OUTPUT -Append
           "runnerIp=$ip" | Out-File $env:GITHUB_OUTPUT -Append
           "ruleName=$ruleName" | Out-File $env:GITHUB_OUTPUT -Append
       - uses: actions/setup-dotnet@v4
@@ -138,7 +147,9 @@ jobs:
             --server '${{ steps.target.outputs.serverName }}.database.windows.net' `
             --database $env:DATABASE_NAME `
             --principal-name '${{ steps.target.outputs.principalName }}' `
-            --principal-object-id '${{ steps.target.outputs.principalId }}'
+            --principal-object-id '${{ steps.target.outputs.principalId }}' `
+            --principal-client-id '${{ steps.target.outputs.clientId }}'
+          if ($LASTEXITCODE -ne 0) { throw 'SQL managed identity diagnostic failed.' }
           Remove-Item Env:AZURE_SQL_ACCESS_TOKEN
       - name: Refresh Azure login for firewall cleanup
         id: cleanup-login
