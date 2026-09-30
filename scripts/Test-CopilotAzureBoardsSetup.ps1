@@ -32,6 +32,56 @@ function Assert-NotContains {
     }
 }
 
+function Assert-ReadOnlyCurlRequest {
+    param([string] $Smoke)
+
+    $normalizedSmoke = [regex]::Replace($Smoke, '\\\r?\n[ \t]*', ' ')
+    $curlPattern = '(?i)(?<![\w.-])curl(?=\s)'
+    $curlMatches = [regex]::Matches($normalizedSmoke, $curlPattern)
+    if ($curlMatches.Count -ne 1) {
+        throw 'Smoke check must contain exactly one curl invocation.'
+    }
+
+    $curlLines = @($normalizedSmoke -split '\r?\n' | Where-Object { [regex]::IsMatch($_, $curlPattern) })
+    if ($curlLines.Count -ne 1) {
+        throw 'Smoke check must contain exactly one curl command line.'
+    }
+
+    $curlLine = $curlLines[0]
+    $methods = [regex]::Matches($curlLine, '(?<!\S)(?:--request(?:=|\s+)|-X(?:\s+)?)([^\s]+)')
+    if ($methods.Count -ne 1 -or $methods[0].Groups[1].Value -cne 'GET') {
+        throw 'Smoke check must explicitly use GET only, without method overrides.'
+    }
+
+    if ([regex]::IsMatch($curlLine, '(?<!\S)(?:--location(?:-trusted)?|-[A-Za-z]*L[A-Za-z]*)(?=\s|=|$)')) {
+        throw 'Smoke check must not follow redirects.'
+    }
+
+    if ([regex]::IsMatch($curlLine, '(?<!\S)(?:--verbose|-[A-Za-z]*v[A-Za-z]*)(?=\s|=|$)')) {
+        throw 'Smoke check must not enable verbose HTTP logging.'
+    }
+
+    if ([regex]::IsMatch($curlLine, '(?<!\S)(?:--(?:data(?:-[\w-]+)?|form(?:-string|-escape)?|upload-file|json)|-[A-Za-z]*[dFT][A-Za-z]*)(?=\s|=|$)')) {
+        throw 'Smoke check must not send request bodies or upload files.'
+    }
+}
+
+function Assert-CurlMutationRejected {
+    param(
+        [string] $Smoke,
+        [string] $Mutation
+    )
+
+    try {
+        Assert-ReadOnlyCurlRequest $Smoke
+    }
+    catch {
+        return
+    }
+
+    throw "Curl contract accepted the $Mutation mutation."
+}
+
 Assert-Contains $workflow '(?m)^on:\s*\r?\n\s{2}workflow_dispatch:\s*$' 'Setup workflow must allow manual dispatch.'
 Assert-NotContains $workflow '(?m)^\s{2}(pull_request|pull_request_target|push|schedule):' 'Setup workflow must not authenticate on pull requests, pushes, or schedules.'
 Assert-Contains $workflow '(?m)^  copilot-setup-steps:\s*$' 'Setup workflow must define the required Copilot setup job.'
@@ -59,10 +109,9 @@ Assert-Contains $smoke '--resource 499b84ac-1321-427f-aa17-267ca6975798' 'Smoke 
 Assert-Contains $smoke 'echo "::add-mask::\$token"' 'Smoke check must immediately mask the in-memory token.'
 Assert-Contains $smoke 'curl --silent --show-error' 'Smoke check must make a quiet direct REST request.'
 Assert-Contains $smoke 'auth_header_name=''Authorization:''[\s\S]*auth_scheme=''Bearer''[\s\S]*--header "\$auth_header_name \$auth_scheme \$token"' 'Smoke check must send the masked token as an authorization header.'
-Assert-Contains $smoke '--request GET' 'Smoke check must use HTTP GET.'
+Assert-ReadOnlyCurlRequest $smoke
 Assert-Contains $smoke '--connect-timeout 15' 'Smoke check must bound connection establishment.'
 Assert-Contains $smoke '--max-time 60' 'Smoke check must bound total request duration.'
-Assert-NotContains $smoke '(?im)\bcurl\b[^\r\n]*\s-L(?:\s|$)|\bcurl\b[^\r\n]*--location' 'Smoke check must not follow redirects.'
 Assert-Contains $smoke "'https://dev\.azure\.com/ai-enabled-ado-org/_apis/projects/sample-project\?api-version=7\.1'" 'Smoke check must read only sample-project metadata.'
 Assert-Contains $smoke '\.id == \$expected' 'Smoke check must validate the exact project ID field.'
 Assert-Contains $smoke '7f3adf73-a1ef-43f6-93cb-bf61a166abb2' 'Smoke check must validate the provisioned sample-project ID.'
@@ -71,9 +120,23 @@ if ($smoke.IndexOf('echo "::add-mask::$token"') -gt $smoke.IndexOf('curl --silen
     throw 'Smoke check must mask the token before making the request.'
 }
 Assert-NotContains $smoke '(?im)^\s*(echo|printf)\s+["'']?\$token' 'Smoke check must not print the token.'
-Assert-NotContains $smoke '(?im)\bcurl\b[^\r\n]*(-v|--verbose)' 'Smoke check must not enable verbose HTTP logging.'
 Assert-NotContains $smoke '(?im)\b(az\s+(boards|resource|group|account\s+set)|az\s+devops\s+)' 'Setup must not make Azure resource or Boards write calls.'
 Assert-NotContains $workflow '(?im)upload-artifact|actions/upload-artifact|printenv|^\s*env\s*$' 'Setup must not upload credentials or dump the environment.'
+
+$continuation = '\' + [Environment]::NewLine + '            '
+$mutations = @(
+    [pscustomobject]@{ Name = 'a second PATCH request'; Smoke = $smoke + [Environment]::NewLine + 'curl --request PATCH https://example.invalid' }
+    [pscustomobject]@{ Name = 'an overridden method'; Smoke = $smoke.Replace('--request GET', '--request PATCH --request GET') }
+    [pscustomobject]@{ Name = 'a data option'; Smoke = $smoke.Replace('--request GET', '--request GET --data payload') }
+    [pscustomobject]@{ Name = 'an upload option'; Smoke = $smoke.Replace('--request GET', '--request GET --upload-file payload') }
+    [pscustomobject]@{ Name = 'a multiline -L redirect option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation-L") }
+    [pscustomobject]@{ Name = 'a multiline --location redirect option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation--location") }
+    [pscustomobject]@{ Name = 'a multiline -v verbose option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation-v") }
+    [pscustomobject]@{ Name = 'a multiline --verbose option'; Smoke = $smoke.Replace('--request GET', "--request GET$continuation--verbose") }
+)
+foreach ($mutation in $mutations) {
+    Assert-CurlMutationRejected $mutation.Smoke $mutation.Name
+}
 
 Assert-Contains $runbook 'Stakeholder registration' 'Runbook must document the least-privilege Azure DevOps access.'
 Assert-Contains $runbook 'AZURE_LOGIN_POST_CLEANUP' 'Runbook must explain why CLI cleanup is disabled.'
