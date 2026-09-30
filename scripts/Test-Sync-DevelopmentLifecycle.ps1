@@ -104,6 +104,7 @@ $review = [pscustomobject]@{
 $reviewRunJobs = @([pscustomobject]@{
     run_id = $reviewRun.id
     jobs = @([pscustomobject]@{
+        id = 7001
         conclusion = "success"
         steps = @(
             [pscustomobject]@{ name = "Request Copilot review"; conclusion = "success" }
@@ -633,6 +634,117 @@ Assert-Throws {
     Get-CanonicalIssueCandidates -Repository $repository -Ids @(959)
 } "returned duplicate issue ID"
 Assert-True ($script:pageRequestCount -eq 2) "Duplicate paginated issue IDs must fail on the repeated page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
+    return [pscustomobject]@{
+        total_count = 2
+        jobs = if ($page -eq 1) {
+            @([pscustomobject]@{ id = 7001; name = "request" })
+        } else {
+            @([pscustomobject]@{ id = 7002; name = "evaluate" })
+        }
+    }
+}
+$pagedJobs = @(Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id)
+Assert-True ($pagedJobs.Count -eq 2) "Normal job pagination must collect every unique job."
+Assert-True ($script:pageRequestCount -eq 2) "Job pagination must request the second page when needed."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
+    return [pscustomobject]@{
+        total_count = 2
+        jobs = if ($page -eq 1) {
+            @([pscustomobject]@{ id = 7001; name = "request" })
+        } else {
+            @([pscustomobject]@{ id = 7001; name = "request-again" })
+        }
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "duplicate job ID"
+Assert-True ($script:pageRequestCount -eq 2) "Duplicate paginated job IDs must fail on the repeated page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        jobs = @([pscustomobject]@{ name = "missing-id" })
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "without a valid job ID"
+Assert-True ($script:pageRequestCount -eq 1) "Missing job IDs must fail on the first page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        jobs = @([pscustomobject]@{ id = "not-a-number" })
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "without a valid job ID"
+Assert-True ($script:pageRequestCount -eq 1) "Invalid job IDs must fail on the first page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
+    return [pscustomobject]@{
+        total_count = if ($page -eq 1) { 2 } else { 3 }
+        jobs = @([pscustomobject]@{ id = 7001 })
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "changed while its jobs were paged"
+Assert-True ($script:pageRequestCount -eq 2) "Changing job totals must fail on the changed page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 2
+        jobs = @([pscustomobject]@{ id = 7001 })
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "truncated job evidence"
+Assert-True ($script:pageRequestCount -eq 2) "Truncated jobs must fail after the empty page."
+
+$script:pageRequestCount = 0
+function Invoke-GitHubApi {
+    param([string]$Uri)
+    $script:pageRequestCount++
+    return [pscustomobject]@{
+        total_count = 1
+        jobs = @(
+            [pscustomobject]@{ id = 7001 }
+            [pscustomobject]@{ id = 7002 }
+        )
+    }
+}
+Assert-Throws {
+    Get-WorkflowRunJobs -Repository $repository -RunId $reviewRun.id
+} "more unique jobs than total_count"
+Assert-True ($script:pageRequestCount -eq 1) "Oversized jobs must fail on the first page."
 
 $changedMetadataPull = $pull.PSObject.Copy()
 $changedMetadataPull.body = "$($pull.body)`nMetadata changed after QA."

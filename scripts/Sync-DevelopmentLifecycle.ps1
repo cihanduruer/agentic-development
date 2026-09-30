@@ -363,24 +363,51 @@ function Get-WorkflowRunJobs {
     )
 
     $jobs = [Collections.Generic.List[object]]::new()
+    $seenJobIds = [Collections.Generic.HashSet[long]]::new()
     $totalCount = $null
     for ($page = 1; $page -le 10; $page++) {
         $response = Invoke-GitHubApi -Uri (
             "https://api.github.com/repos/$Repository/actions/runs/$RunId/jobs?per_page=100&page=$page")
-        if ($null -eq $response.total_count -or $null -eq $response.jobs) {
+        $totalCountProperty = $response.PSObject.Properties["total_count"]
+        $jobsProperty = $response.PSObject.Properties["jobs"]
+        if ($null -eq $totalCountProperty -or
+            $null -eq $totalCountProperty.Value -or
+            $null -eq $jobsProperty -or
+            $null -eq $jobsProperty.Value) {
             throw "GitHub did not return complete job evidence for review workflow run '$RunId'."
         }
+        $parsedTotalCount = 0L
+        if (-not [long]::TryParse([string]$totalCountProperty.Value, [ref]$parsedTotalCount) -or
+            $parsedTotalCount -lt 0) {
+            throw "GitHub returned an invalid job total for review workflow run '$RunId'."
+        }
         if ($null -eq $totalCount) {
-            $totalCount = [int]$response.total_count
-        } elseif ([int]$response.total_count -ne $totalCount) {
+            $totalCount = $parsedTotalCount
+        } elseif ($parsedTotalCount -ne $totalCount) {
             throw "GitHub review workflow run '$RunId' changed while its jobs were paged."
         }
 
         $batch = @($response.jobs | ForEach-Object { $_ })
         foreach ($job in $batch) {
+            $jobIdProperty = $job.PSObject.Properties["id"]
+            $jobId = 0L
+            if ($null -eq $jobIdProperty -or
+                $null -eq $jobIdProperty.Value -or
+                -not [long]::TryParse(
+                    [string]$jobIdProperty.Value,
+                    [ref]$jobId) -or
+                $jobId -le 0) {
+                throw "GitHub returned a job without a valid job ID for review workflow run '$RunId'."
+            }
+            if (-not $seenJobIds.Add($jobId)) {
+                throw "GitHub review workflow run '$RunId' returned duplicate job ID $jobId."
+            }
             $jobs.Add($job)
         }
-        if ($jobs.Count -eq $totalCount) {
+        if ($seenJobIds.Count -gt $totalCount) {
+            throw "GitHub review workflow run '$RunId' returned more unique jobs than total_count."
+        }
+        if ($seenJobIds.Count -eq $totalCount) {
             break
         }
         if ($batch.Count -eq 0) {
