@@ -16,6 +16,15 @@ Copilot runs the setup job before it starts the agent. The `workflow_dispatch` t
 
 For an independent setup check, dispatch **Copilot setup steps** from `main`. Missing variables, login failure, request failure, non-200 response, or an unexpected project ID fails the job explicitly. Do not use interactive/device login or print tokens, headers, CLI cache files, or environment dumps while diagnosing failures.
 
+## Copilot cloud-agent network access
+
+The Copilot cloud-agent firewall must remain enabled. In repository settings, open **Settings > Copilot > Internet access > Copilot cloud agent** and add these narrowly scoped HTTPS origins to the allowlist:
+
+- `https://dev.azure.com/ai-enabled-ado-org`
+- `https://login.microsoftonline.com`
+
+The confirmed current configuration has the firewall and recommended allowlist enabled, with an empty custom allowlist. Do not disable the firewall, add a proxy, or bypass its policy. The setup job runs before the agent firewall applies, so its successful login and project smoke do not establish that agent tools can reach Azure Boards. Require a real Azure Boards request from the agent tool phase, through the enabled firewall, before reporting cloud-agent access as verified.
+
 The setup does not configure MCP. If the Azure DevOps MCP server is already configured, it can use `-a azcli`; otherwise use Entra-authenticated REST requests directly. Do not assume Azure DevOps CLI service-principal login is supported. Fresh cloud sessions obtain their own setup login; an already-running session may need to be restarted after the setup workflow is available.
 
 ## Requirement-capture boundary
@@ -24,4 +33,4 @@ This platform authentication work makes no work-item changes. For future new Hot
 
 ## Evidence status
 
-Passing the setup job proves only the authenticated read-only project metadata check. Do not claim sign-in is fixed until a real hosted Copilot cloud session confirms Azure Boards access. Keep issue #43 open until that live session evidence is reviewed.
+Passing the setup job proves only the authenticated read-only project metadata check outside the agent firewall. Do not claim sign-in is fixed until a real hosted Copilot cloud session confirms an agent-tool-phase Azure Boards request through the enabled firewall. Keep issue #43 open until that live session evidence is reviewed.
