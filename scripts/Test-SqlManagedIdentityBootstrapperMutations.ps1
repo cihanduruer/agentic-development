@@ -12,6 +12,39 @@ $integrationTestProject =
 
 $mutations = @(
     @{
+        Name = 'use-object-id-as-client-sid'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~ClientIdSidIsUsedForNewAndExistingPrincipals'
+        Replacements = @(
+            @{
+                Pattern = 'CONVERT\(binary\(16\), @apiPrincipalClientId\);'
+                Value = 'CONVERT(binary(16), @apiPrincipalObjectId);'
+            }
+        )
+    },
+    @{
+        Name = 'bypass-sid-repair-opt-in'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~KnownObjectIdSidRequiresOptInAndRepairsIdempotently'
+        Replacements = @(
+            @{
+                Pattern = '@repairObjectIdSid = 1 AND EXISTS'
+                Value = '1 = 1 AND EXISTS'
+            }
+        )
+    },
+    @{
+        Name = 'bypass-sid-repair-preflight'
+        TestProject = $integrationTestProject
+        Filter = 'FullyQualifiedName~ObjectIdSidRepairRejectsHostileCatalogBeforeDrop'
+        Replacements = @(
+            @{
+                Pattern = "(?s)                IF COALESCE\(HAS_PERMS_BY_NAME\(DB_NAME\(\), N'DATABASE', N'CONTROL'\).*?THROW 51019,.*?\r?\n                END;"
+                Value = ''
+            }
+        )
+    },
+    @{
         Name = 'weaken-exact-set'
         Replacements = @(
             @{

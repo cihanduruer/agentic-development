@@ -7,6 +7,8 @@ public sealed class SqlManagedIdentityBootstrapperTests
 {
     private static readonly Guid PrincipalObjectId =
         Guid.Parse("3037fe2b-71f3-4322-9b80-e57c1e756a94");
+    private static readonly Guid PrincipalClientId =
+        Guid.Parse("13093b8a-f113-4f19-acef-f5e2d2243c86");
 
     [Fact]
     public void ParsePreservesWorkflowSuppliedValuesAndExplicitToken()
@@ -17,6 +19,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 "--database", "hotelbooking",
                 "--principal-name", "agentic-api",
                 "--principal-object-id", PrincipalObjectId.ToString(),
+                "--principal-client-id", PrincipalClientId.ToString(),
             ],
             name => name == "AZURE_SQL_ACCESS_TOKEN" ? "access-token" : null);
 
@@ -24,6 +27,8 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Equal("hotelbooking", options.Database);
         Assert.Equal("agentic-api", options.PrincipalName);
         Assert.Equal(PrincipalObjectId, options.PrincipalObjectId);
+        Assert.Equal(PrincipalClientId, options.PrincipalClientId);
+        Assert.False(options.RepairObjectIdSid);
         Assert.Equal("access-token", options.AccessToken);
     }
 
@@ -32,6 +37,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
     [InlineData("--database")]
     [InlineData("--principal-name")]
     [InlineData("--principal-object-id")]
+    [InlineData("--principal-client-id")]
     public void ParseRejectsEmptyRequiredInputs(string emptyOption)
     {
         var arguments = new[]
@@ -40,6 +46,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "--database", "hotelbooking",
             "--principal-name", "agentic-api",
             "--principal-object-id", PrincipalObjectId.ToString(),
+            "--principal-client-id", PrincipalClientId.ToString(),
         };
         arguments[Array.IndexOf(arguments, emptyOption) + 1] = string.Empty;
 
@@ -57,6 +64,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                     "--database", "hotelbooking",
                     "--principal-name", "agentic-api",
                     "--principal-object-id", PrincipalObjectId.ToString(),
+                    "--principal-client-id", PrincipalClientId.ToString(),
                 ],
                 _ => " "));
     }
@@ -70,6 +78,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 "--database", "hotelbooking",
                 "--principal-name", "agentic-api",
                 "--principal-object-id", PrincipalObjectId.ToString(),
+                "--principal-client-id", PrincipalClientId.ToString(),
                 "--mode", "diagnostic",
                 "--output", "evidence.json",
             ],
@@ -83,6 +92,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 "--database", "hotelbooking",
                 "--principal-name", "agentic-api",
                 "--principal-object-id", PrincipalObjectId.ToString(),
+                "--principal-client-id", PrincipalClientId.ToString(),
                 "--mode", "diagnostic",
             ],
             _ => "access-token"));
@@ -92,6 +102,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 "--database", "hotelbooking",
                 "--principal-name", "agentic-api",
                 "--principal-object-id", PrincipalObjectId.ToString(),
+                "--principal-client-id", PrincipalClientId.ToString(),
                 "--output", "evidence.json",
             ],
             _ => "access-token"));
@@ -109,6 +120,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
                 "--database", "hotelbooking",
                 "--principal-name", "agentic-api",
                 "--principal-object-id", PrincipalObjectId.ToString(),
+                "--principal-client-id", PrincipalClientId.ToString(),
                 "--mode", mode,
                 "--output", "evidence.json",
             ],
@@ -130,6 +142,10 @@ public sealed class SqlManagedIdentityBootstrapperTests
             new SqlConnectionStringBuilder(connection.ConnectionString).ApplicationIntent);
         Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
         Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
+        Assert.Equal(PrincipalClientId, command.Parameters["@apiPrincipalClientId"].Value);
+        Assert.Equal(false, command.Parameters["@repairObjectIdSid"].Value);
+        Assert.Contains("CONVERT(binary(16), @apiPrincipalClientId)", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("N' WITH SID = ' + @ApiPrincipalSidHex + N', TYPE = E;'", command.CommandText, StringComparison.Ordinal);
         Assert.Equal("E", command.Parameters["@apiPrincipalType"].Value);
         Assert.Equal("EXTERNAL", command.Parameters["@apiAuthenticationType"].Value);
         Assert.DoesNotContain(":setvar", command.CommandText, StringComparison.OrdinalIgnoreCase);
@@ -218,7 +234,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
             commandText,
             StringComparison.Ordinal);
         Assert.Equal(
-            3,
+            4,
             CountOccurrences(
                 commandText,
                 "member_principal_id = @ExistingApiPrincipalId"));
@@ -327,7 +343,7 @@ public sealed class SqlManagedIdentityBootstrapperTests
             commandText,
             StringComparison.Ordinal);
         Assert.Equal(
-            3,
+            4,
             CountOccurrences(
                 commandText,
                 "EXEC sys.sp_executesql @Command;"));
@@ -335,7 +351,8 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "still has direct database permissions after legacy migration",
             commandText,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("DROP USER", commandText, StringComparison.Ordinal);
+        Assert.True(commandText.IndexOf("IF @RepairSid = 1", StringComparison.Ordinal)
+            < commandText.IndexOf("DROP USER", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -761,5 +778,43 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "hotelbooking",
             "agentic-api",
             PrincipalObjectId,
+            PrincipalClientId,
             "access-token");
+
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    [InlineData("3037fe2b-71f3-4322-9b80-e57c1e756a94")]
+    public void ParseRejectsInvalidOrConflatedClientId(string clientId)
+    {
+        Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(
+            ["--server", "server", "--database", "database", "--principal-name", "api",
+             "--principal-object-id", PrincipalObjectId.ToString(), "--principal-client-id", clientId],
+            _ => "token"));
+    }
+
+    [Theory]
+    [InlineData("bootstrap", "REPAIR-OBJECT-ID-SID", true)]
+    [InlineData("bootstrap", "true", false)]
+    [InlineData("bootstrap", "repair-object-id-sid", false)]
+    [InlineData("diagnostic", "REPAIR-OBJECT-ID-SID", false)]
+    public void ParseRequiresExactRepairConfirmationOnlyInBootstrap(string mode, string confirmation, bool accepted)
+    {
+        string[] arguments =
+            ["--server", "server", "--database", "database", "--principal-name", "api",
+             "--principal-object-id", PrincipalObjectId.ToString(), "--principal-client-id", PrincipalClientId.ToString(),
+             "--mode", mode, "--repair-object-id-sid", confirmation];
+        if (mode == "diagnostic")
+        {
+            arguments = [.. arguments, "--output", "evidence.json"];
+        }
+        if (accepted)
+        {
+            Assert.True(SqlBootstrapOptions.Parse(arguments, _ => "token").RepairObjectIdSid);
+        }
+        else
+        {
+            Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(arguments, _ => "token"));
+        }
+    }
 }
