@@ -141,6 +141,8 @@ foreach ($mutation in $mutations) {
 }
 
 Assert-Contains $runbook 'Stakeholder registration' 'Runbook must document the least-privilege Azure DevOps access.'
+Assert-Contains $runbook 'subject `repo:cihanduruer@1026905/agentic-development@1394453319:environment:copilot`' 'Runbook must document the confirmed immutable GitHub OIDC subject.'
+Assert-Contains $runbook 'immutable repository identity format because GitHub immutable subject claims are enabled' 'Runbook must explain why the immutable repository identity format is retained.'
 Assert-Contains $runbook 'AZURE_LOGIN_POST_CLEANUP' 'Runbook must explain why CLI cleanup is disabled.'
 Assert-Contains $runbook 'Fresh cloud sessions obtain their own setup login' 'Runbook must distinguish fresh and existing sessions.'
 Assert-Contains $runbook 'Settings > Copilot > Internet access > Copilot cloud agent' 'Runbook must give the confirmed firewall settings location.'

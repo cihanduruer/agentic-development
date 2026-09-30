@@ -6,7 +6,7 @@ This runbook describes passwordless Azure DevOps authentication for Copilot clou
 
 The `.github/workflows/copilot-setup-steps.yml` workflow follows GitHub's [Azure DevOps Copilot setup example](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers#example-azure-devops). Its single `copilot-setup-steps` job uses the `copilot` environment, GitHub OIDC, and the dedicated `agentic-hotelbooking-copilot-boards` Entra application. The only Azure identity inputs are the public repository variables `AZURE_BOARDS_CLIENT_ID` and `AZURE_BOARDS_TENANT_ID`; no password, certificate, PAT, subscription, or Hotel deployment identity is used.
 
-The federated credential is restricted to issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`, and subject `repo:cihanduruer/agentic-development:environment:copilot`. The application has Stakeholder registration in `ai-enabled-ado-org`, project-level View permission, and root-area Work Item Read/Edit permission. It has no Contributors/admin membership or Azure resource role assignments.
+The federated credential is restricted to issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`, and subject `repo:cihanduruer@1026905/agentic-development@1394453319:environment:copilot`. Retain this immutable repository identity format because GitHub immutable subject claims are enabled. The application has Stakeholder registration in `ai-enabled-ado-org`, project-level View permission, and root-area Work Item Read/Edit permission. It has no Contributors/admin membership or Azure resource role assignments.
 
 ## Session behavior and verification
 
