@@ -99,7 +99,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download selected release artifact

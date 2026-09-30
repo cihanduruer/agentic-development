@@ -711,6 +711,7 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
     [InlineData("schema-owner")]
     [InlineData("type-owner")]
     [InlineData("queue-activation")]
+    [InlineData("credential-owner")]
     public async Task ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(string mutation)
     {
         await InSidDatabase(async (connection, options) =>
@@ -749,6 +750,11 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                     CREATE QUEUE dbo.ActivationQueue WITH ACTIVATION (
                         STATUS = OFF, PROCEDURE_NAME = dbo.QueueReceiver,
                         MAX_QUEUE_READERS = 1, EXECUTE AS 'agentic-api');
+                    """,
+                "credential-owner" =>
+                    """
+                    CREATE DATABASE SCOPED CREDENTIAL [owned] WITH IDENTITY = 'Managed Identity';
+                    ALTER AUTHORIZATION ON DATABASE SCOPED CREDENTIAL::[owned] TO [agentic-api];
                     """,
                 _ => throw new ArgumentOutOfRangeException(nameof(mutation)),
             };

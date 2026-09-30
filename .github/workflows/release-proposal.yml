@@ -106,7 +106,7 @@ jobs:
           Copy-Item infra/deployment-contract.json release/deployment-contract.json
           $deploymentContract = Get-Content release/deployment-contract.json -Raw | ConvertFrom-Json
           if ($deploymentContract.name -ne 'entra-sql-managed-identity' -or
-              $deploymentContract.version -ne 1) {
+              $deploymentContract.version -ne 2) {
             throw 'The source commit does not contain the required production deployment contract.'
           }
           $evidence = [ordered]@{

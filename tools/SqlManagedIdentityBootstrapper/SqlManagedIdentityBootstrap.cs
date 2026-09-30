@@ -544,6 +544,7 @@ public static class SqlManagedIdentityBootstrap
                            UNION ALL SELECT principal_id FROM sys.service_message_types
                            UNION ALL SELECT principal_id FROM sys.routes
                            UNION ALL SELECT principal_id FROM sys.remote_service_bindings
+                           UNION ALL SELECT principal_id FROM sys.database_scoped_credentials
                        ) AS owned
                        WHERE owned.principal_id IN (@ExistingApiPrincipalId, @ExistingRuntimeRoleId)
                    )

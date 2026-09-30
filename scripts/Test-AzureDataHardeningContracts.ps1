@@ -45,13 +45,15 @@ function Get-NamedStepBody {
     return $match.Groups['body'].Value
 }
 
-if ($contract.name -ne 'entra-sql-managed-identity' -or $contract.version -ne 1) {
+if ($contract.name -ne 'entra-sql-managed-identity' -or $contract.version -ne 2) {
     throw 'The production deployment contract is missing or invalid.'
 }
 if ($release -notmatch 'deployment-contract\.json' -or
+    $release -notmatch '\$deploymentContract\.version -ne 2' -or
     $release -notmatch 'deploymentContractVersion' -or
     $production -notmatch 'Assert-ProductionDeploymentContract\.ps1' -or
-    $contractAssertion -notmatch 'entra-sql-managed-identity') {
+    $contractAssertion -notmatch 'entra-sql-managed-identity' -or
+    $contractAssertion -notmatch '\$contract\.version -ne 2') {
     throw 'Release packaging and production preflight must enforce the deployment contract.'
 }
 foreach ($workflow in @($development, $production)) {
