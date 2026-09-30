@@ -317,6 +317,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(term => (Term: term, Index: FindWholeTermOccurrence(content, term)))
             .Where(match => match.Index >= 0)
+            .OrderBy(match => match.Index)
             .ToArray();
         if (occurrences.Length == 0)
         {

@@ -213,6 +213,20 @@ public sealed class KnowledgeMcpTests
     }
 
     [Fact]
+    public async Task SearchReturnsSeparatedSnippetsInSourceOrderForReverseOrderQuery()
+    {
+        var content = "managed " + new string('x', 5_000) + " identity";
+        var result = await new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content, "Knowledge")))
+            .SearchAsync("identity managed", Revision, CancellationToken.None);
+
+        Assert.True(result.HasEvidence);
+        var passage = Assert.Single(result.Passages).Passage;
+        Assert.True(passage.IndexOf("managed", StringComparison.Ordinal) < passage.IndexOf("identity", StringComparison.Ordinal));
+        Assert.True(passage.Length <= KnowledgeSearchService.MaximumPassageLength);
+    }
+
+    [Fact]
     public async Task SearchExcerptKeepsSeparatedTermsInsideOneWindow()
     {
         var content = new string('x', 2_000) + " alpha " + new string('x', 2_000) + " omega " + new string('y', 10_000);
@@ -354,14 +368,15 @@ public sealed class KnowledgeMcpTests
     private static McpSearchHit Document(
         string path,
         string revision,
-        string? content = null) => new()
+        string? content = null,
+        string? title = null) => new()
         {
             Id = new string('c', 64),
             Path = path,
             Revision = revision,
             Owner = "Security owner",
             LastReviewed = "2026-09-30",
-            Title = "Managed identity",
+            Title = title ?? "Managed identity",
             Content = content ?? new string('x', KnowledgeSearchService.MaximumPassageLength + 1),
             ContentHash = new string('b', 64)
         };
