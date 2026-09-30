@@ -13,12 +13,16 @@ Demonstrate an evidence-grounded, fully agentic software-delivery lifecycle with
 - A guest browses hotels and rooms.
 - A guest searches availability using dates and party size.
 - A guest creates one reservation and receives a stable reference.
+- A guest may optionally choose Economy, Compact, SUV, or Luxury as a vehicle
+  preference while creating a reservation, or proceed with no preference.
 - An operator watches agent routes, evidence gates, tool activity, failures, and human checkpoints in real time.
 - A release approver reviews evidence before any production deployment.
 
 ## Exclusions
 
-Payments, loyalty, dynamic pricing, third-party inventory, cancellation, and production customer identity are outside the first MVP.
+Payments, loyalty, dynamic pricing, third-party inventory, cancellation, production customer identity,
+vehicle pricing, and rental fulfillment are outside the first MVP. A vehicle preference is not a
+guaranteed rental and cannot be added to or changed on an existing reservation.
 
 ## Hotel brand palette
 

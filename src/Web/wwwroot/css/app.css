@@ -40,7 +40,9 @@ html, body {
 .booking-panel { margin-top: 2rem; }
 .booking-fields, .confirm-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
 .booking-fields label, .confirm-row label { display: grid; gap: .35rem; max-width: 100%; }
-.booking-fields input, .confirm-row input { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); max-width: 100%; min-width: 0; }
+.booking-fields input, .confirm-row input, .vehicle-preference select { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); max-width: 100%; min-width: 0; }
+.vehicle-preference { display: grid; gap: .35rem; max-width: 24rem; }
+.vehicle-preference p { margin: 0; }
 .room-list { display: grid; gap: .6rem; margin: 1rem 0; }
 .room-option { display: flex; flex-wrap: wrap; gap: .5rem 1rem; justify-content: space-between; text-align: start; border: 1px solid var(--brand-blue); background: var(--brand-cream); color: var(--brand-dark-blue); padding: 1rem; border-radius: .7rem; }
 .room-option:hover { background: var(--brand-taupe); }
@@ -101,7 +103,7 @@ a:hover, .btn-link:hover {
     --bs-btn-hover-border-color: var(--brand-blue);
 }
 
-a:focus-visible, button:focus-visible, input:focus-visible,
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
 .btn:focus-visible, .btn:active:focus-visible {
     outline: 3px solid var(--brand-blue);
     outline-offset: 3px;
@@ -112,7 +114,7 @@ a:focus-visible, button:focus-visible, input:focus-visible,
     box-shadow: inset 0 0 0 2px var(--brand-blue), 0 0 0 3px var(--brand-cream);
 }
 
-button:disabled, input:disabled {
+button:disabled, input:disabled, select:disabled {
     background-color: var(--brand-taupe);
     border-color: var(--brand-dark-blue);
     color: var(--brand-dark-blue);

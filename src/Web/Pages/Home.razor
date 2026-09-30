@@ -63,7 +63,7 @@ else
                 @foreach (var room in rooms)
                 {
                     <button class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
-                            @onclick="() => selectedRoom = room"
+                            @onclick="() => SelectRoom(room)"
                             aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
                         <strong>@room.Name</strong>
                         <span>Up to @room.Capacity guests</span>
@@ -92,7 +92,26 @@ else
             }
             <div class="confirm-row">
                 <label>Guest name <input @bind="guestName" /></label>
-                <button class="btn btn-success" @onclick="BookRoom">Confirm booking</button>
+                <div class="vehicle-preference">
+                    <label for="vehicle-preference">Vehicle preference</label>
+                    <select id="vehicle-preference"
+                            @bind="vehiclePreference"
+                            aria-describedby="vehicle-preference-help"
+                            disabled="@(reservation is not null)">
+                        <option value="">No preference</option>
+                        @foreach (var option in VehiclePreferences)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                    <p id="vehicle-preference-help">
+                        Optional. A vehicle preference is not a guaranteed rental.
+                        Choose No preference to clear it before confirming.
+                    </p>
+                </div>
+                <button class="btn btn-success"
+                        @onclick="BookRoom"
+                        disabled="@(reservation is not null)">Confirm booking</button>
             </div>
         }
     </section>
@@ -105,6 +124,8 @@ else
         <h2>@reservation.Reference</h2>
         <p>@reservation.GuestName · @reservation.CheckIn to @reservation.CheckOut</p>
         <p>Total stay price: <strong>@FormatEuro(reservation.TotalStayPrice)</strong></p>
+        <p>Vehicle preference: <strong>@(reservation.VehiclePreference?.ToString() ?? "None")</strong></p>
+        <p>A vehicle preference is not a guaranteed rental and cannot be added or changed after confirmation.</p>
     </section>
 }
 
@@ -116,6 +137,8 @@ else
     private Reservation? reservation;
     private string? error;
     private string guestName = string.Empty;
+    private VehiclePreference? vehiclePreference;
+    private static readonly VehiclePreference[] VehiclePreferences = Enum.GetValues<VehiclePreference>();
     private int guests = 2;
     private DateOnly checkIn = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
     private DateOnly checkOut = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
@@ -145,6 +168,14 @@ else
         rooms = null;
         selectedRoom = null;
         reservation = null;
+        vehiclePreference = null;
+        error = null;
+    }
+
+    private void SelectRoom(Room room)
+    {
+        StartNewReservationIfConfirmed();
+        selectedRoom = room;
         error = null;
     }
 
@@ -157,6 +188,7 @@ else
 
         try
         {
+            StartNewReservationIfConfirmed();
             error = null;
             selectedRoom = null;
             rooms = await Http.GetFromJsonAsync<Room[]>(
@@ -179,7 +211,7 @@ else
         {
             error = null;
             var response = await Http.PostAsJsonAsync("api/reservations", new BookingRequest(
-                selectedHotel.Id, selectedRoom.Id, checkIn, checkOut, guests, guestName));
+                selectedHotel.Id, selectedRoom.Id, checkIn, checkOut, guests, guestName, vehiclePreference));
             if (!response.IsSuccessStatusCode)
             {
                 error = await response.Content.ReadAsStringAsync();
@@ -192,5 +224,17 @@ else
         {
             error = $"The booking could not be completed: {exception.Message}";
         }
+    }
+
+    private void StartNewReservationIfConfirmed()
+    {
+        if (reservation is null)
+        {
+            return;
+        }
+
+        reservation = null;
+        vehiclePreference = null;
+        guestName = string.Empty;
     }
 }

@@ -100,14 +100,19 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
     var status = exception is KeyNotFoundException ? StatusCodes.Status404NotFound :
-        exception is ArgumentException ? StatusCodes.Status400BadRequest :
+        exception is ArgumentException or BadHttpRequestException ? StatusCodes.Status400BadRequest :
         exception is InvalidOperationException ? StatusCodes.Status409Conflict :
         StatusCodes.Status500InternalServerError;
+    var title = exception is BadHttpRequestException
+        ? "The request body is invalid."
+        : status == 500
+            ? "An unexpected error occurred."
+            : exception?.Message;
 
     context.Response.StatusCode = status;
     await Results.Problem(
         statusCode: status,
-        title: status == 500 ? "An unexpected error occurred." : exception?.Message)
+        title: title)
         .ExecuteAsync(context);
 }));
 
@@ -145,6 +150,13 @@ app.MapPost("/api/reservations", async (
     var reservation = await service.CreateReservationAsync(request, cancellationToken);
     return Results.Created($"/api/reservations/{reservation.Id}", reservation);
 });
+
+app.MapMethods(
+    "/api/reservations/{reservationId:guid}",
+    ["PUT", "PATCH"],
+    () => Results.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "Confirmed reservations cannot be changed."));
 
 app.MapGet("/api/operations/events", (
     int? limit,

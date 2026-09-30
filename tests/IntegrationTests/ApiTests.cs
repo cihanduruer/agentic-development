@@ -61,6 +61,129 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal(2, reservation!.Nights);
         Assert.Equal(room.NightlyRate * 2, reservation.TotalStayPrice);
+        Assert.Null(reservation.VehiclePreference);
+    }
+
+    [Fact]
+    public async Task ReservationPersistsVehiclePreferenceAndRejectsLaterChanges()
+    {
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(60));
+
+        var response = await client.PostAsJsonAsync(
+            "/api/reservations",
+            new BookingRequest(
+                hotel.Id,
+                room.Id,
+                checkIn,
+                checkIn.AddDays(2),
+                2,
+                "Grace",
+                VehiclePreference.SUV));
+        var reservation = await response.Content.ReadFromJsonAsync<Reservation>();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(VehiclePreference.SUV, reservation!.VehiclePreference);
+
+        var changeResponse = await client.PatchAsJsonAsync(
+            response.Headers.Location,
+            new { vehiclePreference = VehiclePreference.Luxury });
+        var error = await changeResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, changeResponse.StatusCode);
+        Assert.Contains("Confirmed reservations cannot be changed.", error);
+    }
+
+    [Fact]
+    public async Task ReservationRejectsUnknownVehiclePreference()
+    {
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(80));
+
+        var request = $$"""
+            {
+              "hotelId": "{{hotel.Id}}",
+              "roomId": "{{room.Id}}",
+              "checkIn": "{{checkIn:yyyy-MM-dd}}",
+              "checkOut": "{{checkIn.AddDays(1):yyyy-MM-dd}}",
+              "guests": 1,
+              "guestName": "Katherine",
+              "vehiclePreference": 99
+            }
+            """;
+        var response = await client.PostAsync(
+            "/api/reservations",
+            new StringContent(request, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("The request body is invalid.", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ReservationAcceptsNamedVehiclePreferenceAndRejectsUnknownName()
+    {
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(100));
+        var request = $$"""
+            {
+              "hotelId": "{{hotel.Id}}",
+              "roomId": "{{room.Id}}",
+              "checkIn": "{{checkIn:yyyy-MM-dd}}",
+              "checkOut": "{{checkIn.AddDays(1):yyyy-MM-dd}}",
+              "guests": 1,
+              "guestName": "Dorothy",
+              "vehiclePreference": "SUV"
+            }
+            """;
+
+        var accepted = await client.PostAsync(
+            "/api/reservations",
+            new StringContent(request, System.Text.Encoding.UTF8, "application/json"));
+        var reservation = await accepted.Content.ReadFromJsonAsync<Reservation>();
+        var invalidRequest = request
+            .Replace($"\"{room.Id}\"", $"\"{hotel.Rooms[1].Id}\"", StringComparison.Ordinal)
+            .Replace("\"SUV\"", "\"Truck\"", StringComparison.Ordinal);
+        var rejected = await client.PostAsync(
+            "/api/reservations",
+            new StringContent(invalidRequest, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Equal(VehiclePreference.SUV, reservation!.VehiclePreference);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Contains("The request body is invalid.", await rejected.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ReservationRejectsNumericVehiclePreference()
+    {
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var room = hotel.Rooms[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(120));
+        var request = $$"""
+            {
+              "hotelId": "{{hotel.Id}}",
+              "roomId": "{{room.Id}}",
+              "checkIn": "{{checkIn:yyyy-MM-dd}}",
+              "checkOut": "{{checkIn.AddDays(1):yyyy-MM-dd}}",
+              "guests": 1,
+              "guestName": "Mary",
+              "vehiclePreference": 0
+            }
+            """;
+
+        var response = await client.PostAsync(
+            "/api/reservations",
+            new StringContent(request, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("The request body is invalid.", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
