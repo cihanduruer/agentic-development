@@ -4,6 +4,12 @@
     --brand-light-blue: #8DC4E6;
     --brand-cream: #F9F6EF;
     --brand-taupe: #D4CDBF;
+    --bs-body-color: var(--brand-dark-blue);
+    --bs-body-bg: var(--brand-cream);
+    --bs-emphasis-color: var(--brand-dark-blue);
+    --bs-secondary-color: var(--brand-dark-blue);
+    --bs-border-color: var(--brand-taupe);
+    color-scheme: light;
 }
 
 html, body {
@@ -28,18 +34,21 @@ html, body {
     border: 1px solid var(--brand-taupe);
     border-radius: 1rem;
     padding: 1.4rem;
-    box-shadow: 0 8px 24px rgba(20, 46, 80, .06);
+    box-shadow: 0 8px 24px rgb(22 74 97 / 6%);
 }
 .city { color: var(--brand-blue); font-weight: 700; }
 .booking-panel { margin-top: 2rem; }
 .booking-fields, .confirm-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
-.booking-fields label, .confirm-row label { display: grid; gap: .35rem; }
-.booking-fields input, .confirm-row input { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); }
+.booking-fields label, .confirm-row label { display: grid; gap: .35rem; max-width: 100%; }
+.booking-fields input, .confirm-row input { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); max-width: 100%; min-width: 0; }
 .room-list { display: grid; gap: .6rem; margin: 1rem 0; }
-.room-option { display: flex; justify-content: space-between; border: 1px solid var(--brand-taupe); background: var(--brand-cream); color: var(--brand-dark-blue); padding: 1rem; border-radius: .7rem; }
-.room-option:hover, .room-option.selected { border-color: var(--brand-blue); background: var(--brand-light-blue); }
+.room-option { display: flex; flex-wrap: wrap; gap: .5rem 1rem; justify-content: space-between; text-align: start; border: 1px solid var(--brand-blue); background: var(--brand-cream); color: var(--brand-dark-blue); padding: 1rem; border-radius: .7rem; }
+.room-option:hover { background: var(--brand-taupe); }
+.room-option.selected { background: var(--brand-light-blue); box-shadow: inset 0 0 0 2px var(--brand-blue); }
+.room-selection { font-weight: 700; }
+.empty-state { padding: 1rem; background: var(--brand-taupe); color: var(--brand-dark-blue); border-radius: .7rem; }
 .confirmation { margin-top: 1.5rem; border-left: .4rem solid var(--brand-blue); }
-.operations-header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1.5rem; }
+.operations-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1.5rem; }
 .connection { border-radius: 999px; padding: .45rem .8rem; font-weight: 700; }
 .connection.live, .connection.connecting, .connection.offline { background: var(--brand-taupe); color: var(--brand-dark-blue); }
 .connection.live { background: var(--brand-light-blue); }
@@ -59,28 +68,58 @@ a, .btn-link {
     color: var(--brand-blue);
 }
 
-.btn-primary {
-    color: var(--brand-cream);
-    background-color: var(--brand-blue);
-    border-color: var(--brand-blue);
+a:hover, .btn-link:hover {
+    color: var(--brand-dark-blue);
 }
 
-.btn-primary:hover, .btn-primary:focus, .btn-primary:active,
-.btn-success:hover, .btn-success:focus, .btn-success:active {
-    color: var(--brand-cream);
-    background-color: var(--brand-dark-blue);
+.btn-primary, .btn-outline-primary, .btn-success {
+    --bs-btn-color: var(--brand-cream);
+    --bs-btn-bg: var(--brand-blue);
+    --bs-btn-border-color: var(--brand-blue);
+    --bs-btn-hover-color: var(--brand-cream);
+    --bs-btn-hover-bg: var(--brand-dark-blue);
+    --bs-btn-hover-border-color: var(--brand-dark-blue);
+    --bs-btn-active-color: var(--brand-cream);
+    --bs-btn-active-bg: var(--brand-dark-blue);
+    --bs-btn-active-border-color: var(--brand-dark-blue);
+    --bs-btn-disabled-color: var(--brand-dark-blue);
+    --bs-btn-disabled-bg: var(--brand-taupe);
+    --bs-btn-disabled-border-color: var(--brand-dark-blue);
+    --bs-btn-disabled-opacity: 1;
+    --bs-btn-active-shadow: none;
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--brand-blue);
+    --bs-btn-bg: var(--brand-cream);
+}
+
+.btn-success {
+    --bs-btn-bg: var(--brand-dark-blue);
+    --bs-btn-border-color: var(--brand-dark-blue);
+    --bs-btn-hover-bg: var(--brand-blue);
+    --bs-btn-hover-border-color: var(--brand-blue);
+}
+
+a:focus-visible, button:focus-visible, input:focus-visible,
+.btn:focus-visible, .btn:active:focus-visible {
+    outline: 3px solid var(--brand-blue);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 3px var(--brand-cream);
+}
+
+.room-option.selected:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--brand-blue), 0 0 0 3px var(--brand-cream);
+}
+
+button:disabled, input:disabled {
+    background-color: var(--brand-taupe);
     border-color: var(--brand-dark-blue);
+    color: var(--brand-dark-blue);
+    opacity: 1;
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem var(--brand-cream), 0 0 0 0.25rem var(--brand-blue);
-}
-
-.btn-outline-primary { color: var(--brand-blue); border-color: var(--brand-blue); }
-.btn-outline-primary:hover, .btn-outline-primary:focus { color: var(--brand-cream); background-color: var(--brand-blue); border-color: var(--brand-blue); }
-.btn-success { color: var(--brand-cream); background-color: var(--brand-dark-blue); border-color: var(--brand-dark-blue); }
-button:disabled, .btn:disabled { background-color: var(--brand-taupe); border-color: var(--brand-taupe); color: var(--brand-dark-blue); }
-.alert-danger { color: var(--brand-dark-blue); background-color: var(--brand-taupe); border-color: var(--brand-dark-blue); }
+.alert-danger { color: var(--brand-dark-blue); background-color: var(--brand-taupe); border-color: var(--brand-dark-blue); overflow-wrap: anywhere; }
 .table { --bs-table-color: var(--brand-dark-blue); --bs-table-bg: var(--brand-cream); }
 
 .content {
@@ -104,17 +143,23 @@ button:disabled, .btn:disabled { background-color: var(--brand-taupe); border-co
     color-scheme: light only;
     background: var(--brand-cream);
     bottom: 0;
-    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    color: var(--brand-dark-blue);
+    border-top: 2px solid var(--brand-dark-blue);
+    box-shadow: 0 -1px 2px rgb(22 74 97 / 20%);
     box-sizing: border-box;
     display: none;
     left: 0;
-    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    padding: 0.6rem 3rem 0.7rem 1.25rem;
     position: fixed;
     width: 100%;
     z-index: 1000;
 }
 
     #blazor-error-ui .dismiss {
+        background: var(--brand-cream);
+        color: var(--brand-dark-blue);
+        border: 1px solid var(--brand-dark-blue);
+        border-radius: .25rem;
         cursor: pointer;
         position: absolute;
         right: 0.75rem;
@@ -123,7 +168,7 @@ button:disabled, .btn:disabled { background-color: var(--brand-taupe); border-co
 
 .blazor-error-boundary {
     background: var(--brand-dark-blue);
-    padding: 1rem 1rem 1rem 3.7rem;
+    padding: 1rem;
     color: var(--brand-cream);
 }
 

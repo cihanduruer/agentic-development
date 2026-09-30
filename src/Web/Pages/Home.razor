@@ -18,7 +18,14 @@
 
 @if (hotels is null)
 {
-    <p>Loading hotels...</p>
+    @if (error is null)
+    {
+        <p role="status">Loading hotels...</p>
+    }
+}
+else if (hotels.Count == 0)
+{
+    <p class="empty-state" role="status">No hotels are currently available.</p>
 }
 else
 {
@@ -48,15 +55,23 @@ else
 
         @if (rooms is not null)
         {
+            @if (rooms.Count == 0)
+            {
+                <p class="empty-state" role="status">No rooms are available for these dates and guest count.</p>
+            }
             <div class="room-list">
                 @foreach (var room in rooms)
                 {
                     <button class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
                             @onclick="() => selectedRoom = room"
-                            aria-pressed="@(selectedRoom?.Id == room.Id)">
+                            aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
                         <strong>@room.Name</strong>
                         <span>Up to @room.Capacity guests</span>
                         <span>@FormatEuro(room.NightlyRate) per night</span>
+                        @if (selectedRoom?.Id == room.Id)
+                        {
+                            <span class="room-selection">Selected</span>
+                        }
                     </button>
                 }
             </div>
