@@ -24,12 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        image: mcr.microsoft.com/mssql/server@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
         env:
           ACCEPT_EULA: Y
           MSSQL_SA_PASSWORD: LocalSql-2026-Bootstrap!
         ports:
-          - 1433:1433
+          - 1433/tcp
     steps:
       - name: Verify manually requested pull request head
         if: github.event_name == 'workflow_dispatch'
@@ -94,7 +94,7 @@ jobs:
         shell: pwsh
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
-            Server=localhost,1433;
+            Server=localhost,${{ job.services.sqlserver.ports[1433] }};
             Initial Catalog=master;
             User ID=sa;
             Password=LocalSql-2026-Bootstrap!;
@@ -152,7 +152,7 @@ jobs:
       - name: Test SQL bootstrapper against SQL Server
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
-            Server=localhost,1433;
+            Server=localhost,${{ job.services.sqlserver.ports[1433] }};
             Initial Catalog=master;
             User ID=sa;
             Password=LocalSql-2026-Bootstrap!;

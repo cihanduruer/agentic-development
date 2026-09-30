@@ -196,9 +196,10 @@ public sealed class SqlManagedIdentityBootstrapperTests
 
     [Theory]
     [MemberData(nameof(RejectedRecoverablePermissionStates))]
-    public void RecoveryRejectsMutatedPermissionStates(
-        IReadOnlyList<SqlDatabaseGrant> permissions)
+    public void RecoveryRejectsMutatedPermissionStates(object value)
     {
+        var permissions =
+            Assert.IsAssignableFrom<IReadOnlyList<SqlDatabaseGrant>>(value);
         Assert.False(
             SqlManagedIdentityBootstrap.IsExactRecoverableDirectPermissionSet(permissions));
     }
@@ -407,11 +408,11 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.True(postcheckIndex > membershipMutationIndex);
     }
 
-    public static TheoryData<IReadOnlyList<SqlDatabaseGrant>>
+    public static TheoryData<object>
         RejectedRecoverablePermissionStates()
     {
         var exact = CreateRecoverableDirectPermissions();
-        return new TheoryData<IReadOnlyList<SqlDatabaseGrant>>
+        return new TheoryData<object>
         {
             exact.Take(exact.Count - 1).ToArray(),
             exact.Append(new("dbo.Hotels", "UPDATE")).ToArray(),

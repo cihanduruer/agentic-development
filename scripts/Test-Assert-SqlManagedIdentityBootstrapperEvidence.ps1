@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param(
+    [switch] $ValidEvidenceOnly
+)
+
 $ErrorActionPreference = 'Stop'
 
 $assertionScript = Join-Path $PSScriptRoot 'Assert-SqlManagedIdentityBootstrapperEvidence.ps1'
@@ -208,6 +213,10 @@ try {
     $valid = Invoke-Assertion -Path $validPath
     if ($valid.ExitCode -ne 0) {
         throw "Valid SQL evidence was rejected: $($valid.Output)"
+    }
+    if ($ValidEvidenceOnly) {
+        Write-Host 'Valid SQL evidence baseline passed.'
+        exit 0
     }
 
     $permutedPath = Join-Path $testRoot 'permuted.trx'

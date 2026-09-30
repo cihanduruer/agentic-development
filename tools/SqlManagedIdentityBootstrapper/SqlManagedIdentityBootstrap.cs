@@ -89,7 +89,7 @@ public sealed record SqlBootstrapOptions(
 
 public static class SqlManagedIdentityBootstrap
 {
-    public static IReadOnlyList<SqlObjectGrant> RecoverableDirectPermissions { get; } =
+    internal static IReadOnlyList<SqlObjectGrant> RecoverableDirectPermissions { get; } =
         Array.AsReadOnly<SqlObjectGrant>(
         [
             new("dbo.Hotels", "SELECT"),
@@ -101,7 +101,7 @@ public static class SqlManagedIdentityBootstrap
             new("dbo.AgentEvents", "DELETE"),
         ]);
 
-    public static bool IsExactRecoverableDirectPermissionSet(
+    internal static bool IsExactRecoverableDirectPermissionSet(
         IEnumerable<SqlDatabaseGrant> permissions)
     {
         ArgumentNullException.ThrowIfNull(permissions);
@@ -124,7 +124,7 @@ public static class SqlManagedIdentityBootstrap
             .SetEquals(RecoverableDirectPermissions);
     }
 
-    public static bool HasNoExplicitPermissionsOnRuntimeRole(
+    internal static bool HasNoExplicitPermissionsOnRuntimeRole(
         IEnumerable<SqlDatabasePermissionEntry> permissions,
         int runtimeRolePrincipalId)
     {
@@ -653,18 +653,18 @@ public static class SqlManagedIdentityBootstrap
     }
 }
 
-public sealed record SqlObjectGrant(
+internal sealed record SqlObjectGrant(
     string ObjectName,
     string PermissionName);
 
-public sealed record SqlDatabaseGrant(
+internal sealed record SqlDatabaseGrant(
     string ObjectName,
     string PermissionName,
     int Class = 1,
     int MinorId = 0,
     string State = "G");
 
-public sealed record SqlDatabasePermissionEntry(
+internal sealed record SqlDatabasePermissionEntry(
     int Class,
     int MajorId,
     int MinorId,

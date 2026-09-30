@@ -42,9 +42,10 @@ $mutations = @(
             @{
                 Pattern =
                     "(?s)-not \[string\]::Equals\(\r?\n                    \[string\] \`$_\.outcome,\r?\n                    'Passed',\r?\n                    \[StringComparison\]::Ordinal\)"
-                Value = '([string] $$_.outcome) -ne ''Passed'''
+                Value = '([string] $_.outcome) -ne ''Passed'''
             }
         )
+        ExpectedFailure = "Challenge '29-outcome-casing' was accepted."
     },
     @{
         Name = 'case-insensitive-identities'
@@ -70,9 +71,10 @@ $mutations = @(
                 Pattern =
                     "(?s)-not \[string\]::Equals\(\r?\n            \[string\] \`$definition\.TestMethod\.className,\r?\n            'AgenticHotelBooking\.IntegrationTests\.SqlManagedIdentityBootstrapperSqlServerTests',\r?\n            \[StringComparison\]::Ordinal\)"
                 Value =
-                    '$$definition.TestMethod.className -ne ''AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests'''
+                    '$definition.TestMethod.className -ne ''AgenticHotelBooking.IntegrationTests.SqlManagedIdentityBootstrapperSqlServerTests'''
             }
         )
+        ExpectedFailure = "Challenge '32-definition-class-casing' was accepted."
     },
     @{
         Name = 'disable-guid-parsing'
@@ -105,13 +107,29 @@ try {
                 throw "Evidence mutation '$($mutation.Name)' did not match exactly one block."
             }
 
-            $mutated = $regex.Replace($mutated, $replacement.Value, 1)
+            $literalReplacement = [string] $replacement.Value
+            $mutated = $regex.Replace(
+                $mutated,
+                [Text.RegularExpressions.MatchEvaluator] {
+                    param($match)
+                    return $literalReplacement
+                },
+                1)
         }
 
         [IO.File]::WriteAllText($assertionPath, $mutated, $utf8)
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         try {
+            $baselineOutput = & $shellPath `
+                -NoProfile `
+                -File $selfTestPath `
+                -ValidEvidenceOnly 2>&1
+            $baselineExitCode = $LASTEXITCODE
+            if ($baselineExitCode -ne 0) {
+                throw "Evidence mutation '$($mutation.Name)' rejected the valid baseline: $baselineOutput"
+            }
+
             $output = & $shellPath -NoProfile -File $selfTestPath 2>&1
             $testExitCode = $LASTEXITCODE
         }
@@ -123,8 +141,13 @@ try {
         if ($testExitCode -eq 0) {
             throw "Evidence mutation '$($mutation.Name)' survived the self-test."
         }
+        if ($mutation.ExpectedFailure -and
+            -not (($output -join [Environment]::NewLine).Contains(
+                    [string] $mutation.ExpectedFailure))) {
+            throw "Evidence mutation '$($mutation.Name)' did not survive until its targeted challenge '$($mutation.ExpectedFailure)': $output"
+        }
 
-        Write-Host "Evidence mutation '$($mutation.Name)' was rejected: $($output[0])"
+        Write-Host "Evidence mutation '$($mutation.Name)' accepted the valid baseline and was rejected by its challenge: $($output[0])"
     }
 }
 finally {
