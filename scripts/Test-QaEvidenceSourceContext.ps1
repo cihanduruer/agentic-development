@@ -420,6 +420,36 @@ try {
     Assert-Equal $result.total 12 'Total requests must stay bounded.'
     Assert-Equal @($result.sleeps).Count 0 'Available evidence must not wait.'
 
+    $result = Invoke-Scenario 'more-than-100-exact-name-artifacts' (New-ManualScenario @{
+        artifacts = @(
+            $trustedArtifact
+            foreach ($index in 1..100) {
+                @{ id = 6100 + $index; name = $artifactName; runId = 5001 }
+            }
+        )
+    })
+    Assert-Failure $result 'Too many artifacts' 'More than 100 exact-name artifacts'
+    Assert-Equal (Get-Count $result 'listArtifactsForRepo') 1 'The over-cap case must list artifacts once.'
+    Assert-Equal (Get-Count $result 'getWorkflowRun') 0 'The over-cap case must fail before inspecting any workflow run.'
+    Assert-Equal (Get-Count $result 'listWorkflowRunArtifacts') 0 'The over-cap case must not inspect run attachments.'
+    Assert-Equal @($result.sleeps).Count 0 'The over-cap case must fail without waiting.'
+    Assert-Equal $result.total 2 'The over-cap case must cost only the PR read and one artifact listing.'
+
+    $result = Invoke-Scenario 'exactly-100-exact-name-artifacts' (New-ManualScenario @{
+        artifacts = @(
+            $trustedArtifact
+            foreach ($index in 1..99) {
+                @{ id = 6200 + $index; name = $artifactName; runId = 5001 }
+            }
+        )
+    })
+    Assert-Success $result 'Exactly 100 exact-name artifacts'
+    Assert-Equal (Get-Count $result 'listArtifactsForRepo') 1 'Exactly 100 artifacts must require one listing.'
+    Assert-Equal (Get-Count $result 'getWorkflowRun') 1 'Exactly 100 artifacts must proceed to verify the trusted run.'
+    Assert-Equal (Get-Count $result 'listWorkflowRunArtifacts') 1 'Exactly 100 artifacts must verify the attached artifact.'
+    Assert-Equal @($result.sleeps).Count 0 'Exactly 100 available artifacts must not wait.'
+    Assert-Equal $result.total 5 'Exactly 100 available artifacts must cost five requests, including the PR file listing.'
+
     $result = Invoke-Scenario 'delayed-artifact-repeated-waits' (New-ManualScenario @{
         runs = @($decoyRuns + $trustedRun)
         artifacts = @($decoyArtifacts + @{ id = 6001; name = $artifactName; runId = 5001; visibleFromListCall = 5 })
