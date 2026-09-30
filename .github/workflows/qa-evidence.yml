@@ -47,6 +47,44 @@ jobs:
             const manual = context.eventName === 'workflow_dispatch';
             const run = context.payload.workflow_run;
             const baseRepository = `${context.repo.owner}/${context.repo.repo}`;
+            const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+            const apiDeadline = Date.now() + 15 * 60 * 1000;
+            let rateLimitRetries = 0;
+            const callGitHub = async request => {
+              for (;;) {
+                try {
+                  return await request();
+                } catch (error) {
+                  const headers = error.response?.headers || {};
+                  const rateLimited = error.status === 429
+                    || (error.status === 403
+                      && (headers['x-ratelimit-remaining'] === '0'
+                        || headers['retry-after'] !== undefined
+                        || /secondary rate limit/i.test(error.message || '')));
+                  if (!rateLimited) {
+                    throw error;
+                  }
+                  const retryAfter = headers['retry-after'] === undefined ? NaN : Number(headers['retry-after']);
+                  const reset = Number(headers['x-ratelimit-reset']);
+                  let waitMilliseconds = 60000;
+                  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+                    waitMilliseconds = retryAfter * 1000;
+                  } else if (headers['x-ratelimit-remaining'] === '0' && Number.isFinite(reset)) {
+                    waitMilliseconds = reset * 1000 - Date.now() + 1000;
+                  }
+                  waitMilliseconds = Math.max(waitMilliseconds, 1000);
+                  const resumeAt = new Date(Date.now() + waitMilliseconds).toISOString();
+                  if (rateLimitRetries >= 5 || Date.now() + waitMilliseconds > apiDeadline) {
+                    throw new Error(
+                      `GitHub API rate limit (HTTP ${error.status}) persists until ${resumeAt}, beyond the bounded QA wait. `
+                      + 'Rerun QA evidence after that time; credentials and permissions were not changed.');
+                  }
+                  rateLimitRetries++;
+                  core.warning(`GitHub API rate limit (HTTP ${error.status}); waiting until ${resumeAt} before retrying.`);
+                  await sleep(waitMilliseconds);
+                }
+              }
+            };
             let pull;
             let sourceRepository = baseRepository;
             let sourceSha;
@@ -61,11 +99,11 @@ jobs:
                 core.setFailed('Manual QA requires a valid PR number and exact lowercase 40-character head SHA.');
                 return;
               }
-              pull = (await github.rest.pulls.get({
+              pull = (await callGitHub(() => github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: number
-              })).data;
+              }))).data;
               const expectedRepository = `${context.repo.owner}/${context.repo.repo}`;
               if (pull.state !== 'open'
                   || pull.base.ref !== 'main'
@@ -78,17 +116,17 @@ jobs:
               sourceSha = requestedSha;
             } else {
               if (run.pull_requests?.length) {
-                pull = (await github.rest.pulls.get({
+                pull = (await callGitHub(() => github.rest.pulls.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: run.pull_requests[0].number
-                })).data;
+                }))).data;
               } else {
-                const pulls = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                const pulls = await callGitHub(() => github.rest.repos.listPullRequestsAssociatedWithCommit({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   commit_sha: run.head_sha
-                });
+                }));
                 const candidates = pulls.data.filter(candidate =>
                   candidate.base.repo.full_name === baseRepository
                   && candidate.base.ref === 'main');
@@ -119,11 +157,11 @@ jobs:
                 core.setFailed('The triggering review run does not identify the pull request head.');
                 return;
               }
-              const currentPull = (await github.rest.pulls.get({
+              const currentPull = (await callGitHub(() => github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pull.number
-              })).data;
+              }))).data;
               if (currentPull.state !== 'open'
                   || currentPull.head.sha !== sourceSha
                   || currentPull.head.repo?.full_name !== sourceRepository) {
@@ -134,42 +172,68 @@ jobs:
             }
 
             if (manual || run.name === 'Hotel code review') {
-              const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+              const artifactName = `pr-validation-evidence-${sourceSha}`;
+              const rejectedRuns = new Set();
               let validation;
-              for (let attempt = 1; attempt <= 60; attempt++) {
-                const runs = await github.rest.actions.listWorkflowRuns({
+              for (let attempt = 1; attempt <= 60 && !validation; attempt++) {
+                const listing = (await callGitHub(() => github.rest.actions.listArtifactsForRepo({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  workflow_id: 'pr-validation.yml',
+                  name: artifactName,
                   per_page: 100
-                });
-                const candidates = runs.data.workflow_runs.filter(candidate =>
-                  candidate.path === '.github/workflows/pr-validation.yml'
-                  && candidate.conclusion === 'success'
-                  && candidate.event === 'workflow_dispatch'
-                  && candidate.head_branch === 'main');
-                for (const candidate of candidates) {
-                  const artifacts = await github.paginate(
-                    github.rest.actions.listWorkflowRunArtifacts,
-                    {
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      run_id: candidate.id,
-                      per_page: 100
-                    }
-                  );
-                  if (artifacts.some(artifact =>
-                    artifact.name === `pr-validation-evidence-${sourceSha}`
-                    && !artifact.expired)) {
+                }))).data;
+                if (listing.total_count > listing.artifacts.length) {
+                  core.setFailed(`Too many artifacts are named ${artifactName}; refusing an unbounded provenance scan.`);
+                  return;
+                }
+                for (const artifact of listing.artifacts) {
+                  const runId = artifact.workflow_run?.id;
+                  if (artifact.name !== artifactName
+                      || artifact.expired
+                      || (artifact.expires_at && Date.parse(artifact.expires_at) <= Date.now())
+                      || !Number.isInteger(runId)
+                      || rejectedRuns.has(runId)) {
+                    continue;
+                  }
+                  const candidate = (await callGitHub(() => github.rest.actions.getWorkflowRun({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: runId
+                  }))).data;
+                  if (candidate.id !== runId
+                      || candidate.path !== '.github/workflows/pr-validation.yml'
+                      || candidate.event !== 'workflow_dispatch'
+                      || candidate.head_branch !== 'main'
+                      || candidate.repository?.full_name !== baseRepository
+                      || candidate.head_repository?.full_name !== baseRepository) {
+                    rejectedRuns.add(runId);
+                    continue;
+                  }
+                  if (candidate.status !== 'completed' || candidate.conclusion !== 'success') {
+                    continue;
+                  }
+                  const attached = (await callGitHub(() => github.rest.actions.listWorkflowRunArtifacts({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: runId,
+                    name: artifactName,
+                    per_page: 100
+                  }))).data.artifacts;
+                  if (attached.some(item =>
+                    item.id === artifact.id
+                    && item.name === artifactName
+                    && !item.expired)) {
                     validation = candidate;
                     break;
                   }
                 }
-                if (validation) {
-                  break;
+                if (!validation && attempt < 60) {
+                  if (Date.now() + 10000 > apiDeadline) {
+                    break;
+                  }
+                  core.info(`PR validation evidence is not complete (attempt ${attempt}/60).`);
+                  await sleep(10000);
                 }
-                core.info(`PR validation evidence is not complete (attempt ${attempt}/60).`);
-                await sleep(10000);
               }
               if (!validation) {
                 core.setFailed('No successful trusted PR validation evidence exists for this commit.');
@@ -177,12 +241,12 @@ jobs:
               }
             }
 
-            const files = await github.paginate(github.rest.pulls.listFiles, {
+            const files = await callGitHub(() => github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: pull.number,
               per_page: 100
-            });
+            }));
             core.setOutput('number', pull.number.toString());
             core.setOutput('title', pull.title);
             core.setOutput('head-sha', sourceSha);
