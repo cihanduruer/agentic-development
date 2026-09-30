@@ -160,11 +160,18 @@ function Resolve-LifecycleEvidence {
         $_.repository.full_name -ieq $Repository -and
         $_.head_repository.full_name -ieq $Repository -and
         $(
-            $associations = @($_.pull_requests)
-            $associations.Count -eq 0 -or (
-                $associations.Count -eq 1 -and
-                $associations[0].number -eq $pull.number
-            )
+            $associationProperty = $_.PSObject.Properties["pull_requests"]
+            if ($null -eq $associationProperty -or
+                $null -eq $associationProperty.Value -or
+                $associationProperty.Value -isnot [array]) {
+                $false
+            }
+            else {
+                $associationProperty.Value.Count -eq 0 -or (
+                    $associationProperty.Value.Count -eq 1 -and
+                    $associationProperty.Value[0].number -eq $pull.number
+                )
+            }
         )
     })
     $exactHeadReviews = @($Reviews | Where-Object {

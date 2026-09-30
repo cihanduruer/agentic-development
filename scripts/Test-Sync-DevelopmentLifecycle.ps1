@@ -175,6 +175,24 @@ function Assert-ReviewEvidenceRejected {
     Assert-Throws { Resolve-LifecycleEvidence @caseArguments } $Message
 }
 
+$missingAssociationRun = $reviewRun.PSObject.Copy()
+$null = $missingAssociationRun.PSObject.Properties.Remove("pull_requests")
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($missingAssociationRun)
+} "no successful review workflow contains a Copilot review"
+
+$nullAssociationRun = $reviewRun.PSObject.Copy()
+$nullAssociationRun.pull_requests = $null
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($nullAssociationRun)
+} "no successful review workflow contains a Copilot review"
+
+$malformedAssociationRun = $reviewRun.PSObject.Copy()
+$malformedAssociationRun.pull_requests = "malformed"
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($malformedAssociationRun)
+} "no successful review workflow contains a Copilot review"
+
 $wrongReviewShaRun = $emptyAssociationRun.PSObject.Copy()
 $wrongReviewShaRun.head_sha = "d" * 40
 Assert-ReviewEvidenceRejected @{
