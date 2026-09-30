@@ -29,7 +29,7 @@ builder.Services.AddSingleton(services => new SearchClient(
 builder.Services.AddSingleton<IKnowledgeSearchRepository, AzureKnowledgeSearchRepository>();
 builder.Services.AddSingleton<KnowledgeSearchService>();
 builder.Services.AddMcpServer()
-    .WithHttpTransport()
+    .WithHttpTransport(options => options.Stateless = true)
     .WithTools<KnowledgeMcpTools>();
 
 var app = builder.Build();

@@ -149,6 +149,9 @@ jobs:
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Test Knowledge MCP stateless HTTP transport
+        shell: bash
+        run: bash ./scripts/Test-KnowledgeMcpTransport.sh
       - name: Test SQL bootstrapper against SQL Server
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-

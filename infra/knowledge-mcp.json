@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.47.16.16243",
+      "templateHash": "4861145551285254813"
+    }
+  },
+  "parameters": {
+    "accessToken": {
+      "type": "securestring"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "westeurope"
+    }
+  },
+  "variables": {
+    "tags": {
+      "application": "agentic-hotelbooking-knowledge-mcp",
+      "environment": "dev",
+      "managed-by": "bicep"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "ahb-dev-knowledge-mcp-f1-plan",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "sku": {
+        "name": "F1",
+        "tier": "Free",
+        "size": "F1",
+        "family": "F",
+        "capacity": 1
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "ahb-dev-knowledge-mcp",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', 'ahb-dev-knowledge-mcp-f1-plan')]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "alwaysOn": false,
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "linuxFxVersion": "DOTNETCORE|10.0",
+          "appSettings": [
+            {
+              "name": "ASPNETCORE_ENVIRONMENT",
+              "value": "Production"
+            },
+            {
+              "name": "KnowledgeMcp__SearchEndpoint",
+              "value": "[format('https://{0}.search.windows.net/', 'ahb-dev-bj5rmi3w3ntgq-search')]"
+            },
+            {
+              "name": "KnowledgeMcp__AccessToken",
+              "value": "[parameters('accessToken')]"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', 'ahb-dev-knowledge-mcp-f1-plan')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Search/searchServices', 'ahb-dev-bj5rmi3w3ntgq-search')]",
+      "name": "[guid(resourceId('Microsoft.Search/searchServices', 'ahb-dev-bj5rmi3w3ntgq-search'), resourceId('Microsoft.Web/sites', 'ahb-dev-knowledge-mcp'), 'knowledge-mcp-search-index-data-reader')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', 'ahb-dev-knowledge-mcp'), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '1407120a-92aa-4202-b7e9-c0e197c71c8f')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', 'ahb-dev-knowledge-mcp')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "appName": {
+      "type": "string",
+      "value": "ahb-dev-knowledge-mcp"
+    },
+    "appUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', 'ahb-dev-knowledge-mcp'), '2023-12-01').defaultHostName)]"
+    },
+    "searchEndpoint": {
+      "type": "string",
+      "value": "[format('https://{0}.search.windows.net/', 'ahb-dev-bj5rmi3w3ntgq-search')]"
+    }
+  }
+}

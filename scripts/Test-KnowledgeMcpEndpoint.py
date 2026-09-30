@@ -19,21 +19,27 @@ class SmokeFailure(Exception):
     pass
 
 
-def request(url, payload=None, token=None, timeout=15):
+def request(url, payload=None, token=None, timeout=15, headers=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
-    headers = {"Accept": "application/json, text/event-stream"}
+    request_headers = {"Accept": "application/json, text/event-stream"}
     if data is not None:
-        headers["Content-Type"] = "application/json"
+        request_headers["Content-Type"] = "application/json"
     if token is not None:
-        headers["Authorization"] = "Bearer " + token
-    message = urllib.request.Request(url, data=data, headers=headers, method="POST" if data else "GET")
+        request_headers["Authorization"] = "Bearer " + token
+    if headers is not None:
+        request_headers.update(headers)
+    message = urllib.request.Request(url, data=data, headers=request_headers, method="POST" if data else "GET")
     try:
         with urllib.request.urlopen(message, timeout=timeout) as response:
-            return response.status, decode_response(response.read().decode("utf-8"))
+            return (
+                response.status,
+                decode_response(response.read().decode("utf-8")),
+                {name.lower(): value for name, value in response.headers.items()},
+            )
     except urllib.error.HTTPError as error:
-        return error.code, None
+        return error.code, None, {name.lower(): value for name, value in error.headers.items()}
     except (urllib.error.URLError, TimeoutError, OSError):
-        return None, None
+        return None, None, {}
 
 
 def decode_response(body):
@@ -47,8 +53,9 @@ def decode_response(body):
     raise SmokeFailure("MCP response did not contain a JSON-RPC message.")
 
 
-def protocol_request(endpoint, request_id, method, params, token):
-    status, response = request(
+def protocol_request(endpoint, request_id, method, params, token, protocol_version=None, response_headers=None):
+    headers = {"MCP-Protocol-Version": protocol_version} if protocol_version is not None else None
+    status, response, returned_headers = request(
         endpoint,
         {
             "jsonrpc": "2.0",
@@ -57,19 +64,23 @@ def protocol_request(endpoint, request_id, method, params, token):
             "params": params,
         },
         token,
+        headers=headers,
     )
     if status != 200 or not isinstance(response, dict) or "error" in response:
         raise SmokeFailure(f"Authenticated MCP {method} request failed.")
+    if response_headers is not None:
+        response_headers.update(returned_headers)
     return response.get("result")
 
 
-def call_tool(endpoint, request_id, arguments, token):
+def call_tool(endpoint, request_id, arguments, token, protocol_version=PROTOCOL_VERSION):
     result = protocol_request(
         endpoint,
         request_id,
         "tools/call",
         {"name": "search_knowledge", "arguments": arguments},
         token,
+        protocol_version,
     )
     if not isinstance(result, dict) or result.get("isError", False):
         raise SmokeFailure("MCP search_knowledge returned an error.")
@@ -82,10 +93,10 @@ def call_tool(endpoint, request_id, arguments, token):
         raise SmokeFailure("MCP search_knowledge returned malformed JSON.") from error
 
 
-def call_tool_with_retry(endpoint, request_id, arguments, token, deadline):
+def call_tool_with_retry(endpoint, request_id, arguments, token, deadline, protocol_version):
     while True:
         try:
-            return call_tool(endpoint, request_id, arguments, token)
+            return call_tool(endpoint, request_id, arguments, token, protocol_version)
         except SmokeFailure:
             if time.monotonic() >= deadline:
                 raise SmokeFailure("Search readiness did not succeed within ten minutes.") from None
@@ -98,8 +109,14 @@ def write_evidence(path, evidence):
 
 def run(args):
     endpoint_parts = urlsplit(args.url)
-    if endpoint_parts.scheme != "https" or not endpoint_parts.netloc or endpoint_parts.query or endpoint_parts.fragment:
-        raise SmokeFailure("MCP endpoint must be an HTTPS URL without query or fragment.")
+    local_protocol_test = args.protocol_only and endpoint_parts.hostname in ("127.0.0.1", "::1")
+    if (
+        (endpoint_parts.scheme != "https" and not (local_protocol_test and endpoint_parts.scheme == "http"))
+        or not endpoint_parts.netloc
+        or endpoint_parts.query
+        or endpoint_parts.fragment
+    ):
+        raise SmokeFailure("MCP endpoint must be HTTPS, except for the protocol-only loopback test.")
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         raise SmokeFailure("knowledge revision must be a full lowercase 40-character SHA.")
     if not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
@@ -113,17 +130,18 @@ def run(args):
         "runId": args.run_id,
         "runAttempt": args.run_attempt,
         "sourceSha": args.source_sha,
-        "knowledgeRevision": args.revision,
         "endpointHost": endpoint_parts.hostname,
         "checks": {},
     }
+    if not args.protocol_only:
+        evidence["knowledgeRevision"] = args.revision
     write_evidence(args.output, evidence)
     try:
         base_url = urlunsplit((endpoint_parts.scheme, endpoint_parts.netloc, "", "", ""))
         health_url = base_url + "/health"
         deadline = time.monotonic() + 600
         while True:
-            status, health = request(health_url, token=token, timeout=10)
+            status, health, _ = request(health_url, token=token, timeout=10)
             if status == 200 and isinstance(health, dict) and health.get("status") == "healthy":
                 break
             if time.monotonic() >= deadline:
@@ -131,7 +149,7 @@ def run(args):
             time.sleep(5)
         evidence["checks"]["health"] = "healthy"
 
-        status, _ = request(endpoint_parts.geturl(), {
+        status, _, _ = request(endpoint_parts.geturl(), {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "initialize",
@@ -145,6 +163,7 @@ def run(args):
             raise SmokeFailure("Unauthenticated MCP request was not rejected with HTTP 401.")
         evidence["checks"]["unauthenticatedHttpStatus"] = status
 
+        initialize_headers = {}
         initialized = protocol_request(
             endpoint_parts.geturl(),
             2,
@@ -155,19 +174,26 @@ def run(args):
                 "clientInfo": {"name": "knowledge-mcp-smoke", "version": "1.0"},
             },
             token,
+            response_headers=initialize_headers,
         )
         if not isinstance(initialized, dict) or not initialized.get("protocolVersion"):
             raise SmokeFailure("MCP initialize did not negotiate a protocol version.")
-        status, _ = request(
+        if "mcp-session-id" in initialize_headers:
+            raise SmokeFailure("Stateless MCP initialize unexpectedly returned a session ID.")
+        protocol_version = initialized["protocolVersion"]
+        status, _, _ = request(
             endpoint_parts.geturl(),
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             token,
+            headers={"MCP-Protocol-Version": protocol_version},
         )
         if status not in (200, 202):
             raise SmokeFailure("MCP initialized notification failed.")
         evidence["checks"]["initialize"] = initialized["protocolVersion"]
 
-        listed = protocol_request(endpoint_parts.geturl(), 3, "tools/list", {}, token)
+        listed = protocol_request(
+            endpoint_parts.geturl(), 3, "tools/list", {}, token, protocol_version
+        )
         tools = listed.get("tools") if isinstance(listed, dict) else None
         if not isinstance(tools, list) or len(tools) != 1:
             raise SmokeFailure("MCP tools/list did not return exactly one tool.")
@@ -180,6 +206,21 @@ def run(args):
             "readOnlyHint": annotations["readOnlyHint"],
         }
 
+        if args.protocol_only:
+            missing_revision = call_tool(
+                endpoint_parts.geturl(),
+                5,
+                {"query": SEARCH_QUERY, "revision": ""},
+                token,
+                protocol_version,
+            )
+            if missing_revision.get("Status") != "revision_required" or missing_revision.get("HasEvidence") is not False:
+                raise SmokeFailure("Empty revision did not return revision_required.")
+            evidence["checks"]["emptyRevision"] = "revision_required"
+            evidence["status"] = "passed"
+            write_evidence(args.output, evidence)
+            return
+
         search_deadline = time.monotonic() + 600
         retrieval = call_tool_with_retry(
             endpoint_parts.geturl(),
@@ -187,6 +228,7 @@ def run(args):
             {"query": SEARCH_QUERY, "revision": args.revision},
             token,
             search_deadline,
+            protocol_version,
         )
         if retrieval.get("HasEvidence") is not True or retrieval.get("Revision") != args.revision:
             raise SmokeFailure("Live Search did not return evidence for the requested revision.")
@@ -212,6 +254,7 @@ def run(args):
             5,
             {"query": SEARCH_QUERY, "revision": ""},
             token,
+            protocol_version,
         )
         if missing_revision.get("Status") != "revision_required" or missing_revision.get("HasEvidence") is not False:
             raise SmokeFailure("Empty revision did not return revision_required.")
@@ -222,6 +265,7 @@ def run(args):
             6,
             {"query": SEARCH_QUERY, "revision": NONEXISTENT_REVISION},
             token,
+            protocol_version,
         )
         if no_hit.get("Status") != "no_evidence" or no_hit.get("HasEvidence") is not False:
             raise SmokeFailure("Known nonexistent revision did not return no_evidence.")
@@ -244,6 +288,7 @@ def main():
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--run-attempt", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--protocol-only", action="store_true")
     args = parser.parse_args()
     try:
         run(args)
