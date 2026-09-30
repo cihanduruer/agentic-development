@@ -100,6 +100,17 @@ jobs:
           }
           Write-Output "::add-mask::$token"
           $parameterPath = Join-Path $env:RUNNER_TEMP 'knowledge-mcp-secure-parameters.json'
+          $file = [System.IO.File]::Open(
+            $parameterPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None)
+          $file.Dispose()
+          ./scripts/Protect-DeploymentSecretFile.ps1 -Path $parameterPath
+          $permissions = (& stat --format='%a' -- $parameterPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or $permissions -ne '600') {
+            throw 'Unable to verify restricted access to the temporary secure parameter file.'
+          }
           $parameters = @{
             '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'
             contentVersion = '1.0.0.0'
@@ -111,11 +122,6 @@ jobs:
             $parameterPath,
             $parameters,
             [System.Text.UTF8Encoding]::new($false))
-          & chmod 600 $parameterPath
-          if ($LASTEXITCODE -ne 0) {
-            Remove-Item -LiteralPath $parameterPath -Force -ErrorAction SilentlyContinue
-            throw 'Unable to restrict access to the temporary secure parameter file.'
-          }
       - name: Deploy isolated F1 app and scoped Search reader
         id: infrastructure
         shell: pwsh

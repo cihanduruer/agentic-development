@@ -58,6 +58,21 @@ public sealed class KnowledgeMcpTests
         Assert.Contains(Revision, result.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SearchDoesNotReturnEvidenceForOnlyACommonTermMatch()
+    {
+        var repository = new FakeKnowledgeSearchRepository(
+            Document("docs/knowledge/security.md", Revision, "Security guidance without the requested subject."));
+        var service = new KnowledgeSearchService(repository);
+
+        var result = await service.SearchAsync("security orbital mechanics", Revision, CancellationToken.None);
+
+        Assert.False(result.HasEvidence);
+        Assert.Equal("no_evidence", result.Status);
+        Assert.Empty(result.Passages);
+        Assert.Equal("security orbital mechanics", repository.Query);
+    }
+
     [Theory]
     [InlineData(null, "revision_required")]
     [InlineData("", "revision_required")]
@@ -159,6 +174,7 @@ public sealed class KnowledgeMcpTests
         Assert.Equal(
             $"Revision eq '{Revision}'",
             options.Filter);
+        Assert.Equal(SearchMode.All, options.SearchMode);
         Assert.DoesNotContain("startswith", options.Filter, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(KnowledgeSearchService.MaximumResults, options.Size);
         Assert.Contains(nameof(McpSearchHit.Content), options.Select);
@@ -194,7 +210,7 @@ public sealed class KnowledgeMcpTests
     public async Task SearchReturnsOnlyCanonicalMarkdownPaths(string path, bool expectedEvidence)
     {
         var service = new KnowledgeSearchService(
-            new FakeKnowledgeSearchRepository(Document(path, Revision)));
+            new FakeKnowledgeSearchRepository(Document(path, Revision, "security policy")));
 
         var result = await service.SearchAsync("security policy", Revision, CancellationToken.None);
 

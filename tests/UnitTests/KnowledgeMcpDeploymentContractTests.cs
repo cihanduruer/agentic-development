@@ -21,6 +21,21 @@ public sealed class KnowledgeMcpDeploymentContractTests
     }
 
     [Fact]
+    public void DeploymentWorkflowProtectsTheEmptyTokenParameterFileBeforeWritingSecretContent()
+    {
+        var workflow = File.ReadAllText(FindRepositoryFile(".github/workflows/deploy-knowledge-mcp.yml"));
+        var createFile = workflow.IndexOf("FileMode]::CreateNew", StringComparison.Ordinal);
+        var restrictFile = workflow.IndexOf("Protect-DeploymentSecretFile.ps1", StringComparison.Ordinal);
+        var verifyPermissions = workflow.IndexOf("stat --format='%a'", StringComparison.Ordinal);
+        var writeSecret = workflow.IndexOf("File]::WriteAllText", StringComparison.Ordinal);
+
+        Assert.True(createFile >= 0);
+        Assert.True(createFile < restrictFile);
+        Assert.True(restrictFile < verifyPermissions);
+        Assert.True(verifyPermissions < writeSecret);
+    }
+
+    [Fact]
     public void InfrastructureUsesOnlyAnIsolatedFreePlanAndSearchReaderRole()
     {
         var template = File.ReadAllText(FindRepositoryFile("infra/knowledge-mcp.bicep"));

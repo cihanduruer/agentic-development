@@ -14,7 +14,7 @@ public sealed class KnowledgeMcpTools(KnowledgeSearchService searchService)
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Search canonical repository knowledge at one exact Git commit revision. Returns cited passages or an explicit no-evidence result.")]
     public async Task<string> SearchKnowledgeAsync(
-        [Description("A bounded natural-language question, up to 256 characters.")]
+        [Description("Focused subject keywords, up to 256 characters. Every term must match the knowledge passage.")]
         string query,
         [Required]
         [Description("The exact full 40-character Git commit SHA to search. No other revision is used.")]
@@ -106,7 +106,7 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
         return new SearchOptions
         {
             Filter = $"{nameof(KnowledgeSearchHit.Revision)} eq '{escapedRevision}'",
-            SearchMode = SearchMode.Any,
+            SearchMode = SearchMode.All,
             QueryType = SearchQueryType.Simple,
             SearchFields = { nameof(KnowledgeSearchHit.Title), nameof(KnowledgeSearchHit.Content) },
             Size = maximumResults,
@@ -189,7 +189,10 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         var passages = documents
             .Where(document =>
                 string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
-                IsCanonicalKnowledgePath(document.Path))
+                IsCanonicalKnowledgePath(document.Path) &&
+                queryTerms.All(term =>
+                    ContainsWholeTerm(document.Title, term) ||
+                    ContainsWholeTerm(document.Content, term)))
             .Take(MaximumResults)
             .Select(document => ToPassage(document, queryTerms))
             .ToArray();
@@ -287,6 +290,25 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         return start + MaximumPassageLength > content.Length
             ? content.Length - MaximumPassageLength
             : start;
+    }
+
+    private static bool ContainsWholeTerm(string text, string term)
+    {
+        var occurrence = text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+        while (occurrence >= 0)
+        {
+            var matchEnd = occurrence + term.Length;
+            var startsTerm = occurrence == 0 || !char.IsLetterOrDigit(text[occurrence - 1]);
+            var endsTerm = matchEnd == text.Length || !char.IsLetterOrDigit(text[matchEnd]);
+            if (startsTerm && endsTerm)
+            {
+                return true;
+            }
+
+            occurrence = text.IndexOf(term, occurrence + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     private static bool IsCanonicalKnowledgePath(string path)

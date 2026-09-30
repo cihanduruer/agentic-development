@@ -36,6 +36,8 @@ for attempt in $(seq 1 60); do
     sleep 1
 done
 
+python3 "$repository_root/scripts/Test-KnowledgeMcpRedirects.py"
+
 mkdir -p "$repository_root/ValidationEvidence"
 KNOWLEDGE_MCP_ACCESS_TOKEN="$token" \
 python3 "$repository_root/scripts/Test-KnowledgeMcpEndpoint.py" \

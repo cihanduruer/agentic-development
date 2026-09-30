@@ -12,14 +12,22 @@ from urllib.parse import urlsplit, urlunsplit
 
 PROTOCOL_VERSION = "2025-11-25"
 NONEXISTENT_REVISION = "0" * 40
-SEARCH_QUERY = "managed identity Azure Search security requirements"
+SEARCH_QUERY = "managed identity Azure Search"
 
 
 class SmokeFailure(Exception):
     pass
 
 
-def request(url, payload=None, token=None, timeout=15, headers=None):
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        return None
+
+
+NO_REDIRECT_OPENER = urllib.request.build_opener(NoRedirectHandler())
+
+
+def request(url, payload=None, token=None, timeout=15, headers=None, opener=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request_headers = {"Accept": "application/json, text/event-stream"}
     if data is not None:
@@ -30,13 +38,15 @@ def request(url, payload=None, token=None, timeout=15, headers=None):
         request_headers.update(headers)
     message = urllib.request.Request(url, data=data, headers=request_headers, method="POST" if data else "GET")
     try:
-        with urllib.request.urlopen(message, timeout=timeout) as response:
+        with (opener or NO_REDIRECT_OPENER).open(message, timeout=timeout) as response:
             return (
                 response.status,
                 decode_response(response.read().decode("utf-8")),
                 {name.lower(): value for name, value in response.headers.items()},
             )
     except urllib.error.HTTPError as error:
+        if 300 <= error.code < 400:
+            raise SmokeFailure("MCP endpoint returned an HTTP redirect; redirects are not followed.") from None
         return error.code, None, {name.lower(): value for name, value in error.headers.items()}
     except (urllib.error.URLError, TimeoutError, OSError):
         return None, None, {}
