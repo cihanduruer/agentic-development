@@ -617,7 +617,8 @@
       "knowledgemcp": {
         "type": "Project",
         "dependencies": {
-          "AgenticHotelBooking.Infrastructure": "[1.0.0, )",
+          "Azure.Identity": "[1.18.0, )",
+          "Azure.Search.Documents": "[11.7.0, )",
           "ModelContextProtocol.AspNetCore": "[2.2.0, )"
         }
       },

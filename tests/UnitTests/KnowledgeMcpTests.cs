@@ -1,8 +1,13 @@
 using System.Reflection;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using AgenticHotelBooking.Infrastructure;
 using AgenticHotelBooking.Tools.KnowledgeMcp;
 using Azure.Search.Documents.Models;
+using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Server;
+using IndexedKnowledgeDocument = AgenticHotelBooking.Infrastructure.KnowledgeSearchDocument;
+using McpSearchHit = AgenticHotelBooking.Tools.KnowledgeMcp.KnowledgeSearchHit;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -66,7 +71,26 @@ public sealed class KnowledgeMcpTests
 
         Assert.False(result.HasEvidence);
         Assert.Equal(expectedStatus, result.Status);
+        Assert.Null(result.Revision);
         Assert.Equal(0, repository.CallCount);
+    }
+
+    [Fact]
+    public async Task McpToolReturnsAnExplicitNoEvidenceResultWhenRevisionIsOmitted()
+    {
+        var repository = new FakeKnowledgeSearchRepository();
+        var tool = new KnowledgeMcpTools(new KnowledgeSearchService(repository));
+
+        using var response = JsonDocument.Parse(
+            await tool.SearchKnowledgeAsync("application security", null, CancellationToken.None));
+
+        Assert.Equal("revision_required", response.RootElement.GetProperty("Status").GetString());
+        Assert.False(response.RootElement.GetProperty("HasEvidence").GetBoolean());
+        Assert.Equal(0, repository.CallCount);
+        var revisionParameter = typeof(KnowledgeMcpTools)
+            .GetMethod(nameof(KnowledgeMcpTools.SearchKnowledgeAsync))!
+            .GetParameters()[1];
+        Assert.NotNull(revisionParameter.GetCustomAttribute<RequiredAttribute>());
     }
 
     [Fact]
@@ -95,9 +119,26 @@ public sealed class KnowledgeMcpTests
             $"Revision eq '{Revision}' and startswith(Path, 'docs/knowledge/')",
             options.Filter);
         Assert.Equal(KnowledgeSearchService.MaximumResults, options.Size);
-        Assert.Contains(nameof(KnowledgeSearchDocument.Content), options.Select);
-        Assert.Contains(nameof(KnowledgeSearchDocument.Revision), options.Select);
-        Assert.Contains(nameof(KnowledgeSearchDocument.Path), options.Select);
+        Assert.Contains(nameof(McpSearchHit.Content), options.Select);
+        Assert.Contains(nameof(McpSearchHit.Revision), options.Select);
+        Assert.Contains(nameof(McpSearchHit.Path), options.Select);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AzureKnowledgeSearchRepository.CreateSearchOptions(Revision, KnowledgeSearchService.MaximumResults + 1));
+    }
+
+    [Fact]
+    public void SearchHitMatchesTheIndexerDocumentFields()
+    {
+        var indexedFields = typeof(IndexedKnowledgeDocument)
+            .GetProperties()
+            .Select(property => (property.Name, property.PropertyType))
+            .OrderBy(field => field.Name, StringComparer.Ordinal);
+        var retrievedFields = typeof(McpSearchHit)
+            .GetProperties()
+            .Select(property => (property.Name, property.PropertyType))
+            .OrderBy(field => field.Name, StringComparer.Ordinal);
+
+        Assert.Equal(indexedFields, retrievedFields);
     }
 
     [Fact]
@@ -121,9 +162,31 @@ public sealed class KnowledgeMcpTests
         Assert.False(KnowledgeMcpToken.IsAuthorized(null, token));
         Assert.False(KnowledgeMcpToken.IsAuthorized("Bearer " + "wrong-token", token));
         Assert.False(KnowledgeMcpToken.IsAuthorized("Bearer " + token, "short"));
+        Assert.False(KnowledgeMcpToken.IsValidAccessToken(new string('x', KnowledgeMcpToken.MaximumLength + 1)));
+        Assert.False(KnowledgeMcpToken.IsValidAccessToken(new string('é', KnowledgeMcpToken.MinimumLength)));
     }
 
-    private static KnowledgeSearchDocument Document(string path, string revision) => new()
+    [Fact]
+    public async Task McpEndpointMiddlewareRejectsRequestsWithoutTheBearerToken()
+    {
+        var nextCalled = false;
+        var middleware = new KnowledgeMcpAuthorizationMiddleware(
+            _ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            },
+            "0123456789abcdef0123456789abcdef");
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/mcp";
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
+        Assert.False(nextCalled);
+    }
+
+    private static McpSearchHit Document(string path, string revision) => new()
     {
         Id = new string('c', 64),
         Path = path,
@@ -135,7 +198,7 @@ public sealed class KnowledgeMcpTests
         ContentHash = new string('b', 64)
     };
 
-    private sealed class FakeKnowledgeSearchRepository(params KnowledgeSearchDocument[] documents)
+    private sealed class FakeKnowledgeSearchRepository(params McpSearchHit[] documents)
         : IKnowledgeSearchRepository
     {
         public int CallCount { get; private set; }
@@ -143,7 +206,7 @@ public sealed class KnowledgeMcpTests
         public string? Revision { get; private set; }
         public int MaximumResults { get; private set; }
 
-        public Task<IReadOnlyList<KnowledgeSearchDocument>> SearchAsync(
+        public Task<IReadOnlyList<McpSearchHit>> SearchAsync(
             string query,
             string revision,
             int maximumResults,
@@ -153,7 +216,7 @@ public sealed class KnowledgeMcpTests
             Query = query;
             Revision = revision;
             MaximumResults = maximumResults;
-            return Task.FromResult<IReadOnlyList<KnowledgeSearchDocument>>(documents);
+            return Task.FromResult<IReadOnlyList<McpSearchHit>>(documents);
         }
     }
 }

@@ -13,10 +13,12 @@ if (!Uri.TryCreate(searchEndpoint, UriKind.Absolute, out var endpoint) ||
     throw new InvalidOperationException("KnowledgeMcp:SearchEndpoint must be an HTTPS URI.");
 }
 
-if (string.IsNullOrWhiteSpace(accessToken) || accessToken.Length < KnowledgeMcpToken.MinimumLength)
+if (!KnowledgeMcpToken.IsValidAccessToken(accessToken))
 {
-    throw new InvalidOperationException("KnowledgeMcp:AccessToken must contain at least 32 characters.");
+    throw new InvalidOperationException(
+        "KnowledgeMcp:AccessToken must be 32 to 128 URL-safe ASCII characters.");
 }
+var bearerToken = accessToken!;
 
 builder.Services.AddSingleton<TokenCredential>(_ =>
     new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
@@ -24,24 +26,14 @@ builder.Services.AddSingleton(services => new SearchClient(
     endpoint,
     KnowledgeSearchService.IndexName,
     services.GetRequiredService<TokenCredential>()));
-builder.Services.AddSingleton<AzureKnowledgeSearchRepository>();
+builder.Services.AddSingleton<IKnowledgeSearchRepository, AzureKnowledgeSearchRepository>();
 builder.Services.AddSingleton<KnowledgeSearchService>();
 builder.Services.AddMcpServer()
     .WithHttpTransport()
     .WithTools<KnowledgeMcpTools>();
 
 var app = builder.Build();
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/mcp") &&
-        !KnowledgeMcpToken.IsAuthorized(context.Request.Headers.Authorization, accessToken))
-    {
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return;
-    }
-
-    await next();
-});
+app.UseMiddleware<KnowledgeMcpAuthorizationMiddleware>(bearerToken);
 app.MapMcp("/mcp");
 
 await app.RunAsync();

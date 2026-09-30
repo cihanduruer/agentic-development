@@ -7,11 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.18.0" />
+    <PackageReference Include="Azure.Search.Documents" Version="11.7.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Infrastructure\AgenticHotelBooking.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

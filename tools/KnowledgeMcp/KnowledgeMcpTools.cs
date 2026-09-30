@@ -1,8 +1,9 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
-using AgenticHotelBooking.Infrastructure;
 using Azure.Search.Documents;
+using Azure.Search.Documents.Indexes;
+using Azure.Search.Documents.Indexes.Models;
 using Azure.Search.Documents.Models;
 using ModelContextProtocol.Server;
 
@@ -17,8 +18,8 @@ public sealed class KnowledgeMcpTools(KnowledgeSearchService searchService)
         string query,
         [Required]
         [Description("The exact full 40-character Git commit SHA to search. No other revision is used.")]
-        string revision,
-        CancellationToken cancellationToken)
+        string? revision = null,
+        CancellationToken cancellationToken = default)
     {
         var result = await searchService.SearchAsync(query, revision, cancellationToken);
         return JsonSerializer.Serialize(result);
@@ -42,9 +43,29 @@ public sealed record KnowledgePassage(
     string LastReviewed,
     string ContentHash);
 
+public sealed class KnowledgeSearchHit
+{
+    [SimpleField(IsKey = true)]
+    public required string Id { get; init; }
+    [SimpleField(IsFilterable = true)]
+    public required string Path { get; init; }
+    [SimpleField(IsFilterable = true)]
+    public required string Revision { get; init; }
+    [SimpleField(IsFilterable = true)]
+    public required string Owner { get; init; }
+    [SimpleField(IsFilterable = true)]
+    public required string LastReviewed { get; init; }
+    [SearchableField]
+    public required string Title { get; init; }
+    [SearchableField]
+    public required string Content { get; init; }
+    [SimpleField]
+    public required string ContentHash { get; init; }
+}
+
 public interface IKnowledgeSearchRepository
 {
-    Task<IReadOnlyList<KnowledgeSearchDocument>> SearchAsync(
+    Task<IReadOnlyList<KnowledgeSearchHit>> SearchAsync(
         string query,
         string revision,
         int maximumResults,
@@ -53,17 +74,17 @@ public interface IKnowledgeSearchRepository
 
 public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : IKnowledgeSearchRepository
 {
-    public async Task<IReadOnlyList<KnowledgeSearchDocument>> SearchAsync(
+    public async Task<IReadOnlyList<KnowledgeSearchHit>> SearchAsync(
         string query,
         string revision,
         int maximumResults,
         CancellationToken cancellationToken)
     {
-        var response = await searchClient.SearchAsync<KnowledgeSearchDocument>(
+        var response = await searchClient.SearchAsync<KnowledgeSearchHit>(
             query,
             CreateSearchOptions(revision, maximumResults),
             cancellationToken);
-        var documents = new List<KnowledgeSearchDocument>();
+        var documents = new List<KnowledgeSearchHit>();
         await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
         {
             documents.Add(result.Document);
@@ -74,25 +95,32 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
 
     public static SearchOptions CreateSearchOptions(string revision, int maximumResults)
     {
+        if (maximumResults is < 1 or > KnowledgeSearchService.MaximumResults)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumResults),
+                $"Search result count must be between 1 and {KnowledgeSearchService.MaximumResults}.");
+        }
+
         var escapedRevision = revision.Replace("'", "''", StringComparison.Ordinal);
         return new SearchOptions
         {
-            Filter = $"{nameof(KnowledgeSearchDocument.Revision)} eq '{escapedRevision}' and " +
+            Filter = $"{nameof(KnowledgeSearchHit.Revision)} eq '{escapedRevision}' and " +
                 "startswith(Path, 'docs/knowledge/')",
             SearchMode = SearchMode.Any,
             QueryType = SearchQueryType.Simple,
-            SearchFields = { nameof(KnowledgeSearchDocument.Title), nameof(KnowledgeSearchDocument.Content) },
+            SearchFields = { nameof(KnowledgeSearchHit.Title), nameof(KnowledgeSearchHit.Content) },
             Size = maximumResults,
             Select =
             {
-                nameof(KnowledgeSearchDocument.Id),
-                nameof(KnowledgeSearchDocument.Path),
-                nameof(KnowledgeSearchDocument.Revision),
-                nameof(KnowledgeSearchDocument.Owner),
-                nameof(KnowledgeSearchDocument.LastReviewed),
-                nameof(KnowledgeSearchDocument.Title),
-                nameof(KnowledgeSearchDocument.Content),
-                nameof(KnowledgeSearchDocument.ContentHash)
+                nameof(KnowledgeSearchHit.Id),
+                nameof(KnowledgeSearchHit.Path),
+                nameof(KnowledgeSearchHit.Revision),
+                nameof(KnowledgeSearchHit.Owner),
+                nameof(KnowledgeSearchHit.LastReviewed),
+                nameof(KnowledgeSearchHit.Title),
+                nameof(KnowledgeSearchHit.Content),
+                nameof(KnowledgeSearchHit.ContentHash)
             }
         };
     }
@@ -119,7 +147,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
 
         if (revision.Length != 40 || !revision.All(Uri.IsHexDigit))
         {
-            return NoEvidence(revision, "invalid_revision", "Revision must be a full 40-character Git commit SHA.");
+            return NoEvidence(null, "invalid_revision", "Revision must be a full 40-character Git commit SHA.");
         }
 
         if (string.IsNullOrWhiteSpace(query))
@@ -166,7 +194,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
     private static KnowledgeSearchResult NoEvidence(string? revision, string status, string message) =>
         new(revision, false, status, message, []);
 
-    private static KnowledgePassage ToPassage(KnowledgeSearchDocument document)
+    private static KnowledgePassage ToPassage(KnowledgeSearchHit document)
     {
         var truncated = document.Content.Length > MaximumPassageLength;
         var passage = truncated ? document.Content[..MaximumPassageLength] : document.Content;
@@ -194,19 +222,31 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
             return false;
         }
 
-        return path.Split('/').All(segment => segment is not ("." or ".."));
+        var segments = path.Split('/');
+        return segments.Length > 2 &&
+            segments[^1].EndsWith(".md", StringComparison.OrdinalIgnoreCase) &&
+            segments.All(segment =>
+                segment.Length > 0 &&
+                segment is not ("." or "..") &&
+                !segment.Any(char.IsControl));
     }
 }
 
 public static class KnowledgeMcpToken
 {
     public const int MinimumLength = 32;
+    public const int MaximumLength = 128;
+
+    public static bool IsValidAccessToken(string? accessToken) =>
+        accessToken is { Length: >= MinimumLength and <= MaximumLength } &&
+        accessToken.All(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_' or '~');
 
     public static bool IsAuthorized(string? authorizationHeader, string accessToken)
     {
         if (string.IsNullOrEmpty(authorizationHeader) ||
-            string.IsNullOrEmpty(accessToken) ||
-            accessToken.Length < MinimumLength)
+            !IsValidAccessToken(accessToken) ||
+            authorizationHeader.Length != accessToken.Length + "Bearer ".Length)
         {
             return false;
         }
@@ -215,5 +255,20 @@ public static class KnowledgeMcpToken
         var actual = System.Text.Encoding.UTF8.GetBytes(authorizationHeader);
         return expected.Length == actual.Length &&
             System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+}
+
+public sealed class KnowledgeMcpAuthorizationMiddleware(RequestDelegate next, string accessToken)
+{
+    public async Task InvokeAsync(HttpContext context)
+    {
+        if (context.Request.Path.StartsWithSegments("/mcp") &&
+            !KnowledgeMcpToken.IsAuthorized(context.Request.Headers.Authorization, accessToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        await next(context);
     }
 }

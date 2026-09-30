@@ -1,6 +1,6 @@
 ---
 owner: Architecture owner
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 # Architecture
 
@@ -27,5 +27,7 @@ The API exposes a typed event-ingestion endpoint and broadcasts accepted events 
 GitHub Copilot agents perform repository work. Deterministic C# policy owns safety, evidence, and approval gates. For ambiguous safe routes, Microsoft Agent Framework obtains strict typed output from an Azure OpenAI deployment and validates the suggestion against the live worker menu and confidence threshold. Azure AI Search supplies revisioned knowledge, Azure AI Content Safety supplies Prompt Shields, and the dedicated Microsoft Foundry evaluation workflow is configured to score groundedness when manually dispatched. These signals never grant authorization. Repository tests prove the deterministic fail-closed behavior; deployment and live-cloud workflow evidence are separate release artifacts and must not be inferred from local validation.
 
 `tools/KnowledgeIndexer` reads only canonical Markdown under `docs/knowledge`, requires `owner` and `last_reviewed` front matter, chunks on section boundaries, and uses deterministic revision/path/content hashes as Azure AI Search keys. Re-running the same commit uses `mergeOrUpload` and does not duplicate chunks; prior revisions remain queryable.
+
+`tools/KnowledgeMcp` is a separate ASP.NET Core remote MCP service, not an API or web application endpoint. Its only tool, `search_knowledge`, reads the fixed `knowledge` index, filters by one full requested commit SHA and canonical `docs/knowledge/` paths, and returns bounded passages with exact-revision GitHub source links and document metadata. The service uses only its system-assigned managed identity for Azure AI Search. The source implementation is not evidence that the service is deployed or connected to a Copilot client; the POC runbook records the remaining hosted setup and demonstration gates.
 
 Before any automated worker route is selected, the API invokes Azure AI Content Safety Prompt Shields over routing metadata and the live worker descriptions, then queries Azure AI Search for evidence matching the exact requested commit revision. Detection, missing or malformed evaluation evidence, configuration errors, and service errors all deterministically select `human_review`. Microsoft Agent Framework is reached only after these gates pass. The API authenticates to AI Services and Search with its Entra managed identity; local keys remain disabled. Model input is restricted to routing metadata and worker IDs. All decisions are emitted through the existing operations event stream and correlated in Application Insights.
