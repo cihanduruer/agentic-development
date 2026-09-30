@@ -342,7 +342,6 @@ public sealed class KnowledgeMcpTests
         public string? Query { get; private set; }
         public string? Revision { get; private set; }
         public int MaximumResults { get; private set; }
-        public int MaximumSkipped { get; private set; }
 
         public Task<IReadOnlyList<McpSearchHit>> SearchAsync(
             string query,
@@ -355,7 +354,6 @@ public sealed class KnowledgeMcpTests
             Query = query;
             Revision = revision;
             MaximumResults = maximumResults;
-            MaximumSkipped = Math.Max(MaximumSkipped, skip);
             return Task.FromResult<IReadOnlyList<McpSearchHit>>(
                 documents.Skip(skip).Take(maximumResults).ToArray());
         }
