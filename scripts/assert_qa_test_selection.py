@@ -56,7 +56,7 @@ expected_steps = [
         "uses": "actions/github-script@v8",
         "with": {
             "script-sha256": (
-                "f9026ef9e5fa2eaded2959f95ead9f94346f26044916812b897be867fd24ee12"
+                "8c6246c25fdf8bc44947e01cc6af6a0f2e1e43ff9ce1088097e899df4c8796d7"
             )
         },
     },
