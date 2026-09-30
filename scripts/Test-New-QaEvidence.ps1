@@ -328,6 +328,18 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
             OracleExpected = 'write'
         },
         @{
+            Name = 'duplicate-permissions-contents'
+            Old = "permissions:${workflowNewLine}  actions: read"
+            New = "permissions:${workflowNewLine}  contents: write${workflowNewLine}  actions: read"
+            DuplicateKey = 'contents'
+        },
+        @{
+            Name = 'duplicate-checkout-with'
+            Old = "      - name: Check out trusted QA policy${workflowNewLine}        uses: actions/checkout@v4${workflowNewLine}        with:"
+            New = "      - name: Check out trusted QA policy${workflowNewLine}        uses: actions/checkout@v4${workflowNewLine}        with: { ref: refs/heads/untrusted }${workflowNewLine}        with:"
+            DuplicateKey = 'with'
+        },
+        @{
             Name = 'workflow-extra-env'
             Old = 'concurrency:'
             New = "env:`n  SOURCE: unexpected`n`nconcurrency:"
@@ -752,6 +764,33 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
             1 `
             "QA selection mutant '$($mutation.Name)' must fail."
         Write-Host "QA selection mutant '$($mutation.Name)' was rejected with exit code $mutationExitCode."
+
+        if ($mutation.DuplicateKey -and -not $SkipSemanticMatrix) {
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                $duplicateKeyOutput = & python `
+                    -I `
+                    -S `
+                    "$PSScriptRoot/assert_qa_test_selection.py" `
+                    $oraclePackagePath `
+                    $mutatedWorkflowPath 2>&1
+                $duplicateKeyExitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
+            }
+            Assert-Equal `
+                $duplicateKeyExitCode `
+                1 `
+                "Semantic parser must reject duplicate key '$($mutation.DuplicateKey)'."
+            Assert-Equal `
+                (($duplicateKeyOutput -join "`n").Contains(
+                    "Duplicate YAML mapping key: $($mutation.DuplicateKey)")) `
+                $true `
+                "Semantic parser must identify duplicate key '$($mutation.DuplicateKey)'."
+            Write-Host "Semantic YAML duplicate key '$($mutation.DuplicateKey)' was rejected."
+        }
 
         if ($mutation.SemanticExtraRun -and -not $SkipSemanticMatrix) {
             $oracleScript = @'
