@@ -149,6 +149,9 @@ jobs:
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Test Knowledge MCP stateless HTTP transport
+        shell: bash
+        run: bash ./scripts/Test-KnowledgeMcpTransport.sh
       - name: Test SQL bootstrapper against SQL Server
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
@@ -196,6 +199,13 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: az bicep build --file infra/main.bicep
+      - name: Build Knowledge MCP Bicep
+        uses: azure/cli@v2
+        with:
+          inlineScript: az bicep build --file infra/knowledge-mcp.bicep
+      - name: Check Knowledge MCP smoke helper syntax
+        shell: bash
+        run: python3 -c "compile(open('scripts/Test-KnowledgeMcpEndpoint.py', encoding='utf-8').read(), 'scripts/Test-KnowledgeMcpEndpoint.py', 'exec')"
       - name: Write validation provenance
         shell: pwsh
         env:
