@@ -59,6 +59,37 @@ public sealed class KnowledgeMcpTests
     }
 
     [Fact]
+    public async Task SearchPagesPastRejectedCandidatesToFindValidEvidence()
+    {
+        var repository = new FakeKnowledgeSearchRepository(
+            Enumerable.Range(0, KnowledgeSearchService.CandidatePageSize)
+                .Select(_ => Document("docs/other/security.md", Revision))
+                .Append(Document("docs/knowledge/security.md", Revision))
+                .ToArray());
+        var result = await new KnowledgeSearchService(repository)
+            .SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        Assert.True(result.HasEvidence);
+        Assert.Equal("docs/knowledge/security.md", Assert.Single(result.Passages).Path);
+        Assert.Equal(2, repository.CallCount);
+    }
+
+    [Fact]
+    public async Task SearchReportsScanLimitInsteadOfClaimingNoEvidence()
+    {
+        var repository = new FakeKnowledgeSearchRepository(
+            Enumerable.Repeat(Document("docs/other/security.md", Revision), KnowledgeSearchService.MaximumCandidateScan).ToArray());
+        var result = await new KnowledgeSearchService(repository)
+            .SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        Assert.False(result.HasEvidence);
+        Assert.Equal("scan_limit_reached", result.Status);
+        Assert.Equal(
+            KnowledgeSearchService.MaximumCandidateScan / KnowledgeSearchService.CandidatePageSize,
+            repository.CallCount);
+    }
+
+    [Fact]
     public async Task SearchDoesNotReturnEvidenceForOnlyACommonTermMatch()
     {
         var repository = new FakeKnowledgeSearchRepository(
@@ -167,6 +198,20 @@ public sealed class KnowledgeMcpTests
     }
 
     [Fact]
+    public async Task SearchReturnsSeparatedSnippetsContainingAllRequiredTerms()
+    {
+        var content = "managed " + new string('x', 5_000) + " identity";
+        var result = await new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content)))
+            .SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        var passage = Assert.Single(result.Passages).Passage;
+        Assert.Contains("managed", passage, StringComparison.Ordinal);
+        Assert.Contains("identity", passage, StringComparison.Ordinal);
+        Assert.True(passage.Length <= KnowledgeSearchService.MaximumPassageLength);
+    }
+
+    [Fact]
     public void AzureSearchFilterPinsRevisionAndCanonicalKnowledgePaths()
     {
         var options = AzureKnowledgeSearchRepository.CreateSearchOptions(Revision, KnowledgeSearchService.MaximumResults);
@@ -177,6 +222,7 @@ public sealed class KnowledgeMcpTests
         Assert.Equal(SearchMode.All, options.SearchMode);
         Assert.DoesNotContain("startswith", options.Filter, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(KnowledgeSearchService.MaximumResults, options.Size);
+        Assert.Equal(0, options.Skip);
         Assert.Contains(nameof(McpSearchHit.Content), options.Select);
         Assert.Contains(nameof(McpSearchHit.Revision), options.Select);
         Assert.Contains(nameof(McpSearchHit.Path), options.Select);
@@ -296,18 +342,22 @@ public sealed class KnowledgeMcpTests
         public string? Query { get; private set; }
         public string? Revision { get; private set; }
         public int MaximumResults { get; private set; }
+        public int MaximumSkipped { get; private set; }
 
         public Task<IReadOnlyList<McpSearchHit>> SearchAsync(
             string query,
             string revision,
             int maximumResults,
+            int skip,
             CancellationToken cancellationToken)
         {
             CallCount++;
             Query = query;
             Revision = revision;
             MaximumResults = maximumResults;
-            return Task.FromResult<IReadOnlyList<McpSearchHit>>(documents);
+            MaximumSkipped = Math.Max(MaximumSkipped, skip);
+            return Task.FromResult<IReadOnlyList<McpSearchHit>>(
+                documents.Skip(skip).Take(maximumResults).ToArray());
         }
     }
 }

@@ -69,6 +69,7 @@ public interface IKnowledgeSearchRepository
         string query,
         string revision,
         int maximumResults,
+        int skip,
         CancellationToken cancellationToken);
 }
 
@@ -78,11 +79,12 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
         string query,
         string revision,
         int maximumResults,
+        int skip,
         CancellationToken cancellationToken)
     {
         var response = await searchClient.SearchAsync<KnowledgeSearchHit>(
             query,
-            CreateSearchOptions(revision, maximumResults),
+            CreateSearchOptions(revision, maximumResults, skip),
             cancellationToken);
         var documents = new List<KnowledgeSearchHit>();
         await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
@@ -93,13 +95,18 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
         return documents;
     }
 
-    public static SearchOptions CreateSearchOptions(string revision, int maximumResults)
+    public static SearchOptions CreateSearchOptions(string revision, int maximumResults, int skip = 0)
     {
         if (maximumResults is < 1 or > KnowledgeSearchService.MaximumResults)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(maximumResults),
                 $"Search result count must be between 1 and {KnowledgeSearchService.MaximumResults}.");
+        }
+
+        if (skip < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(skip), "Search offset cannot be negative.");
         }
 
         var escapedRevision = revision.Replace("'", "''", StringComparison.Ordinal);
@@ -110,6 +117,7 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
             QueryType = SearchQueryType.Simple,
             SearchFields = { nameof(KnowledgeSearchHit.Title), nameof(KnowledgeSearchHit.Content) },
             Size = maximumResults,
+            Skip = skip,
             Select =
             {
                 nameof(KnowledgeSearchHit.Id),
@@ -130,6 +138,8 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
     public const string IndexName = "knowledge";
     public const int MaximumQueryLength = 256;
     public const int MaximumResults = 5;
+    public const int CandidatePageSize = 5;
+    public const int MaximumCandidateScan = 25;
     public const int MaximumPassageLength = 3000;
 
     private static readonly Uri RepositoryRoot = new("https://github.com/cihanduruer/agentic-development/blob/");
@@ -181,32 +191,51 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         }
 
         var normalizedRevision = revision.ToLowerInvariant();
-        var documents = await repository.SearchAsync(
-            string.Join(' ', queryTerms),
-            normalizedRevision,
-            MaximumResults,
-            cancellationToken);
-        var passages = documents
-            .Where(document =>
-                string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
-                IsCanonicalKnowledgePath(document.Path) &&
-                queryTerms.All(term =>
-                    ContainsWholeTerm(document.Title, term) ||
-                    ContainsWholeTerm(document.Content, term)))
-            .Take(MaximumResults)
-            .Select(document => ToPassage(document, queryTerms))
-            .ToArray();
+        var passages = new List<KnowledgePassage>();
+        var scanned = 0;
+        while (passages.Count < MaximumResults && scanned < MaximumCandidateScan)
+        {
+            var pageSize = Math.Min(CandidatePageSize, MaximumCandidateScan - scanned);
+            var documents = await repository.SearchAsync(
+                string.Join(' ', queryTerms),
+                normalizedRevision,
+                pageSize,
+                scanned,
+                cancellationToken);
+            scanned += documents.Count;
+            if (documents.Count == 0)
+            {
+                break;
+            }
 
-        return passages.Length == 0
+            passages.AddRange(documents
+                .Where(document =>
+                    string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
+                    IsCanonicalKnowledgePath(document.Path) &&
+                    queryTerms.All(term =>
+                        ContainsWholeTerm(document.Title, term) ||
+                        ContainsWholeTerm(document.Content, term)))
+                .Select(document => ToPassage(document, queryTerms))
+                .Take(MaximumResults - passages.Count));
+
+            if (documents.Count < pageSize)
+            {
+                break;
+            }
+        }
+
+        return passages.Count == 0
             ? NoEvidence(
                 normalizedRevision,
-                "no_evidence",
-                $"No matching knowledge evidence exists at revision {normalizedRevision}.")
+                scanned >= MaximumCandidateScan ? "scan_limit_reached" : "no_evidence",
+                scanned >= MaximumCandidateScan
+                    ? $"Knowledge evidence scan limit reached at revision {normalizedRevision}; no complete result can be claimed."
+                    : $"No matching knowledge evidence exists at revision {normalizedRevision}.")
             : new KnowledgeSearchResult(
                 normalizedRevision,
                 true,
                 "evidence_found",
-                $"Found {passages.Length} knowledge passage(s) at revision {normalizedRevision}.",
+                $"Found {passages.Count} knowledge passage(s) at revision {normalizedRevision}.",
                 passages);
     }
 
@@ -241,9 +270,9 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
     private static KnowledgePassage ToPassage(KnowledgeSearchHit document, IReadOnlyList<string> queryTerms)
     {
         var truncated = document.Content.Length > MaximumPassageLength;
-        var passageStart = truncated ? FindExcerptStart(document.Content, queryTerms) : 0;
-        var passageLength = Math.Min(MaximumPassageLength, document.Content.Length - passageStart);
-        var passage = document.Content.Substring(passageStart, passageLength);
+        var passage = truncated
+            ? BuildRelevantExcerpt(document.Content, queryTerms)
+            : document.Content;
         var escapedPath = string.Join(
             '/',
             document.Path.Split('/').Select(Uri.EscapeDataString));
@@ -260,36 +289,55 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
             document.ContentHash);
     }
 
-    private static int FindExcerptStart(string content, IReadOnlyList<string> queryTerms)
+    private static string BuildRelevantExcerpt(string content, IReadOnlyList<string> queryTerms)
     {
-        var matchStart = -1;
-        foreach (var term in queryTerms)
+        var occurrences = queryTerms
+            .Select(term => FindWholeTermOccurrence(content, term))
+            .Where(index => index >= 0)
+            .ToArray();
+        if (occurrences.Length == 0)
         {
-            var occurrence = content.IndexOf(term, StringComparison.OrdinalIgnoreCase);
-            while (occurrence >= 0)
+            return content[..MaximumPassageLength];
+        }
+
+        var first = occurrences.Min();
+        var last = occurrences.Max();
+        if (last - first < MaximumPassageLength)
+        {
+            var start = Math.Max(0, Math.Min(first - MaximumPassageLength / 2, content.Length - MaximumPassageLength));
+            return content.Substring(start, MaximumPassageLength);
+        }
+
+        var snippetLength = Math.Max(1, (MaximumPassageLength - (occurrences.Length - 1) * 9) / occurrences.Length);
+        var snippets = occurrences.Select(index =>
+        {
+            var start = Math.Max(0, index - snippetLength / 2);
+            if (start + snippetLength > content.Length)
             {
-                var matchEnd = occurrence + term.Length;
-                var startsTerm = occurrence == 0 || !char.IsLetterOrDigit(content[occurrence - 1]);
-                var endsTerm = matchEnd == content.Length || !char.IsLetterOrDigit(content[matchEnd]);
-                if (startsTerm && endsTerm)
-                {
-                    matchStart = matchStart < 0 ? occurrence : Math.Min(matchStart, occurrence);
-                    break;
-                }
-
-                occurrence = content.IndexOf(term, occurrence + 1, StringComparison.OrdinalIgnoreCase);
+                start = content.Length - snippetLength;
             }
-        }
 
-        if (matchStart < 0)
+            return content.Substring(start, snippetLength);
+        });
+        return string.Join("\n...\n", snippets);
+    }
+
+    private static int FindWholeTermOccurrence(string text, string term)
+    {
+        var occurrence = text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+        while (occurrence >= 0)
         {
-            return 0;
+            var matchEnd = occurrence + term.Length;
+            if ((occurrence == 0 || !char.IsLetterOrDigit(text[occurrence - 1])) &&
+                (matchEnd == text.Length || !char.IsLetterOrDigit(text[matchEnd])))
+            {
+                return occurrence;
+            }
+
+            occurrence = text.IndexOf(term, occurrence + 1, StringComparison.OrdinalIgnoreCase);
         }
 
-        var start = Math.Max(0, matchStart - MaximumPassageLength / 2);
-        return start + MaximumPassageLength > content.Length
-            ? content.Length - MaximumPassageLength
-            : start;
+        return -1;
     }
 
     private static bool ContainsWholeTerm(string text, string term)
