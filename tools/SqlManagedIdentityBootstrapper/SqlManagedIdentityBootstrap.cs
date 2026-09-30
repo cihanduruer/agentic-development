@@ -985,10 +985,29 @@ public static class SqlManagedIdentityBootstrap
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || root.GetProperty("target").ValueKind != JsonValueKind.Object
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException(
+                    "SQL diagnostic query returned an unexpected JSON shape.");
+            }
+
+            var target = root.GetProperty("target");
+            var observer = root.GetProperty("observer");
+            if (target.ValueKind != JsonValueKind.Object
+                || target.GetProperty("principalName").ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(
+                    target.GetProperty("principalName").GetString())
+                || target.GetProperty("principalObjectId").ValueKind
+                    != JsonValueKind.String
+                || !target.GetProperty("principalObjectId").TryGetGuid(out _)
                 || root.GetProperty("databaseName").ValueKind != JsonValueKind.String
-                || root.GetProperty("observer").ValueKind != JsonValueKind.Object
+                || observer.ValueKind != JsonValueKind.Object
+                || observer.GetProperty("name").ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(observer.GetProperty("name").GetString())
+                || observer.GetProperty("isDatabaseOwner").ValueKind
+                    != JsonValueKind.Number
+                || observer.GetProperty("canViewDefinition").ValueKind
+                    != JsonValueKind.Number
                 || root.GetProperty("transactionCount").ValueKind != JsonValueKind.Number
                 || root.GetProperty("identityCandidates").ValueKind != JsonValueKind.Array
                 || root.GetProperty("directPermissions").ValueKind != JsonValueKind.Array
