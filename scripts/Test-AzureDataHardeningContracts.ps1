@@ -191,8 +191,6 @@ foreach ($workflow in @($development, $production)) {
         $firewallCleanupLoginBody -notmatch 'always\(\)' -or
         $firewallCleanupLoginBody -notmatch 'uses: azure/login@v2' -or
         $firewallCleanupBody -notmatch 'sql-firewall-cleanup-login\.outcome' -or
-        $sqlCutoverBody -notmatch 'configureApi=false' -or
-        $sqlCutoverBody -notmatch 'configureSql=true' -or
         $identityBody -notmatch 'webapp config appsettings list' -or
         $identityBody -notmatch 'configuredApi=' -or
         $sqlClassificationBody -notmatch 'Get-AzureSqlAuthenticationMode\.ps1' -or
@@ -215,6 +213,99 @@ foreach ($workflow in @($development, $production)) {
         $workflow -notmatch 'webapp identity assign' -or
         $workflow -notmatch 'infra/api-identity\.bicep') {
         throw 'API managed-identity configuration must be applied only after identity creation and SQL bootstrap.'
+    }
+    $postCutoverBody = Get-NamedStepBody `
+        -Workflow $workflow -Name 'Verify API after SQL Entra-only enforcement'
+    $legacyCleanupBody = Get-NamedStepBody `
+        -Workflow $workflow -Name 'Remove approved active legacy SQL administrator credential'
+    $resourceGroupBinding = if ($workflow -eq $development) {
+        '$resourceGroup = ''agentic-hotelbookingdev'''
+    }
+    else {
+        '$resourceGroup = ''${{ steps.infrastructure.outputs.resourceGroupName }}'''
+    }
+    if ($sqlCutoverBody -notmatch 'az sql server ad-only-auth enable' -or
+        $sqlCutoverBody -notmatch 'Get-AzureSqlAuthenticationMode\.ps1' -or
+        $sqlCutoverBody -notmatch '\$LASTEXITCODE -ne 0' -or
+        $sqlCutoverBody -notmatch '\$sqlAuthMode -cne ''entraOnly''' -or
+        -not $sqlCutoverBody.Contains($resourceGroupBinding) -or
+        $sqlCutoverBody -notmatch '\$sqlServerName = ''\$\{\{ steps.infrastructure.outputs.sqlServerName \}\}''' -or
+        $sqlCutoverBody -match 'deployment group|configureSql|configureApi|ad-only-auth disable|--no-wait' -or
+        $sqlCutoverBody -match '(?m)^        (?:if:|continue-on-error:)' -or
+        $postCutoverBody -match '(?m)^        (?:if:|continue-on-error:)' -or
+        $legacyCleanupBody -match 'always\(\)|failure\(\)|cancelled\(\)|continue-on-error:') {
+        throw 'SQL enforcement must use the dedicated enable API and authoritative readback, failing closed before post-cutover proof and cleanup.'
+    }
+
+    # Execute the actual workflow body; every Azure CLI call is intercepted.
+    $runMatch = [Regex]::Match($sqlCutoverBody, '(?ms)^        run: \|\r?\n(?<script>.*)')
+    if (-not $runMatch.Success) { throw 'SQL enforcement run body is missing.' }
+    $runBody = [Regex]::Replace($runMatch.Groups['script'].Value, '(?m)^          ', '')
+    $resourceGroup = if ($workflow -eq $development) {
+        'agentic-hotelbookingdev'
+    }
+    else {
+        'agentic-hotelbookingprod'
+    }
+    function global:az {
+        $arguments = @($args | ForEach-Object { $_.ToString() }) -join ' '
+        $mock = $global:SqlEnforcementMock
+        $mock.Calls.Add($arguments)
+        $target = "--resource-group $($mock.ResourceGroup) --name $($mock.ServerName)"
+        if ($arguments -ceq "sql server ad-only-auth enable $target --output none --only-show-errors") {
+            $global:LASTEXITCODE = $mock.EnableExitCode
+        }
+        elseif ($arguments -ceq "sql server ad-only-auth get $target --query azureAdOnlyAuthentication --output tsv --only-show-errors") {
+            $global:LASTEXITCODE = $mock.ReadExitCode
+            Write-Output $mock.ReadOutput
+        }
+        else {
+            throw "Unexpected Azure CLI invocation in SQL enforcement test: $arguments"
+        }
+    }
+    Push-Location $root
+    try {
+        foreach ($serverName in @('ahb-default-sql', 'adopted-nondefault-sql')) {
+            $script = $runBody.Replace(
+                '${{ steps.infrastructure.outputs.resourceGroupName }}', $resourceGroup).Replace(
+                '${{ steps.infrastructure.outputs.sqlServerName }}', $serverName)
+            $cases = @(
+                @{ Name = 'enabled'; Enable = 0; Read = 0; Output = 'true'; Error = ''; Calls = 2 },
+                @{ Name = 'repeat-enable'; Enable = 0; Read = 0; Output = 'true'; Error = ''; Calls = 2 },
+                @{ Name = 'enable-failed'; Enable = 1; Read = 0; Output = 'true'; Error = 'enforcement failed after'; Calls = 1 },
+                @{ Name = 'still-legacy'; Enable = 0; Read = 0; Output = 'false'; Error = 'not confirmed'; Calls = 2 },
+                @{ Name = 'read-failed'; Enable = 0; Read = 1; Output = 'Forbidden'; Error = 'Unable to read'; Calls = 2 },
+                @{ Name = 'empty'; Enable = 0; Read = 0; Output = ''; Error = 'invalid Entra-only'; Calls = 2 },
+                @{ Name = 'null'; Enable = 0; Read = 0; Output = 'null'; Error = 'invalid Entra-only'; Calls = 2 },
+                @{ Name = 'malformed'; Enable = 0; Read = 0; Output = "true`nfalse"; Error = 'invalid Entra-only'; Calls = 2 }
+            )
+            foreach ($case in $cases) {
+                $global:SqlEnforcementMock = @{
+                    ResourceGroup = $resourceGroup
+                    ServerName = $serverName
+                    EnableExitCode = $case.Enable
+                    ReadExitCode = $case.Read
+                    ReadOutput = $case.Output
+                    Calls = [Collections.Generic.List[string]]::new()
+                }
+                $caught = ''
+                try { & ([scriptblock]::Create($script)) }
+                catch { $caught = $_.Exception.Message }
+                $calls = $global:SqlEnforcementMock.Calls
+                if (($case.Error -eq '' -and $caught -ne '') -or
+                    ($case.Error -ne '' -and $caught -notmatch $case.Error) -or
+                    $calls.Count -ne $case.Calls -or
+                    $calls[0] -notmatch '^sql server ad-only-auth enable ' -or
+                    ($calls.Count -eq 2 -and $calls[1] -notmatch '^sql server ad-only-auth get ')) {
+                    throw "SQL enforcement case '$($case.Name)' failed for $resourceGroup/$serverName`: $caught"
+                }
+            }
+        }
+    }
+    finally {
+        Pop-Location
+        Remove-Item Function:\global:az
+        Remove-Variable SqlEnforcementMock -Scope Global
     }
     if (-not $sqlAuthentication.Contains('az sql server ad-only-auth get') -or
         -not $sqlAuthentication.Contains('--name $ServerName') -or
@@ -341,6 +432,7 @@ foreach ($workflow in @($development, $production)) {
 }
 if (-not $platform.Contains(
         "resource sqlServer 'Microsoft.Sql/servers@2023-08-01' = if (configureSql) {") -or
+    $platform -notmatch 'azureADOnlyAuthentication: true' -or
     -not $platform.Contains(
         "resource database 'Microsoft.Sql/servers/databases@2023-08-01' = if (configureSql) {") -or
     -not $platform.Contains('value: ''Server=tcp:${sqlServerName}')) {

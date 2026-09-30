@@ -192,7 +192,7 @@ The `production` GitHub Environment exists and is restricted to `main`. GitHub r
 8. Inject the deployed API endpoint into the web configuration.
 9. Deploy the client to Azure Static Web Apps.
 10. Use the GitHub OIDC deployment identity to verify public operations reads, anonymous-write rejection, authorized event ingestion, and Azure SQL persistence across an App Service restart.
-11. Enforce SQL Entra-only authentication in a SQL-only Bicep phase and prove another SQL-backed request.
+11. Enable SQL Entra-only authentication through `az sql server ad-only-auth enable` for the deployment resource group and exact SQL server in infrastructure outputs, require authoritative child-resource readback of `entraOnly`, then prove another SQL-backed request. Initial Bicep creation remains Entra-only; final enforcement never redeploys the parent server. A healthy managed-identity API alone does not complete the deployment if enforcement or readback fails.
 12. Only for a manually dispatched run whose operator typed `DELETE-ACTIVE-LEGACY-SQL-SECRET`, verify Entra-only SQL and the passwordless App Service connection, then delete and verify the absence of the exact active legacy secret without purging soft-deleted data or deleting the vault. Automatic push deployments never delete it.
 
 The development topology is:
