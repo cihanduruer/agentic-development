@@ -71,12 +71,14 @@ public sealed record SqlBootstrapOptions(
         }
 
         var modeValue = values.GetValueOrDefault("--mode") ?? "bootstrap";
-        if (!Enum.TryParse<SqlBootstrapMode>(modeValue, true, out var mode))
+        var mode = modeValue.ToUpperInvariant() switch
         {
-            throw new ArgumentException(
+            "BOOTSTRAP" => SqlBootstrapMode.Bootstrap,
+            "DIAGNOSTIC" => SqlBootstrapMode.Diagnostic,
+            _ => throw new ArgumentException(
                 "--mode must be either bootstrap or diagnostic.",
-                nameof(args));
-        }
+                nameof(args)),
+        };
 
         values.TryGetValue("--output", out var outputPath);
         if (mode == SqlBootstrapMode.Diagnostic && string.IsNullOrWhiteSpace(outputPath))
@@ -828,6 +830,22 @@ public static class SqlManagedIdentityBootstrap
                         ON relevant.principal_id = owned.owning_principal_id
                     INNER JOIN sys.database_principals AS owner
                         ON owner.principal_id = owned.owning_principal_id
+                    UNION ALL
+                    SELECT
+                        N'DATABASE',
+                        NULL,
+                        databases.name,
+                        owner.name
+                    FROM sys.databases AS databases
+                    INNER JOIN relevant_principals AS relevant
+                        ON databases.database_id = DB_ID()
+                       AND databases.owner_sid = (
+                           SELECT sid
+                           FROM sys.database_principals
+                           WHERE principal_id = relevant.principal_id
+                       )
+                    INNER JOIN sys.database_principals AS owner
+                        ON owner.principal_id = relevant.principal_id
                 ) AS ownership
                 ORDER BY
                     ownership.securableType,

@@ -97,9 +97,20 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         Assert.Equal(
             JsonValueKind.Array,
             root.GetProperty("delegatedPermissions").ValueKind);
-        Assert.Equal(
-            JsonValueKind.Array,
-            root.GetProperty("ownedSecurables").ValueKind);
+        var ownedSecurables = root.GetProperty("ownedSecurables");
+        Assert.Equal(JsonValueKind.Array, ownedSecurables.ValueKind);
+        foreach (var ownership in ownedSecurables.EnumerateArray())
+        {
+            Assert.True(
+                ownership.GetProperty("securableType").GetString()
+                    is "SCHEMA" or "OBJECT" or "DATABASE_PRINCIPAL" or "DATABASE");
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    ownership.GetProperty("securableName").GetString()));
+            Assert.False(
+                string.IsNullOrWhiteSpace(
+                    ownership.GetProperty("ownerName").GetString()));
+        }
     }
 
     [SqlServerTheory]

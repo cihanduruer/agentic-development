@@ -97,6 +97,24 @@ public sealed class SqlManagedIdentityBootstrapperTests
             _ => "access-token"));
     }
 
+    [Theory]
+    [InlineData("2")]
+    [InlineData("-1")]
+    [InlineData("Bootstrap, Diagnostic")]
+    public void ParseRejectsUndefinedOrNumericModes(string mode)
+    {
+        Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(
+            [
+                "--server", "example.database.windows.net",
+                "--database", "hotelbooking",
+                "--principal-name", "agentic-api",
+                "--principal-object-id", PrincipalObjectId.ToString(),
+                "--mode", mode,
+                "--output", "evidence.json",
+            ],
+            _ => "access-token"));
+    }
+
     [Fact]
     public void CommandUsesParametersAndValidDynamicSqlExecution()
     {
@@ -487,6 +505,8 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Contains("roleOwnership", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("delegatedPermissions", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("ownedSecurables", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("FROM sys.databases AS databases", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("databases.owner_sid", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("@@TRANCOUNT", command.CommandText, StringComparison.Ordinal);
         Assert.Contains("FOR JSON PATH, WITHOUT_ARRAY_WRAPPER", command.CommandText, StringComparison.Ordinal);
 
