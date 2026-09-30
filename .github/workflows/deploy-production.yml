@@ -745,28 +745,23 @@ jobs:
 
       - name: Enforce SQL Entra-only after managed-identity API readiness
         shell: pwsh
-        env:
-          AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
-          AZURE_SQL_ENTRA_ADMIN_NAME: ${{ vars.AZURE_SQL_ENTRA_ADMIN_NAME }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
         run: |
-          az deployment group create `
-            --name "production-sql-entra-only-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
-            --resource-group agentic-hotelbookingprod `
-            --template-file infra/resource-group.bicep `
-            --parameters infra/production.parameters.json `
-              "operationsApiAudience=$env:OPERATIONS_API_AUDIENCE" `
-              "sqlEntraAdminLogin=$env:AZURE_SQL_ENTRA_ADMIN_NAME" `
-              "sqlEntraAdminObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
-              "tenantId=$env:AZURE_TENANT_ID" `
-              "deploymentPrincipalObjectId=$env:AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID" `
-              configureApi=false `
-              configureSql=true `
-              "existingSqlServerName=${{ steps.sql-state.outputs.sqlServerName }}" `
+          $ErrorActionPreference = 'Stop'
+          $resourceGroup = '${{ steps.infrastructure.outputs.resourceGroupName }}'
+          $sqlServerName = '${{ steps.infrastructure.outputs.sqlServerName }}'
+          az sql server ad-only-auth enable `
+            --resource-group $resourceGroup `
+            --name $sqlServerName `
+            --output none `
             --only-show-errors
           if ($LASTEXITCODE -ne 0) {
             throw 'SQL Entra-only enforcement failed after the API proved managed-identity readiness; legacy credential cleanup remains blocked.'
+          }
+          $sqlAuthMode = ./scripts/Get-AzureSqlAuthenticationMode.ps1 `
+            -ResourceGroup $resourceGroup `
+            -ServerName $sqlServerName
+          if ($sqlAuthMode -cne 'entraOnly') {
+            throw 'SQL Entra-only enforcement was not confirmed by the authentication child resource; legacy credential cleanup remains blocked.'
           }
 
       - name: Verify API after SQL Entra-only enforcement
