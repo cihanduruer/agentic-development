@@ -719,9 +719,14 @@ $script:pageRequestCount = 0
 function Invoke-GitHubApi {
     param([string]$Uri)
     $script:pageRequestCount++
+    $page = if ($Uri -match '[?&]page=(?<page>\d+)') { [int]$Matches.page } else { 1 }
     return [pscustomobject]@{
         total_count = 2
-        jobs = @([pscustomobject]@{ id = 7001 })
+        jobs = if ($page -eq 1) {
+            @([pscustomobject]@{ id = 7001 })
+        } else {
+            @()
+        }
     }
 }
 Assert-Throws {
