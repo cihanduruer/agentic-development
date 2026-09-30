@@ -49,8 +49,9 @@ jobs:
             const baseRepository = `${context.repo.owner}/${context.repo.repo}`;
             const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
             const apiDeadline = Date.now() + 15 * 60 * 1000;
+            let rateLimitRetries = 0;
             const callGitHub = async request => {
-              for (let rateLimitRetry = 0; ; rateLimitRetry++) {
+              for (;;) {
                 try {
                   return await request();
                 } catch (error) {
@@ -73,11 +74,12 @@ jobs:
                   }
                   waitMilliseconds = Math.max(waitMilliseconds, 1000);
                   const resumeAt = new Date(Date.now() + waitMilliseconds).toISOString();
-                  if (rateLimitRetry >= 5 || Date.now() + waitMilliseconds > apiDeadline) {
+                  if (rateLimitRetries >= 5 || Date.now() + waitMilliseconds > apiDeadline) {
                     throw new Error(
                       `GitHub API rate limit (HTTP ${error.status}) persists until ${resumeAt}, beyond the bounded QA wait. `
                       + 'Rerun QA evidence after that time; credentials and permissions were not changed.');
                   }
+                  rateLimitRetries++;
                   core.warning(`GitHub API rate limit (HTTP ${error.status}); waiting until ${resumeAt} before retrying.`);
                   await sleep(waitMilliseconds);
                 }

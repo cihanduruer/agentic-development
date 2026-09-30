@@ -500,6 +500,17 @@ try {
     Assert-Failure $result 'Rerun QA evidence after' 'Persistent rate limit'
     Assert-Equal (Get-Count $result 'listArtifactsForRepo') 6 'Rate-limit retries must be bounded.'
 
+    $limited = @{ status = 429; message = 'Too Many Requests'; headers = @{ 'retry-after' = '1' } }
+    $result = Invoke-Scenario 'job-wide-rate-limit-budget' (New-ManualScenario @{
+        faults = @(
+            foreach ($call in 1..3) { $limited + @{ endpoint = 'listArtifactsForRepo'; call = $call } }
+            foreach ($call in 1..3) { $limited + @{ endpoint = 'getWorkflowRun'; call = $call } }
+        )
+    })
+    Assert-Failure $result 'Rerun QA evidence after' 'Job-wide rate-limit budget'
+    Assert-Equal @($result.sleeps).Count 5 'Rate-limit waits must be capped across all requests in the job.'
+    Assert-Equal (Get-Count $result 'getWorkflowRun') 3 'The sixth rate-limited response must fail without another request.'
+
     $result = Invoke-Scenario 'rate-limit-consumes-deadline' (New-ManualScenario @{
         artifacts = @()
         faults = @(@{ endpoint = 'listArtifactsForRepo'; call = 1; status = 429; message = 'Too Many Requests'; headers = @{ 'retry-after' = '800' } })
