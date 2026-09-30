@@ -271,6 +271,32 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     [Fact]
+    public void CommandExcludesOnlyCanonicalConnectFromEveryDirectPermissionCheck()
+    {
+        var commandText = SqlManagedIdentityBootstrap.CommandText;
+        const string predicate =
+            """
+            permissions.class = 0
+            AND permissions.major_id = 0
+            AND permissions.minor_id = 0
+            AND permissions.permission_name = N'CONNECT'
+            AND permissions.state = N'G'
+            AND permissions.grantor_principal_id = @DboPrincipalId
+            """;
+        var normalized = string.Join(
+            '\n',
+            commandText.Split('\n').Select(line => line.Trim()));
+        Assert.Equal(
+            4,
+            CountOccurrences(
+                normalized,
+                "WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId\nAND NOT (\n"
+                    + predicate.ReplaceLineEndings("\n") + "\n)"));
+        Assert.DoesNotContain("GRANT CONNECT", commandText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("REVOKE CONNECT", commandText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void CommandRevokesOnlyTheExactRuntimeContractAndVerifiesRemoval()
     {
         var commandText = SqlManagedIdentityBootstrap.CommandText;

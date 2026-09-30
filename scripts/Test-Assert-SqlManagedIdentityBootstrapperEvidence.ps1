@@ -41,6 +41,12 @@ $expectedNames = @(
     "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"type`")"
     "${testClassPrefix}ExistingApiPrincipalIdentityMismatchFailsClosed(mutation: `"authentication`")"
     "${testClassPrefix}DistinctNameAndSidMatchesFailClosedWithAmbiguousDiagnostic"
+    "${testClassPrefix}CanonicalConnectIsPreservedAcrossBootstrapAndRerun(initialState: `"baseline-only`")"
+    "${testClassPrefix}CanonicalConnectIsPreservedAcrossBootstrapAndRerun(initialState: `"exact-seven`")"
+    "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"deny`")"
+    "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grant-option`")"
+    "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"grantor`")"
+    "${testClassPrefix}NoncanonicalConnectOrDatabasePermissionFailsClosed(mutation: `"extra-database-permission`")"
 )
 
 function New-CaseSet {
@@ -111,9 +117,9 @@ function New-TestTrx {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 28,
-        [int] $Executed = 28,
-        [int] $Passed = 28,
+        [int] $Total = 34,
+        [int] $Executed = 34,
+        [int] $Passed = 34,
         [int] $NotExecuted = 0
     )
 
@@ -186,9 +192,9 @@ function Assert-Rejected {
     param(
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 28,
-        [int] $Executed = 28,
-        [int] $Passed = 28,
+        [int] $Total = 34,
+        [int] $Executed = 34,
+        [int] $Passed = 34,
         [int] $NotExecuted = 0
     )
 
@@ -247,7 +253,7 @@ try {
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases | ForEach-Object { $_.Outcome = 'NotExecuted' }
-    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 28
+    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 34
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases[10].ResultName = $cases[9].ResultName
@@ -395,13 +401,13 @@ try {
     Assert-Rejected -Name '41-swapped-same-method-definitions' -Cases $cases
 
     $cases = @(Copy-CaseSet $baseCases)
-    $cases[-1].ResultName = $cases[-1].ResultName.Replace('Ambiguous', 'Unambiguous')
-    $cases[-1].DefinitionName = $cases[-1].ResultName
-    $cases[-1].DefinitionMethod = Get-MethodName $cases[-1].ResultName
+    $cases[27].ResultName = $cases[27].ResultName.Replace('Ambiguous', 'Unambiguous')
+    $cases[27].DefinitionName = $cases[27].ResultName
+    $cases[27].DefinitionMethod = Get-MethodName $cases[27].ResultName
     Assert-Rejected -Name '42-replaced-ambiguity-case' -Cases $cases
 
-    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26] `
-        -Total 27 -Executed 27 -Passed 27
+    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26 + 28..33] `
+        -Total 33 -Executed 33 -Passed 33
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force

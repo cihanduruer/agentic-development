@@ -447,8 +447,16 @@ public static class SqlManagedIdentityBootstrap
 
             DECLARE @ExistingDirectPermissionCount bigint = (
                 SELECT COUNT_BIG(*)
-                FROM sys.database_permissions
-                WHERE grantee_principal_id = @ExistingApiPrincipalId
+                FROM sys.database_permissions AS permissions
+                WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                  AND NOT (
+                      permissions.class = 0
+                      AND permissions.major_id = 0
+                      AND permissions.minor_id = 0
+                      AND permissions.permission_name = N'CONNECT'
+                      AND permissions.state = N'G'
+                      AND permissions.grantor_principal_id = @DboPrincipalId
+                  )
             );
             IF @ExistingDirectPermissionCount > 0
             BEGIN
@@ -462,6 +470,14 @@ public static class SqlManagedIdentityBootstrap
                            permissions.state COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                         AND NOT (
+                             permissions.class = 0
+                             AND permissions.major_id = 0
+                             AND permissions.minor_id = 0
+                             AND permissions.permission_name = N'CONNECT'
+                             AND permissions.state = N'G'
+                             AND permissions.grantor_principal_id = @DboPrincipalId
+                         )
                        EXCEPT
                        SELECT
                            class,
@@ -488,6 +504,14 @@ public static class SqlManagedIdentityBootstrap
                            permissions.state COLLATE DATABASE_DEFAULT
                        FROM sys.database_permissions AS permissions
                        WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                         AND NOT (
+                             permissions.class = 0
+                             AND permissions.major_id = 0
+                             AND permissions.minor_id = 0
+                             AND permissions.permission_name = N'CONNECT'
+                             AND permissions.state = N'G'
+                             AND permissions.grantor_principal_id = @DboPrincipalId
+                         )
                    )
                 BEGIN
                     THROW 51000, 'The API principal has unexpected direct database permissions.', 1;
@@ -506,8 +530,16 @@ public static class SqlManagedIdentityBootstrap
 
                 IF EXISTS (
                     SELECT 1
-                    FROM sys.database_permissions
-                    WHERE grantee_principal_id = @ExistingApiPrincipalId
+                    FROM sys.database_permissions AS permissions
+                    WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                      AND NOT (
+                          permissions.class = 0
+                          AND permissions.major_id = 0
+                          AND permissions.minor_id = 0
+                          AND permissions.permission_name = N'CONNECT'
+                          AND permissions.state = N'G'
+                          AND permissions.grantor_principal_id = @DboPrincipalId
+                      )
                 )
                 BEGIN
                     THROW 51009, 'The API principal still has direct database permissions after legacy migration.', 1;
