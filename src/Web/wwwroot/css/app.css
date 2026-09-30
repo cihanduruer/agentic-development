@@ -65,8 +65,15 @@ a, .btn-link {
     border-color: var(--brand-blue);
 }
 
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active,
+.btn-success:hover, .btn-success:focus, .btn-success:active {
+    color: var(--brand-cream);
+    background-color: var(--brand-dark-blue);
+    border-color: var(--brand-dark-blue);
+}
+
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem var(--brand-cream), 0 0 0 0.25rem var(--brand-light-blue);
+  box-shadow: 0 0 0 0.1rem var(--brand-cream), 0 0 0 0.25rem var(--brand-blue);
 }
 
 .btn-outline-primary { color: var(--brand-blue); border-color: var(--brand-blue); }

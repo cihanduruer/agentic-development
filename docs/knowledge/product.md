@@ -32,4 +32,4 @@ The Hotel web application uses these shared CSS design tokens:
 | `--brand-cream` | `#F9F6EF` | Page, card, form, and table surfaces |
 | `--brand-taupe` | `#D4CDBF` | Secondary surfaces, borders, and disabled states |
 
-Dark blue and blue are used for text and controls on cream surfaces. Light blue and taupe remain backgrounds or borders, not low-contrast text. Focus indicators use the light-blue token with a cream separation ring, and state meaning is also conveyed by labels, text, or icons.
+Dark blue and blue are used for text, controls, and focus indicators on cream surfaces. Light blue and taupe remain backgrounds or borders, not low-contrast text. Focus indicators use the blue token with a cream separation ring, and state meaning is also conveyed by labels, text, or icons.
