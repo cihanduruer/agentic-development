@@ -12,6 +12,7 @@ $shellPath = (Get-Process -Id $PID).Path
 $mutations = @(
     @{
         Name = 'weaken-exact-case-identities'
+        ExpectedFailure = "Challenge '03-duplicate-delegated-case' was accepted."
         Replacements = @(
             @{
                 Pattern =
@@ -28,6 +29,7 @@ $mutations = @(
     },
     @{
         Name = 'remove-identifier-uniqueness-and-linkage'
+        ExpectedFailure = "Challenge '13-duplicate-result-test-id' was accepted."
         Replacements = @(
             @{
                 Pattern =
@@ -49,6 +51,7 @@ $mutations = @(
     },
     @{
         Name = 'case-insensitive-identities'
+        ExpectedFailure = "Challenge '10-wrong-casing' was accepted."
         Replacements = @(
             @{
                 Pattern =
@@ -78,6 +81,7 @@ $mutations = @(
     },
     @{
         Name = 'disable-guid-parsing'
+        ExpectedFailure = "Challenge '39-linked-invalid-test-guid' was accepted."
         Replacements = @(
             @{
                 Pattern =
@@ -88,6 +92,7 @@ $mutations = @(
     },
     @{
         Name = 'remove-result-definition-name-link'
+        ExpectedFailure = "Challenge '41-swapped-same-method-definitions' was accepted."
         Replacements = @(
             @{
                 Pattern =
@@ -97,6 +102,39 @@ $mutations = @(
         )
     }
 )
+
+function Assert-TargetedChallenge {
+    param(
+        [Parameter(Mandatory)][string] $ExpectedFailure,
+        [Parameter(Mandatory)][int] $ExitCode,
+        [Parameter(Mandatory)][string] $Output
+    )
+
+    if ($ExitCode -eq 0 -or
+        $Output.IndexOf($ExpectedFailure, [StringComparison]::Ordinal) -lt 0) {
+        throw "Expected targeted failure '$ExpectedFailure', exit code ${ExitCode}: $Output"
+    }
+}
+
+$probeFailure = "Challenge 'probe' was accepted."
+Assert-TargetedChallenge -ExpectedFailure $probeFailure -ExitCode 1 -Output $probeFailure
+foreach ($probe in @(
+    @{ ExitCode = 0; Output = $probeFailure }
+    @{ ExitCode = 1; Output = 'Unrelated subprocess failure.' }
+    @{ ExitCode = 1; Output = "Challenge 'different' was accepted." }
+    @{ ExitCode = 1; Output = $probeFailure.ToUpperInvariant() }
+)) {
+    $rejected = $false
+    try {
+        Assert-TargetedChallenge -ExpectedFailure $probeFailure @probe
+    }
+    catch {
+        $rejected = $true
+    }
+    if (-not $rejected) {
+        throw 'The targeted-challenge gate accepted an unrelated or successful result.'
+    }
+}
 
 try {
     foreach ($mutation in $mutations) {
@@ -138,14 +176,10 @@ try {
         }
         [IO.File]::WriteAllBytes($assertionPath, $originalBytes)
 
-        if ($testExitCode -eq 0) {
-            throw "Evidence mutation '$($mutation.Name)' survived the self-test."
-        }
-        if ($mutation.ExpectedFailure -and
-            -not (($output -join [Environment]::NewLine).Contains(
-                    [string] $mutation.ExpectedFailure))) {
-            throw "Evidence mutation '$($mutation.Name)' did not survive until its targeted challenge '$($mutation.ExpectedFailure)': $output"
-        }
+        Assert-TargetedChallenge `
+            -ExpectedFailure $mutation.ExpectedFailure `
+            -ExitCode $testExitCode `
+            -Output ($output -join [Environment]::NewLine)
 
         Write-Host "Evidence mutation '$($mutation.Name)' accepted the valid baseline and was rejected by its challenge: $($output[0])"
     }

@@ -166,6 +166,75 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             });
     }
 
+    [SqlServerFact]
+    public async Task DistinctNameAndSidMatchesFailClosedWithAmbiguousDiagnostic()
+    {
+        await InIsolatedDatabase(
+            async (connection, principalObjectId) =>
+            {
+                await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    """
+                    CREATE USER [other-api] WITHOUT LOGIN;
+                    CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
+                    """);
+                var before = await ReadSecurityCatalog(connection);
+
+                var exception = await Assert.ThrowsAsync<SqlException>(
+                    () => ExecuteBootstrapCommand(
+                        connection,
+                        principalObjectId,
+                        SqlManagedIdentityBootstrap.CommandText,
+                        principalName: "other-api"));
+
+                Assert.Equal(51007, exception.Number);
+                Assert.Contains(
+                    "Expected authentication type: INSTANCE; " +
+                    "actual authentication type: <ambiguous>.",
+                    exception.Message,
+                    StringComparison.Ordinal);
+                Assert.Equal(before, await ReadSecurityCatalog(connection));
+                Assert.Equal(7, await CountDirectPermissions(connection));
+                Assert.Equal("dbo", await ReadRuntimeRoleOwner(connection));
+                Assert.Equal(0, await CountRuntimeRolePermissions(connection));
+                Assert.Equal(0, await CountRuntimeRoleMembers(connection));
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT @@TRANCOUNT;";
+                Assert.Equal(0, await command.ExecuteScalarAsync());
+            });
+    }
+
+    private static async Task<string> ReadSecurityCatalog(SqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT
+                (SELECT principal_id, name, type, sid, owning_principal_id,
+                        authentication_type
+                 FROM sys.database_principals ORDER BY principal_id
+                 FOR JSON PATH, INCLUDE_NULL_VALUES) AS principals,
+                (SELECT class, major_id, minor_id, grantee_principal_id,
+                        grantor_principal_id, type, state
+                 FROM sys.database_permissions
+                 ORDER BY class, major_id, minor_id, grantee_principal_id, type
+                 FOR JSON PATH, INCLUDE_NULL_VALUES) AS permissions,
+                (SELECT role_principal_id, member_principal_id
+                 FROM sys.database_role_members
+                 ORDER BY role_principal_id, member_principal_id
+                 FOR JSON PATH) AS memberships,
+                (SELECT schema_id, name, principal_id
+                 FROM sys.schemas ORDER BY schema_id
+                 FOR JSON PATH, INCLUDE_NULL_VALUES) AS schemas,
+                (SELECT object_id, name, schema_id, principal_id, type
+                 FROM sys.objects ORDER BY object_id
+                 FOR JSON PATH, INCLUDE_NULL_VALUES) AS objects
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
+            """;
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
     [SqlServerTheory]
     [MemberData(nameof(DelegatedRuntimeRolePermissionStates))]
     public async Task DelegatedRuntimeRolePermissionFailsClosed(

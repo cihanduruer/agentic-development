@@ -126,6 +126,19 @@ $mutations = @(
         )
     },
     @{
+        Name = 'misclassify-two-identity-candidates'
+        TestProject = $integrationTestProject
+        Filter =
+            'FullyQualifiedName~DistinctNameAndSidMatchesFailClosedWithAmbiguousDiagnostic'
+        Replacements = @(
+            @{
+                Pattern =
+                    '(?s)(DECLARE @ActualApiAuthenticationType nvarchar\(60\);\r?\n                IF \(.*?\r?\n                \)) > 1'
+                Value = '${1} > 2'
+            }
+        )
+    },
+    @{
         Name = 'misreport-api-authentication-type'
         TestProject = $integrationTestProject
         Filter =
