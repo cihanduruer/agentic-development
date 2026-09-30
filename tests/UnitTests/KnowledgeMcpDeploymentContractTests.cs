@@ -10,7 +10,7 @@ public sealed class KnowledgeMcpDeploymentContractTests
         Assert.Contains("workflow_dispatch:", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("\n  push:", workflow, StringComparison.Ordinal);
         Assert.Contains("github.ref == 'refs/heads/main'", workflow, StringComparison.Ordinal);
-        Assert.Contains("$env:REVIEWED_SOURCE_SHA -ne $env:GITHUB_SHA", workflow, StringComparison.Ordinal);
+        Assert.Contains("$reviewedSourceSha -ne $env:GITHUB_SHA", workflow, StringComparison.Ordinal);
         Assert.Contains("KNOWLEDGE_MCP_ACCESS_TOKEN", workflow, StringComparison.Ordinal);
         Assert.Contains("${{ secrets.KNOWLEDGE_MCP_ACCESS_TOKEN }}", workflow, StringComparison.Ordinal);
         Assert.Contains("if: always()", workflow, StringComparison.Ordinal);
@@ -18,6 +18,29 @@ public sealed class KnowledgeMcpDeploymentContractTests
         Assert.Contains("environment: development", workflow, StringComparison.Ordinal);
         Assert.Contains("knowledge_revision:", workflow, StringComparison.Ordinal);
         Assert.Contains("reviewed_source_sha:", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeploymentWorkflowDoesNotLogOrPersistDispatchInputsBeforeValidation()
+    {
+        var workflow = File.ReadAllText(FindRepositoryFile(".github/workflows/deploy-knowledge-mcp.yml"));
+        var initializationStart = workflow.IndexOf("Initialize sanitized evidence artifact", StringComparison.Ordinal);
+        var validationStart = workflow.IndexOf("Verify main branch and exact reviewed source", StringComparison.Ordinal);
+        var checkoutStart = workflow.IndexOf("actions/checkout@v4", StringComparison.Ordinal);
+        var initialization = workflow[initializationStart..validationStart];
+        var validation = workflow[validationStart..checkoutStart];
+
+        Assert.True(initializationStart >= 0);
+        Assert.True(validationStart > initializationStart);
+        Assert.True(checkoutStart > validationStart);
+        Assert.DoesNotContain("${{ inputs.", initialization, StringComparison.Ordinal);
+        Assert.DoesNotContain("knowledgeRevision", initialization, StringComparison.Ordinal);
+        Assert.DoesNotContain("${{ inputs.", validation, StringComparison.Ordinal);
+        Assert.DoesNotContain("REVIEWED_SOURCE_SHA:", validation, StringComparison.Ordinal);
+        Assert.DoesNotContain("KNOWLEDGE_REVISION:", validation, StringComparison.Ordinal);
+        Assert.Contains("GITHUB_EVENT_PATH", validation, StringComparison.Ordinal);
+        Assert.Contains("$reviewedSourceSha", validation, StringComparison.Ordinal);
+        Assert.Contains("$knowledgeRevision", validation, StringComparison.Ordinal);
     }
 
     [Fact]

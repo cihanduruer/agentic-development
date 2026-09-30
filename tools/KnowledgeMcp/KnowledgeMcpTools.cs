@@ -115,7 +115,7 @@ public sealed class AzureKnowledgeSearchRepository(SearchClient searchClient) : 
             Filter = $"{nameof(KnowledgeSearchHit.Revision)} eq '{escapedRevision}'",
             SearchMode = SearchMode.All,
             QueryType = SearchQueryType.Simple,
-            SearchFields = { nameof(KnowledgeSearchHit.Title), nameof(KnowledgeSearchHit.Content) },
+            SearchFields = { nameof(KnowledgeSearchHit.Content) },
             Size = maximumResults,
             Skip = skip,
             Select =
@@ -213,9 +213,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
                 .Where(document =>
                     string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
                     IsCanonicalKnowledgePath(document.Path) &&
-                    queryTerms.All(term =>
-                        ContainsWholeTerm(document.Title, term) ||
-                        ContainsWholeTerm(document.Content, term))))
+                    queryTerms.All(term => ContainsWholeTerm(document.Content, term))))
             {
                 var passage = ToPassage(document, queryTerms);
                 if (passage is null)
@@ -291,6 +289,11 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         var truncated = document.Content.Length > MaximumPassageLength;
         var passage = truncated ? BuildRelevantExcerpt(document.Content, queryTerms) : document.Content;
         if (passage is null)
+        {
+            return null;
+        }
+
+        if (!queryTerms.All(term => ContainsWholeTerm(passage, term)))
         {
             return null;
         }

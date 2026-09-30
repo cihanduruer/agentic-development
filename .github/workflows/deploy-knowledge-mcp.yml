@@ -33,30 +33,28 @@ jobs:
         shell: pwsh
         env:
           EVIDENCE_PATH: ${{ runner.temp }}/knowledge-mcp-smoke.json
-          KNOWLEDGE_REVISION: ${{ inputs.knowledge_revision }}
         run: |
           @{
             status = 'not_started'
             runId = $env:GITHUB_RUN_ID
             runAttempt = $env:GITHUB_RUN_ATTEMPT
             sourceSha = $env:GITHUB_SHA
-            knowledgeRevision = $env:KNOWLEDGE_REVISION
           } | ConvertTo-Json -Depth 6 |
             Out-File -FilePath $env:EVIDENCE_PATH -Encoding utf8
       - name: Verify main branch and exact reviewed source
         shell: pwsh
-        env:
-          REVIEWED_SOURCE_SHA: ${{ inputs.reviewed_source_sha }}
-          KNOWLEDGE_REVISION: ${{ inputs.knowledge_revision }}
         run: |
+          $inputs = (Get-Content -Raw -LiteralPath $env:GITHUB_EVENT_PATH | ConvertFrom-Json).inputs
+          $reviewedSourceSha = [string]$inputs.reviewed_source_sha
+          $knowledgeRevision = [string]$inputs.knowledge_revision
           if ($env:GITHUB_REF -ne 'refs/heads/main') {
             throw 'Knowledge MCP deployment can run only from main.'
           }
-          if ($env:REVIEWED_SOURCE_SHA -notmatch '^[0-9a-f]{40}$' -or
-              $env:REVIEWED_SOURCE_SHA -ne $env:GITHUB_SHA) {
+          if ($reviewedSourceSha -notmatch '^[0-9a-f]{40}$' -or
+              $reviewedSourceSha -ne $env:GITHUB_SHA) {
             throw 'reviewed_source_sha must equal the full SHA of this main workflow run.'
           }
-          if ($env:KNOWLEDGE_REVISION -notmatch '^[0-9a-f]{40}$') {
+          if ($knowledgeRevision -notmatch '^[0-9a-f]{40}$') {
             throw 'knowledge_revision must be a full lowercase 40-character indexed SHA.'
           }
       - uses: actions/checkout@v4

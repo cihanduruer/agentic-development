@@ -45,6 +45,35 @@ public sealed class KnowledgeMcpTests
     }
 
     [Fact]
+    public async Task SearchDoesNotTreatTitleOnlyTermsAsPassageEvidence()
+    {
+        var repository = new FakeKnowledgeSearchRepository(
+            Document("docs/knowledge/overview.md", Revision, "Unrelated guidance.", "Overview managed identity"));
+
+        var result = await new KnowledgeSearchService(repository)
+            .SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        Assert.False(result.HasEvidence);
+        Assert.Equal("no_evidence", result.Status);
+        Assert.Empty(result.Passages);
+    }
+
+    [Fact]
+    public async Task SearchPassagesContainEveryRequestedTerm()
+    {
+        var repository = new FakeKnowledgeSearchRepository(
+            Document("docs/knowledge/security.md", Revision, "Managed identity secures access.", "Unrelated title"));
+
+        var result = await new KnowledgeSearchService(repository)
+            .SearchAsync("managed identity", Revision, CancellationToken.None);
+
+        var passage = Assert.Single(result.Passages);
+        Assert.True(result.HasEvidence);
+        Assert.Contains("managed", passage.Passage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("identity", passage.Passage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task SearchReturnsExplicitNoEvidenceWhenRevisionHasNoHit()
     {
         var service = new KnowledgeSearchService(new FakeKnowledgeSearchRepository());
@@ -268,6 +297,8 @@ public sealed class KnowledgeMcpTests
         Assert.DoesNotContain("startswith", options.Filter, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(KnowledgeSearchService.MaximumResults, options.Size);
         Assert.Equal(0, options.Skip);
+        Assert.Contains(nameof(McpSearchHit.Content), options.SearchFields);
+        Assert.DoesNotContain(nameof(McpSearchHit.Title), options.SearchFields);
         Assert.Contains(nameof(McpSearchHit.Content), options.Select);
         Assert.Contains(nameof(McpSearchHit.Revision), options.Select);
         Assert.Contains(nameof(McpSearchHit.Path), options.Select);
@@ -376,8 +407,8 @@ public sealed class KnowledgeMcpTests
             Revision = revision,
             Owner = "Security owner",
             LastReviewed = "2026-09-30",
-            Title = title ?? "Managed identity",
-            Content = content ?? new string('x', KnowledgeSearchService.MaximumPassageLength + 1),
+            Title = title ?? "Knowledge document",
+            Content = content ?? "Managed identity " + new string('x', KnowledgeSearchService.MaximumPassageLength + 1),
             ContentHash = new string('b', 64)
         };
 
