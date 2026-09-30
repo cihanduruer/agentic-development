@@ -60,6 +60,7 @@ function Resolve-LifecycleEvidence {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$ValidationRuns,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$QaRuns,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$ReviewRuns,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$ReviewRunJobs,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Reviews,
         [Parameter(Mandatory)][string]$Organization,
         [Parameter(Mandatory)][string]$Project,
@@ -153,18 +154,40 @@ function Resolve-LifecycleEvidence {
     $eligibleReviewRuns = @($ReviewRuns | Where-Object {
         $_.conclusion -eq "success" -and
         $_.path -eq ".github/workflows/hotel-code-review.yml" -and
-        @($_.pull_requests | Where-Object { $_.number -eq $pull.number }).Count -gt 0
+        $_.event -eq "pull_request_target" -and
+        $_.head_sha -ceq $pull.head.sha -and
+        $_.head_branch -ceq $pull.head.ref -and
+        $_.repository.full_name -ieq $Repository -and
+        $_.head_repository.full_name -ieq $Repository -and
+        $(
+            $associationProperty = $_.PSObject.Properties["pull_requests"]
+            if ($null -eq $associationProperty -or
+                $null -eq $associationProperty.Value -or
+                $associationProperty.Value -isnot [array]) {
+                $false
+            }
+            else {
+                $associationProperty.Value.Count -eq 0 -or (
+                    $associationProperty.Value.Count -eq 1 -and
+                    $associationProperty.Value[0].number -eq $pull.number
+                )
+            }
+        )
     })
     $exactHeadReviews = @($Reviews | Where-Object {
-        $_.user.login -eq $script:CopilotReviewer -and
-        $_.commit_id -eq $pull.head.sha
+        $_.user.login -ceq $script:CopilotReviewer -and
+        $_.commit_id -ceq $pull.head.sha
     })
     $reviewRun = @($eligibleReviewRuns | Where-Object {
         $run = $_
         @($exactHeadReviews | Where-Object {
             [DateTimeOffset]$run.created_at -le [DateTimeOffset]$_.submitted_at -and
             [DateTimeOffset]$run.updated_at -ge [DateTimeOffset]$_.submitted_at
-        }).Count -gt 0
+        }).Count -gt 0 -and
+        @($ReviewRunJobs | Where-Object {
+            $_.run_id -eq $run.id -and
+            (Test-ReviewGateJobs -Jobs $_.jobs)
+        }).Count -eq 1
     } | Sort-Object created_at -Descending | Select-Object -First 1)
     if ($reviewRun.Count -ne 1) {
         throw "Evidence pending: no successful review workflow contains a Copilot review for exact pull request head '$($pull.head.sha)'."
@@ -333,6 +356,90 @@ function Get-WorkflowRuns {
     return $runs.ToArray()
 }
 
+function Get-WorkflowRunJobs {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][long]$RunId
+    )
+
+    $jobs = [Collections.Generic.List[object]]::new()
+    $seenJobIds = [Collections.Generic.HashSet[long]]::new()
+    $totalCount = $null
+    for ($page = 1; $page -le 10; $page++) {
+        $response = Invoke-GitHubApi -Uri (
+            "https://api.github.com/repos/$Repository/actions/runs/$RunId/jobs?per_page=100&page=$page")
+        $totalCountProperty = $response.PSObject.Properties["total_count"]
+        $jobsProperty = $response.PSObject.Properties["jobs"]
+        if ($null -eq $totalCountProperty -or
+            $null -eq $totalCountProperty.Value -or
+            $null -eq $jobsProperty -or
+            $null -eq $jobsProperty.Value) {
+            throw "GitHub did not return complete job evidence for review workflow run '$RunId'."
+        }
+        $parsedTotalCount = 0L
+        if (-not [long]::TryParse([string]$totalCountProperty.Value, [ref]$parsedTotalCount) -or
+            $parsedTotalCount -lt 0) {
+            throw "GitHub returned an invalid job total for review workflow run '$RunId'."
+        }
+        if ($null -eq $totalCount) {
+            $totalCount = $parsedTotalCount
+        } elseif ($parsedTotalCount -ne $totalCount) {
+            throw "GitHub review workflow run '$RunId' changed while its jobs were paged."
+        }
+
+        $batch = @($response.jobs | ForEach-Object { $_ })
+        foreach ($job in $batch) {
+            $jobIdProperty = $job.PSObject.Properties["id"]
+            $jobId = 0L
+            if ($null -eq $jobIdProperty -or
+                $null -eq $jobIdProperty.Value -or
+                -not [long]::TryParse(
+                    [string]$jobIdProperty.Value,
+                    [ref]$jobId) -or
+                $jobId -le 0) {
+                throw "GitHub returned a job without a valid job ID for review workflow run '$RunId'."
+            }
+            if (-not $seenJobIds.Add($jobId)) {
+                throw "GitHub review workflow run '$RunId' returned duplicate job ID $jobId."
+            }
+            $jobs.Add($job)
+        }
+        if ($seenJobIds.Count -gt $totalCount) {
+            throw "GitHub review workflow run '$RunId' returned more unique jobs than total_count."
+        }
+        if ($seenJobIds.Count -eq $totalCount) {
+            break
+        }
+        if ($batch.Count -eq 0) {
+            throw "GitHub returned truncated job evidence for review workflow run '$RunId'."
+        }
+    }
+    if ($jobs.Count -ne $totalCount) {
+        throw "GitHub did not return all $totalCount jobs for review workflow run '$RunId'."
+    }
+    return $jobs.ToArray()
+}
+
+function Test-ReviewGateJobs {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Jobs)
+
+    $gateJobs = @($Jobs | Where-Object {
+        if ($_.conclusion -ne "success") {
+            return $false
+        }
+        $steps = @($_.steps)
+        $requestStep = @($steps | Where-Object {
+            $_.name -ceq "Request Copilot review" -and $_.conclusion -eq "success"
+        })
+        $evaluationStep = @($steps | Where-Object {
+            $_.name -ceq "Wait for current-head review and evaluate findings" -and
+            $_.conclusion -eq "success"
+        })
+        $requestStep.Count -eq 1 -and $evaluationStep.Count -eq 1
+    })
+    return $gateJobs.Count -eq 1
+}
+
 function Get-QaEvidenceRuns {
     param(
         [Parameter(Mandatory)][string]$Repository,
@@ -481,6 +588,25 @@ function Invoke-DevelopmentLifecycleSync {
             -ExpectedSha $DeployedSha `
             -MetadataDigest $candidateMetadataDigest)
         $reviewRuns = @(Get-WorkflowRuns -Repository $Repository -Workflow "hotel-code-review.yml")
+        $reviewRunJobs = @(
+            foreach ($run in $reviewRuns) {
+                if ($candidatePulls.Count -eq 1 -and
+                    $run.conclusion -eq "success" -and
+                    $run.path -eq ".github/workflows/hotel-code-review.yml" -and
+                    $run.event -eq "pull_request_target" -and
+                    $run.head_sha -ceq $candidatePulls[0].head.sha -and
+                    $run.head_branch -ceq $candidatePulls[0].head.ref -and
+                    $run.repository.full_name -ieq $Repository -and
+                    $run.head_repository.full_name -ieq $Repository) {
+                    [pscustomobject]@{
+                        run_id = $run.id
+                        jobs = @(
+                            Get-WorkflowRunJobs -Repository $Repository -RunId $run.id
+                        )
+                    }
+                }
+            }
+        )
         $reviews = @(
             if ($candidatePulls.Count -eq 1) {
                 Get-GitHubPages -Uri (
@@ -497,6 +623,7 @@ function Invoke-DevelopmentLifecycleSync {
                 -ValidationRuns $validationRuns `
                 -QaRuns $qaRuns `
                 -ReviewRuns $reviewRuns `
+                -ReviewRunJobs $reviewRunJobs `
                 -Reviews $reviews `
                 -Organization $Organization `
                 -Project $Project `
