@@ -11,12 +11,7 @@ if (options.Mode == SqlBootstrapMode.Diagnostic)
 {
     await using var command =
         SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
-    var result = await command.ExecuteScalarAsync();
-    if (result is not string json || string.IsNullOrWhiteSpace(json))
-    {
-        throw new InvalidDataException("SQL diagnostic query returned no JSON evidence.");
-    }
-
+    var json = await SqlManagedIdentityBootstrap.ExecuteDiagnosticAsync(command);
     await File.WriteAllTextAsync(options.DiagnosticOutputPath!, json);
     Console.WriteLine("Wrote sanitized SQL permission diagnostic evidence.");
 }

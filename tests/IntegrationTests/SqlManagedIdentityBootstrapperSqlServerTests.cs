@@ -1,4 +1,6 @@
 using System.Data;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using AgenticHotelBooking.SqlManagedIdentityBootstrapper;
 using Microsoft.Data.SqlClient;
@@ -16,6 +18,9 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
             async (connection, principalObjectId) =>
             {
                 await ExecuteNonQuery(connection, ExactDirectGrants);
+                await ExecuteNonQuery(
+                    connection,
+                    CreateDiagnosticMembershipFixture());
                 var beforeDiagnostic = await ReadDirectPermissions(connection);
 
                 await AssertDiagnosticEvidenceIsReadOnly(
@@ -52,8 +57,8 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
         await using var command =
             SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
 
-        var result = await command.ExecuteScalarAsync();
-        var json = Assert.IsType<string>(result);
+        var json = await SqlManagedIdentityBootstrap.ExecuteDiagnosticAsync(command);
+        Assert.True(json.Length > 2033);
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
@@ -838,6 +843,22 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                 mutation,
                 "Unsupported permission mutation."),
         };
+
+    private static string CreateDiagnosticMembershipFixture()
+    {
+        var command = new StringBuilder(
+            "CREATE USER [diagnostic-member] WITHOUT LOGIN;");
+        for (var index = 0; index < 24; index++)
+        {
+            var roleName = $"diagnostic-role-{index.ToString("D2", CultureInfo.InvariantCulture)}";
+            command.Append(
+                CultureInfo.InvariantCulture,
+                $"CREATE ROLE [{roleName}] AUTHORIZATION [dbo];" +
+                $"ALTER ROLE [{roleName}] ADD MEMBER [diagnostic-member];");
+        }
+
+        return command.ToString();
+    }
 
     private const string ExactDirectGrants =
         """

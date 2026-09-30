@@ -522,6 +522,17 @@ public sealed class SqlManagedIdentityBootstrapperTests
         }
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    [InlineData("""{"target":{}}""")]
+    public void DiagnosticJsonValidationRejectsIncompleteEvidence(string json)
+    {
+        Assert.Throws<InvalidDataException>(
+            () => SqlManagedIdentityBootstrap.ValidateDiagnosticJson(json));
+    }
+
     [Fact]
     public void DiagnosticWorkflowIsDevelopmentOnlyExactIpAndAlwaysCleansUp()
     {

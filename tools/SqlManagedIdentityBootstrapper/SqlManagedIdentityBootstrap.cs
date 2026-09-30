@@ -1,4 +1,6 @@
 using System.Data;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 
 namespace AgenticHotelBooking.SqlManagedIdentityBootstrapper;
@@ -939,6 +941,78 @@ public static class SqlManagedIdentityBootstrap
                 Value = options.PrincipalObjectId,
             });
         return command;
+    }
+
+    public static async Task<string> ExecuteDiagnosticAsync(
+        SqlCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        var json = new StringBuilder();
+        await using var reader = await command.ExecuteReaderAsync(
+            CommandBehavior.SequentialAccess,
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (reader.FieldCount != 1 || await reader.IsDBNullAsync(0, cancellationToken))
+            {
+                throw new InvalidDataException(
+                    "SQL diagnostic query returned an unexpected result shape.");
+            }
+
+            json.Append(await reader.GetFieldValueAsync<string>(0, cancellationToken));
+        }
+
+        if (json.Length == 0)
+        {
+            throw new InvalidDataException("SQL diagnostic query returned no JSON evidence.");
+        }
+
+        var result = json.ToString();
+        ValidateDiagnosticJson(result);
+        return result;
+    }
+
+    internal static void ValidateDiagnosticJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new InvalidDataException("SQL diagnostic query returned no JSON evidence.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || root.GetProperty("target").ValueKind != JsonValueKind.Object
+                || root.GetProperty("databaseName").ValueKind != JsonValueKind.String
+                || root.GetProperty("observer").ValueKind != JsonValueKind.Object
+                || root.GetProperty("transactionCount").ValueKind != JsonValueKind.Number
+                || root.GetProperty("identityCandidates").ValueKind != JsonValueKind.Array
+                || root.GetProperty("directPermissions").ValueKind != JsonValueKind.Array
+                || root.GetProperty("roleMemberships").ValueKind != JsonValueKind.Array
+                || root.GetProperty("roleOwnership").ValueKind != JsonValueKind.Array
+                || root.GetProperty("delegatedPermissions").ValueKind != JsonValueKind.Array
+                || root.GetProperty("ownedSecurables").ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidDataException(
+                    "SQL diagnostic query returned an unexpected JSON shape.");
+            }
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "SQL diagnostic query returned malformed JSON evidence.",
+                exception);
+        }
+        catch (KeyNotFoundException exception)
+        {
+            throw new InvalidDataException(
+                "SQL diagnostic query returned incomplete JSON evidence.",
+                exception);
+        }
     }
 }
 
