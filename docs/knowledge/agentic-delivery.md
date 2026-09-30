@@ -6,11 +6,27 @@ last_reviewed: 2026-09-30
 
 ## Flow
 
-`Intake -> Triage -> Routed -> Development -> Code review -> QA -> Release ready -> Human approval -> Released`
+Development demo:
+
+`Agreed requirement -> Boards New -> Scheduled intake -> Cloud development -> Code review -> QA evidence -> Merge -> Development deployment`
+
+The user has authorized development-demo delivery without another human merge or release approval. The coordinator may merge the exact reviewed revision after its required validation and QA evidence pass; the existing push-to-`main` workflow deploys development. This authorization is not a claim that GitHub automatically merges every PR, and does not waive checks or override an explicit instruction to leave a particular PR unmerged.
+
+Production remains a separate path:
+
+`Verified main revision -> Release proposal -> Human approval -> Manual production promotion`
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.
 
 ## Azure Boards intake
+
+New Hotel requirements captured in chat default to a User Story in organization `https://dev.azure.com/ai-enabled-ado-org`, project `sample-project`, with clear acceptance criteria:
+
+> Create this as an Azure Boards User Story in `sample-project`. Leave it in `New` and do not add `github-synced`.
+
+The product owner can speak in plain language; they do not need to supply work-item types, tags, or technical dispatch commands. At capture, create only the story and return its link. Do not start coding, assign a developer, create the implementation issue, manually dispatch intake, or mark the item `Active`. Explicit user overrides are allowed. Questions and documentation maintenance are not new Hotel requirements, and existing active items are not reset.
+
+The scheduled intake remains enabled and owns later synchronization and assignment. Its five-minute cron is a schedule, not a guaranteed pickup time; GitHub can delay scheduled runs. Do not promise that a captured story stays `New` indefinitely.
 
 The `Agentic intake` workflow starts work from Azure Boards in two modes:
 
@@ -22,6 +38,16 @@ The `Agentic intake` workflow starts work from Azure Boards in two modes:
 GitHub can represent the assigned agent as the documented `copilot-swe-agent`/`copilot-swe-agent[bot]` login or as the `Copilot` bot projection. Intake validates the stable bot identity first and accepts those documented login forms. Only after assignment is verified does it move a `New` Board item to `Active`, add `github-synced`, append the GitHub issue hyperlink, and record history. Re-running an already synchronized item does not duplicate the issue or Board link.
 
 GitHub intentionally marks Copilot cloud-agent pull request runs `action_required` before creating jobs when **Require approval for workflow runs** is enabled under the repository's Copilot cloud-agent settings. A maintainer can approve the run from the pull request merge box, or dispatch `PR validation` from `main` with the pull request number and its full current head SHA. The manual workflow uses the trusted default-branch definition, reads the pull request through GitHub's API, verifies that it is open, targets this repository's `main`, originates in this repository, and still has that exact head SHA, then checks out only that SHA and asserts the checked-out commit before producing provenance. Pull-request-triggered runs execute PR-modifiable workflow content and are not accepted as trusted QA provenance. This provides exact-commit evidence without using `pull_request_target` to execute untrusted pull-request code. Administrators may disable the Copilot-specific approval setting when repository policy permits, but automation does not change that security setting.
+
+Workflow execution approval is distinct from development release approval. The development-demo authorization does not itself change the repository setting or release held runs. Do not report that setting as disabled without confirmation.
+
+## Execution and demo boundaries
+
+Application implementation and testing run in GitHub-hosted cloud agents and GitHub Actions, not on the developer desktop. Isolated loopback services inside a cloud runner are allowed. Local work requires an explicit user exception; permission to edit documentation locally is not permission to run application tests or deploy locally.
+
+Use the [short team demo](../../demo/TEAM-DEMO-GUIDE.md) for the presenter sequence. Preview availability and price without submitting a new shared-development booking. Do not reset existing reservations or restart shared services for a demonstration.
+
+The Hotel Agent Operations screen shows events ingested through the operations API. Desktop conversations, Azure Boards intake, and GitHub Actions are not automatically mirrored there. Show Boards and Actions for delivery progress; an empty operations view is not proof of inactivity or success.
 
 ## Azure Boards delivery synchronization
 
@@ -60,6 +86,8 @@ Completion requires acceptance criteria, output locations, test evidence, review
 ## Automated review, QA, and release gates
 
 Eligible non-draft pull requests to `main` that change application, test, infrastructure, delivery-script, agent, or workflow paths request `copilot-pull-request-reviewer[bot]` through GitHub's supported review-request API. The gate waits for a Copilot review of the current head commit. Unresolved findings explicitly labeled High are blocking. Findings whose severity cannot be read from the API response also block rather than being silently downgraded. A blocking result applies `development-required`; development must resolve the thread and trigger a new review. Medium and Low findings remain visible but do not block this gate.
+
+The `review` and `not-eligible` jobs are mutually exclusive. One skipped alternative is expected, not duplicate execution. The not-required path for draft, non-main, or documentation-only PRs must never be presented as an actual Copilot code review.
 
 After review and trusted manual PR validation, `.github/workflows/qa-evidence.yml` resolves the immutable pull-request head recorded by the triggering review run, requires an unexpired exact-SHA validation artifact from a successful `pr-validation.yml` dispatch on `main`, independently rebuilds and reruns its tests, compiles Bicep, checks acceptance-criteria and negative-path evidence in the pull request, and uploads an auditable result. Product-versus-platform QA classification uses the same fail-closed PR metadata contract as lifecycle synchronization rather than changed paths alone, so an explicit platform/N/A change may truthfully record product evidence as not applicable even when it hardens `src/` or `tests/`, while every non-platform change requires one AB identity. The QA artifact name binds both the exact head SHA and a SHA-256 digest of the classified pull-request title and body; lifecycle synchronization recomputes both values so mutable metadata invalidates stale provenance. A changed or unresolvable pull-request head fails closed. GitHub does not provide a supported pull-request check API for dispatching the repository's `hotel-qa` custom agent. The workflow therefore records `hotel-qa` execution as `not-run`; it enforces that profile's evidence contract without claiming an agent ran. A human may invoke `hotel-qa` separately when agent judgment is required.
 
