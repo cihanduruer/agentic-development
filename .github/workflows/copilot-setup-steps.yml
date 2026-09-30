@@ -1,0 +1,91 @@
+name: Copilot setup steps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    environment: copilot
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Guard standalone manual runs
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Standalone Azure Boards authentication checks must run from main."
+          exit 1
+
+      - name: Validate Azure Boards OIDC configuration
+        shell: bash
+        env:
+          AZURE_BOARDS_CLIENT_ID: ${{ vars.AZURE_BOARDS_CLIENT_ID }}
+          AZURE_BOARDS_TENANT_ID: ${{ vars.AZURE_BOARDS_TENANT_ID }}
+        run: |
+          if [[ -z "$AZURE_BOARDS_CLIENT_ID" ]]; then
+            echo "::error::Missing repository variable AZURE_BOARDS_CLIENT_ID."
+            exit 1
+          fi
+          if [[ -z "$AZURE_BOARDS_TENANT_ID" ]]; then
+            echo "::error::Missing repository variable AZURE_BOARDS_TENANT_ID."
+            exit 1
+          fi
+
+      - name: Azure login
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
+        env:
+          AZURE_LOGIN_POST_CLEANUP: 'false'
+        with:
+          client-id: ${{ vars.AZURE_BOARDS_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_BOARDS_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Verify read-only Azure Boards access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! token="$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+            --query accessToken \
+            --output tsv)"; then
+            echo "::error::Could not obtain an Azure DevOps access token from Azure CLI."
+            exit 1
+          fi
+          if [[ -z "$token" ]]; then
+            echo "::error::Azure CLI returned an empty Azure DevOps access token."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          auth_header_name='Authorization:'
+          auth_scheme='Bearer'
+          if ! status="$(curl --silent --show-error \
+            --request GET \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --header "$auth_header_name $auth_scheme $token" \
+            'https://dev.azure.com/ai-enabled-ado-org/_apis/projects/sample-project?api-version=7.1')"; then
+            unset token
+            echo "::error::Azure DevOps project metadata request failed."
+            exit 1
+          fi
+          unset token
+
+          if [[ "$status" != '200' ]]; then
+            echo "::error::Azure DevOps project metadata request returned HTTP $status."
+            exit 1
+          fi
+          if ! jq --exit-status --arg expected '7f3adf73-a1ef-43f6-93cb-bf61a166abb2' \
+            '.id == $expected' "$response_file" >/dev/null; then
+            echo "::error::Azure DevOps returned an unexpected project identity or response shape."
+            exit 1
+          fi
+          echo 'Azure Boards read-only project access verified.'

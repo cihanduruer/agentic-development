@@ -19,3 +19,5 @@ Apply this default without requiring the user to repeat it:
 ## Execution
 
 Application implementation and testing run through cloud agents and GitHub Actions, not developer-desktop agents or local fallback. Isolated loopback services inside a hosted cloud runner are allowed. A local exception requires an explicit user instruction.
+
+For passwordless Azure Boards access in a fresh cloud session, see [the Copilot Azure Boards authentication runbook](../docs/runbooks/copilot-azure-boards-authentication.md). A pre-existing session may need to be restarted after setup changes.
