@@ -65,6 +65,7 @@ $expectedNames = @(
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-grantor`")"
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"schema-owner`")"
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"type-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"queue-activation`")"
 )
 
 function New-CaseSet {
@@ -135,9 +136,9 @@ function New-TestTrx {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 52,
-        [int] $Executed = 52,
-        [int] $Passed = 52,
+        [int] $Total = 53,
+        [int] $Executed = 53,
+        [int] $Passed = 53,
         [int] $NotExecuted = 0
     )
 
@@ -210,9 +211,9 @@ function Assert-Rejected {
     param(
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Cases,
-        [int] $Total = 52,
-        [int] $Executed = 52,
-        [int] $Passed = 52,
+        [int] $Total = 53,
+        [int] $Executed = 53,
+        [int] $Passed = 53,
         [int] $NotExecuted = 0
     )
 
@@ -271,7 +272,7 @@ try {
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases | ForEach-Object { $_.Outcome = 'NotExecuted' }
-    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 52
+    Assert-Rejected -Name '02-all-not-executed' -Cases $cases -Executed 0 -Passed 0 -NotExecuted 53
 
     $cases = @(Copy-CaseSet $baseCases)
     $cases[10].ResultName = $cases[9].ResultName
@@ -424,10 +425,10 @@ try {
     $cases[27].DefinitionMethod = Get-MethodName $cases[27].ResultName
     Assert-Rejected -Name '42-replaced-ambiguity-case' -Cases $cases
 
-    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26 + 28..51] `
-        -Total 51 -Executed 51 -Passed 51
-    Assert-Rejected -Name '44-missing-sid-repair-case' -Cases $baseCases[0..35 + 37..51] `
-        -Total 51 -Executed 51 -Passed 51
+    Assert-Rejected -Name '43-missing-ambiguity-case' -Cases $baseCases[0..26 + 28..52] `
+        -Total 52 -Executed 52 -Passed 52
+    Assert-Rejected -Name '44-missing-sid-repair-case' -Cases $baseCases[0..35 + 37..52] `
+        -Total 52 -Executed 52 -Passed 52
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force

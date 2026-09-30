@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 if ($LASTEXITCODE -ne 0) { throw 'App Service SQL identity resolution tests failed.' }
 $root = Split-Path $PSScriptRoot -Parent
 $development = Get-Content (Join-Path $root '.github/workflows/deploy-development.yml') -Raw
+if ($development -notmatch "(?m)^      - 'scripts/Resolve-AppServiceSqlIdentity\.ps1'\s*$") {
+    throw 'Resolver changes must trigger the development deployment workflow.'
+}
 $production = Get-Content (Join-Path $root '.github/workflows/deploy-production.yml') -Raw
 $release = Get-Content (Join-Path $root '.github/workflows/release-proposal.yml') -Raw
 $contractAssertion = Get-Content (Join-Path $root 'scripts/Assert-ProductionDeploymentContract.ps1') -Raw

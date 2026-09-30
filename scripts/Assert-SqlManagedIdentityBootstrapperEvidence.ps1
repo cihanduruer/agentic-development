@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedTotal = 52
+$expectedTotal = 53
 
 if (-not (Test-Path -LiteralPath $TrxPath -PathType Leaf)) {
     throw "SQL bootstrapper TRX '$TrxPath' does not exist."
@@ -125,6 +125,7 @@ $expectedIdentities = @(
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"principal-grantor`")"
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"schema-owner`")"
     "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"type-owner`")"
+    "${testClassPrefix}ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(mutation: `"queue-activation`")"
 )
 $expectedIdentitySet =
     [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)

@@ -26,6 +26,7 @@ on:
       - 'scripts/Invoke-KnowledgeIndexerWithRetry.ps1'
       - 'scripts/Invoke-RoutingReadinessWithRetry.ps1'
       - 'scripts/Get-AppSqlConfigurationState.ps1'
+      - 'scripts/Resolve-AppServiceSqlIdentity.ps1'
       - 'scripts/Resolve-DevelopmentPreCutoverState.ps1'
       - 'scripts/Protect-DeploymentSecretFile.ps1'
       - 'scripts/Remove-DeploymentSecretFiles.ps1'

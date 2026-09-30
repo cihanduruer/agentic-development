@@ -551,6 +551,10 @@ public static class SqlManagedIdentityBootstrap
                        SELECT 1 FROM sys.sql_modules
                        WHERE execute_as_principal_id = @ExistingApiPrincipalId
                    )
+                   OR EXISTS (
+                       SELECT 1 FROM sys.service_queues
+                       WHERE execute_as_principal_id = @ExistingApiPrincipalId
+                   )
                 BEGIN
                     THROW 51019, 'Object-ID SID repair requires the exact canonical identity, CONNECT, role, and dependency-free catalog.', 1;
                 END;

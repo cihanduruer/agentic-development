@@ -55,6 +55,8 @@ if ($LASTEXITCODE -ne 0 -or $null -eq $identity) {
 $resolvedObjectId = Read-IdentityGuid $identity.properties.principalId 'ARM principal object ID'
 $clientId = Read-IdentityGuid $identity.properties.clientId 'ARM application/client ID'
 $resolvedTenantId = Read-IdentityGuid $identity.properties.tenantId 'ARM tenant ID'
+# The observed Microsoft.Web/sites response describes the parent App Service,
+# not the identities/default URL. Other provider response shapes are not accepted.
 if ($identity.id -ine $resourceId -or $identity.type -ine 'Microsoft.Web/sites' -or
     $resolvedObjectId -ne $objectId -or $resolvedTenantId -ne $tenantId -or $clientId -eq $objectId) {
     throw 'ARM system-assigned identity metadata does not match the exact App Service identity.'

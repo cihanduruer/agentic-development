@@ -710,6 +710,7 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
     [InlineData("principal-grantor")]
     [InlineData("schema-owner")]
     [InlineData("type-owner")]
+    [InlineData("queue-activation")]
     public async Task ObjectIdSidRepairRejectsHostileCatalogBeforeDrop(string mutation)
     {
         await InSidDatabase(async (connection, options) =>
@@ -742,6 +743,13 @@ public sealed class SqlManagedIdentityBootstrapperSqlServerTests
                     """,
                 "schema-owner" => "CREATE SCHEMA [owned] AUTHORIZATION [agentic-api];",
                 "type-owner" => "CREATE TYPE dbo.OwnedType FROM int; ALTER AUTHORIZATION ON TYPE::dbo.OwnedType TO [agentic-api];",
+                "queue-activation" =>
+                    """
+                    EXEC(N'CREATE PROCEDURE dbo.QueueReceiver AS SELECT 1;');
+                    CREATE QUEUE dbo.ActivationQueue WITH ACTIVATION (
+                        STATUS = OFF, PROCEDURE_NAME = dbo.QueueReceiver,
+                        MAX_QUEUE_READERS = 1, EXECUTE AS 'agentic-api');
+                    """,
                 _ => throw new ArgumentOutOfRangeException(nameof(mutation)),
             };
             if (sql.Length > 0)
