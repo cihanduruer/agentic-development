@@ -89,6 +89,52 @@ public sealed record SqlBootstrapOptions(
 
 public static class SqlManagedIdentityBootstrap
 {
+    internal static IReadOnlyList<SqlObjectGrant> RecoverableDirectPermissions { get; } =
+        Array.AsReadOnly<SqlObjectGrant>(
+        [
+            new("dbo.Hotels", "SELECT"),
+            new("dbo.Rooms", "SELECT"),
+            new("dbo.Reservations", "SELECT"),
+            new("dbo.Reservations", "INSERT"),
+            new("dbo.AgentEvents", "SELECT"),
+            new("dbo.AgentEvents", "INSERT"),
+            new("dbo.AgentEvents", "DELETE"),
+        ]);
+
+    internal static bool IsExactRecoverableDirectPermissionSet(
+        IEnumerable<SqlDatabaseGrant> permissions)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
+
+        var actual = permissions.ToArray();
+        if (actual.Length != RecoverableDirectPermissions.Count
+            || actual.Any(
+                permission => permission.Class != 1
+                    || permission.MinorId != 0
+                    || permission.State != "G"))
+        {
+            return false;
+        }
+
+        return actual
+            .Select(permission => new SqlObjectGrant(
+                permission.ObjectName,
+                permission.PermissionName))
+            .ToHashSet()
+            .SetEquals(RecoverableDirectPermissions);
+    }
+
+    internal static bool HasNoExplicitPermissionsOnRuntimeRole(
+        IEnumerable<SqlDatabasePermissionEntry> permissions,
+        int runtimeRolePrincipalId)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
+
+        return !permissions.Any(
+            permission => permission.Class == 4
+                && permission.MajorId == runtimeRolePrincipalId);
+    }
+
     public const string CommandText = """
         SET NOCOUNT ON;
         SET XACT_ABORT ON;
@@ -102,14 +148,59 @@ public static class SqlManagedIdentityBootstrap
             DECLARE @ExistingApiPrincipalId int =
                 DATABASE_PRINCIPAL_ID(@apiPrincipalName);
 
-            IF @ExistingApiPrincipalId IS NOT NULL
-               AND EXISTS (
-                   SELECT 1
-                   FROM sys.database_permissions
-                   WHERE grantee_principal_id = @ExistingApiPrincipalId
+            IF (
+                SELECT COUNT_BIG(*)
+                FROM sys.database_principals
+                WHERE name = @apiPrincipalName
+                   OR sid = @ApiPrincipalSid
+            ) > 1
+               OR (
+                   @ExistingApiPrincipalId IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM sys.database_principals
+                       WHERE principal_id = @ExistingApiPrincipalId
+                         AND name = @apiPrincipalName
+                         AND sid = @ApiPrincipalSid
+                         AND type = @apiPrincipalType
+                         AND authentication_type_desc = @apiAuthenticationType
+                   )
+               )
+               OR (
+                   @ExistingApiPrincipalId IS NULL
+                   AND EXISTS (
+                       SELECT 1
+                       FROM sys.database_principals
+                       WHERE sid = @ApiPrincipalSid
+                   )
                )
             BEGIN
-                THROW 51000, 'The API principal has unexpected direct database permissions.', 1;
+                DECLARE @ActualApiAuthenticationType nvarchar(60);
+                IF (
+                    SELECT COUNT_BIG(*)
+                    FROM sys.database_principals
+                    WHERE name = @apiPrincipalName
+                       OR sid = @ApiPrincipalSid
+                ) > 1
+                BEGIN
+                    SET @ActualApiAuthenticationType = N'<ambiguous>';
+                END
+                ELSE
+                BEGIN
+                    SELECT @ActualApiAuthenticationType =
+                        authentication_type_desc
+                    FROM sys.database_principals
+                    WHERE name = @apiPrincipalName
+                       OR sid = @ApiPrincipalSid;
+                END;
+                DECLARE @IdentityMismatchMessage nvarchar(2048) = CONCAT(
+                    N'The API principal name, SID, type, or authentication type does not match the expected identity. ',
+                    N'Expected authentication type: ',
+                    @apiAuthenticationType,
+                    N'; actual authentication type: ',
+                    COALESCE(@ActualApiAuthenticationType, N'<missing>'),
+                    N'.');
+                THROW 51007, @IdentityMismatchMessage, 1;
             END;
 
             IF @ExistingApiPrincipalId IS NOT NULL
@@ -159,6 +250,38 @@ public static class SqlManagedIdentityBootstrap
 
             DECLARE @ExistingRuntimeRoleId int =
                 DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            DECLARE @DboPrincipalId int =
+                DATABASE_PRINCIPAL_ID(N'dbo');
+            IF @DboPrincipalId IS NULL
+            BEGIN
+                THROW 51014, 'The canonical dbo database principal does not exist.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM sys.database_principals
+                   WHERE principal_id = @ExistingRuntimeRoleId
+                     AND type = N'R'
+               )
+            BEGIN
+                THROW 51011, 'The runtime role name belongs to an unexpected database principal.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_principals
+                   WHERE principal_id = @ExistingRuntimeRoleId
+                     AND (
+                         owning_principal_id IS NULL
+                         OR owning_principal_id <> @DboPrincipalId
+                     )
+               )
+            BEGIN
+                THROW 51015, 'The runtime role has an unexpected owner.', 1;
+            END;
+
             IF @ExistingRuntimeRoleId IS NOT NULL
                AND (
                    EXISTS (
@@ -204,6 +327,31 @@ public static class SqlManagedIdentityBootstrap
             IF @ExistingRuntimeRoleId IS NOT NULL
                AND EXISTS (
                    SELECT 1
+                   FROM sys.database_role_members
+                   WHERE role_principal_id = @ExistingRuntimeRoleId
+                     AND (
+                         @ExistingApiPrincipalId IS NULL
+                         OR member_principal_id <> @ExistingApiPrincipalId
+                     )
+               )
+            BEGIN
+                THROW 51012, 'The runtime role has unexpected database principals as members.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.class = 4
+                     AND permissions.major_id = @ExistingRuntimeRoleId
+               )
+            BEGIN
+                THROW 51017, 'The runtime role has delegated database-principal permissions.', 1;
+            END;
+
+            IF @ExistingRuntimeRoleId IS NOT NULL
+               AND EXISTS (
+                   SELECT 1
                    FROM sys.database_permissions AS permissions
                    WHERE permissions.grantee_principal_id = @ExistingRuntimeRoleId
                      AND NOT (
@@ -226,23 +374,105 @@ public static class SqlManagedIdentityBootstrap
                 THROW 51005, 'The runtime role has unexpected database permissions.', 1;
             END;
 
-            IF EXISTS (
-                SELECT 1
-                FROM sys.database_principals
-                WHERE name = @apiPrincipalName
-                  AND sid <> @ApiPrincipalSid
-            )
+            IF OBJECT_ID(N'dbo.Hotels', N'U') IS NULL
+               OR OBJECT_ID(N'dbo.Rooms', N'U') IS NULL
+               OR OBJECT_ID(N'dbo.Reservations', N'U') IS NULL
+               OR OBJECT_ID(N'dbo.AgentEvents', N'U') IS NULL
             BEGIN
-                IF IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName) = 1
+                THROW 51008, 'The expected runtime database objects do not all exist.', 1;
+            END;
+
+            DECLARE @ExpectedRuntimePermissions TABLE (
+                class tinyint NOT NULL,
+                major_id int NOT NULL,
+                minor_id int NOT NULL,
+                permission_name nvarchar(128) NOT NULL,
+                state char(1) NOT NULL,
+                PRIMARY KEY (class, major_id, minor_id, permission_name, state)
+            );
+            INSERT INTO @ExpectedRuntimePermissions (
+                class,
+                major_id,
+                minor_id,
+                permission_name,
+                state
+            )
+            VALUES
+                (1, OBJECT_ID(N'dbo.Hotels'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Rooms'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Reservations'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.Reservations'), 0, N'INSERT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'SELECT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'INSERT', N'G'),
+                (1, OBJECT_ID(N'dbo.AgentEvents'), 0, N'DELETE', N'G');
+
+            DECLARE @ExistingDirectPermissionCount bigint = (
+                SELECT COUNT_BIG(*)
+                FROM sys.database_permissions
+                WHERE grantee_principal_id = @ExistingApiPrincipalId
+            );
+            IF @ExistingDirectPermissionCount > 0
+            BEGIN
+                IF @ExistingDirectPermissionCount <> 7
+                   OR EXISTS (
+                       SELECT
+                           permissions.class,
+                           permissions.major_id,
+                           permissions.minor_id,
+                           permissions.permission_name COLLATE DATABASE_DEFAULT,
+                           permissions.state COLLATE DATABASE_DEFAULT
+                       FROM sys.database_permissions AS permissions
+                       WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                       EXCEPT
+                       SELECT
+                           class,
+                           major_id,
+                           minor_id,
+                           permission_name,
+                           state
+                       FROM @ExpectedRuntimePermissions
+                   )
+                   OR EXISTS (
+                       SELECT
+                           class,
+                           major_id,
+                           minor_id,
+                           permission_name,
+                           state
+                       FROM @ExpectedRuntimePermissions
+                       EXCEPT
+                       SELECT
+                           permissions.class,
+                           permissions.major_id,
+                           permissions.minor_id,
+                           permissions.permission_name COLLATE DATABASE_DEFAULT,
+                           permissions.state COLLATE DATABASE_DEFAULT
+                       FROM sys.database_permissions AS permissions
+                       WHERE permissions.grantee_principal_id = @ExistingApiPrincipalId
+                   )
                 BEGIN
-                    SET @Command =
-                        N'ALTER ROLE [hotel_booking_runtime] DROP MEMBER ' +
-                        QUOTENAME(@apiPrincipalName) + N';';
-                    EXEC sys.sp_executesql @Command;
+                    THROW 51000, 'The API principal has unexpected direct database permissions.', 1;
                 END;
 
-                SET @Command = N'DROP USER ' + QUOTENAME(@apiPrincipalName) + N';';
+                SET @Command =
+                    N'REVOKE SELECT ON OBJECT::dbo.Hotels FROM ' +
+                    QUOTENAME(@apiPrincipalName) + N';' +
+                    N'REVOKE SELECT ON OBJECT::dbo.Rooms FROM ' +
+                    QUOTENAME(@apiPrincipalName) + N';' +
+                    N'REVOKE SELECT, INSERT ON OBJECT::dbo.Reservations FROM ' +
+                    QUOTENAME(@apiPrincipalName) + N';' +
+                    N'REVOKE SELECT, INSERT, DELETE ON OBJECT::dbo.AgentEvents FROM ' +
+                    QUOTENAME(@apiPrincipalName) + N';';
                 EXEC sys.sp_executesql @Command;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM sys.database_permissions
+                    WHERE grantee_principal_id = @ExistingApiPrincipalId
+                )
+                BEGIN
+                    THROW 51009, 'The API principal still has direct database permissions after legacy migration.', 1;
+                END;
             END;
 
             IF NOT EXISTS (
@@ -259,13 +489,16 @@ public static class SqlManagedIdentityBootstrap
                 EXEC sys.sp_executesql @Command;
             END;
 
+            SET @ExistingApiPrincipalId =
+                DATABASE_PRINCIPAL_ID(@apiPrincipalName);
+
             IF NOT EXISTS (
                 SELECT 1
                 FROM sys.database_principals
                 WHERE name = N'hotel_booking_runtime'
             )
             BEGIN
-                CREATE ROLE [hotel_booking_runtime];
+                CREATE ROLE [hotel_booking_runtime] AUTHORIZATION [dbo];
             END;
 
             GRANT SELECT ON OBJECT::dbo.Hotels TO [hotel_booking_runtime];
@@ -275,24 +508,98 @@ public static class SqlManagedIdentityBootstrap
 
             DECLARE @RuntimeRoleId int =
                 DATABASE_PRINCIPAL_ID(N'hotel_booking_runtime');
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.database_principals
+                WHERE principal_id = @RuntimeRoleId
+                  AND type = N'R'
+                  AND owning_principal_id = @DboPrincipalId
+            )
+            BEGIN
+                THROW 51016, 'The runtime role does not have the canonical owner.', 1;
+            END;
+
             IF (
                 SELECT COUNT_BIG(*)
                 FROM sys.database_permissions AS permissions
                 WHERE permissions.grantee_principal_id = @RuntimeRoleId
-                  AND permissions.class = 1
-                  AND permissions.minor_id = 0
-                  AND permissions.state = N'G'
             ) <> 7
+               OR EXISTS (
+                   SELECT
+                       permissions.class,
+                       permissions.major_id,
+                       permissions.minor_id,
+                       permissions.permission_name COLLATE DATABASE_DEFAULT,
+                       permissions.state COLLATE DATABASE_DEFAULT
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.grantee_principal_id = @RuntimeRoleId
+                   EXCEPT
+                   SELECT
+                       class,
+                       major_id,
+                       minor_id,
+                       permission_name,
+                       state
+                   FROM @ExpectedRuntimePermissions
+               )
+               OR EXISTS (
+                   SELECT
+                       class,
+                       major_id,
+                       minor_id,
+                       permission_name,
+                       state
+                   FROM @ExpectedRuntimePermissions
+                   EXCEPT
+                   SELECT
+                       permissions.class,
+                       permissions.major_id,
+                       permissions.minor_id,
+                       permissions.permission_name COLLATE DATABASE_DEFAULT,
+                       permissions.state COLLATE DATABASE_DEFAULT
+                   FROM sys.database_permissions AS permissions
+                   WHERE permissions.grantee_principal_id = @RuntimeRoleId
+               )
             BEGIN
                 THROW 51006, 'The runtime role does not have the exact expected permission set.', 1;
             END;
 
-            IF COALESCE(IS_ROLEMEMBER(N'hotel_booking_runtime', @apiPrincipalName), 0) <> 1
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.database_role_members
+                WHERE role_principal_id = @RuntimeRoleId
+                  AND member_principal_id = @ExistingApiPrincipalId
+            )
             BEGIN
                 SET @Command =
                     N'ALTER ROLE [hotel_booking_runtime] ADD MEMBER ' +
                     QUOTENAME(@apiPrincipalName) + N';';
                 EXEC sys.sp_executesql @Command;
+            END;
+
+            IF (
+                SELECT COUNT_BIG(*)
+                FROM sys.database_role_members
+                WHERE role_principal_id = @RuntimeRoleId
+            ) <> 1
+               OR NOT EXISTS (
+                   SELECT 1
+                   FROM sys.database_role_members
+                   WHERE role_principal_id = @RuntimeRoleId
+                     AND member_principal_id = @ExistingApiPrincipalId
+               )
+            BEGIN
+                THROW 51013, 'The runtime role does not have the exact expected membership.', 1;
+            END;
+
+            IF EXISTS (
+                SELECT 1
+                FROM sys.database_permissions AS permissions
+                WHERE permissions.class = 4
+                  AND permissions.major_id = @RuntimeRoleId
+            )
+            BEGIN
+                THROW 51018, 'The runtime role has delegated database-principal permissions after bootstrap.', 1;
             END;
 
             COMMIT TRANSACTION;
@@ -345,6 +652,35 @@ public static class SqlManagedIdentityBootstrap
             {
                 Value = options.PrincipalObjectId,
             });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalType", SqlDbType.Char, 1)
+            {
+                Value = "E",
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiAuthenticationType", SqlDbType.NVarChar, 60)
+            {
+                Value = "EXTERNAL",
+            });
         return command;
     }
 }
+
+internal sealed record SqlObjectGrant(
+    string ObjectName,
+    string PermissionName);
+
+internal sealed record SqlDatabaseGrant(
+    string ObjectName,
+    string PermissionName,
+    int Class = 1,
+    int MinorId = 0,
+    string State = "G");
+
+internal sealed record SqlDatabasePermissionEntry(
+    int Class,
+    int MajorId,
+    int MinorId,
+    string PermissionName,
+    string State,
+    int GranteePrincipalId);

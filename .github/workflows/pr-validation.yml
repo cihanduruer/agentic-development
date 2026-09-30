@@ -22,6 +22,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: LocalSql-2026-Bootstrap!
+        ports:
+          - 1433/tcp
     steps:
       - name: Verify manually requested pull request head
         if: github.event_name == 'workflow_dispatch'
@@ -82,6 +90,23 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: dotnet restore --locked-mode
+      - name: Test SQL bootstrapper source mutations
+        shell: pwsh
+        env:
+          SQL_BOOTSTRAP_TEST_CONNECTION: >-
+            Server=localhost,${{ job.services.sqlserver.ports[1433] }};
+            Initial Catalog=master;
+            User ID=sa;
+            Password=LocalSql-2026-Bootstrap!;
+            Encrypt=False;
+            TrustServerCertificate=True
+        run: ./scripts/Test-SqlManagedIdentityBootstrapperMutations.ps1
+      - name: Test SQL bootstrapper evidence gate
+        shell: pwsh
+        run: ./scripts/Test-Assert-SqlManagedIdentityBootstrapperEvidence.ps1
+      - name: Test SQL bootstrapper evidence mutants
+        shell: pwsh
+        run: ./scripts/Test-SqlManagedIdentityBootstrapperEvidenceMutations.ps1
       - name: Test agentic intake script
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh
@@ -124,6 +149,26 @@ jobs:
         run: dotnet build --no-restore
       - name: Test
         run: dotnet test --no-build --logger trx --results-directory TestResults
+      - name: Test SQL bootstrapper against SQL Server
+        env:
+          SQL_BOOTSTRAP_TEST_CONNECTION: >-
+            Server=localhost,${{ job.services.sqlserver.ports[1433] }};
+            Initial Catalog=master;
+            User ID=sa;
+            Password=LocalSql-2026-Bootstrap!;
+            Encrypt=False;
+            TrustServerCertificate=True
+        run: >-
+          dotnet test tests/IntegrationTests/AgenticHotelBooking.IntegrationTests.csproj
+          --no-build
+          --filter FullyQualifiedName~SqlManagedIdentityBootstrapperSqlServerTests
+          --logger "trx;LogFileName=sql-bootstrapper.trx"
+          --results-directory TestResults
+      - name: Verify SQL bootstrapper evidence
+        shell: pwsh
+        run: >-
+          ./scripts/Assert-SqlManagedIdentityBootstrapperEvidence.ps1
+          -TrxPath TestResults/sql-bootstrapper.trx
       - name: Routing evaluation evidence
         run: >-
           dotnet test tests/UnitTests/AgenticHotelBooking.UnitTests.csproj
