@@ -22,7 +22,7 @@ function Assert-Throws {
 }
 
 $deployedSha = "a" * 40
-$headSha = "b" * 40
+$headSha = "13932fac3407bdb33f9408647e08b85cfc3cb123"
 $repository = "cihanduruer/agentic-development"
 $deployment = [pscustomobject]@{
     conclusion = "success"
@@ -50,6 +50,7 @@ Evidence for AB#959.
     }
     head = [pscustomobject]@{
         sha = $headSha
+        ref = "copilot/ab-960-apply-brand-color-palette"
         repo = [pscustomobject]@{ full_name = $repository }
     }
 }
@@ -82,18 +83,37 @@ $qa = [pscustomobject]@{
     })
 }
 $reviewRun = [pscustomobject]@{
+    id = 103
     conclusion = "success"
     path = ".github/workflows/hotel-code-review.yml"
-    created_at = "2026-09-29T07:59:00Z"
-    updated_at = "2026-09-29T08:00:00Z"
+    event = "pull_request_target"
+    head_sha = $headSha
+    head_branch = $pull.head.ref
+    repository = [pscustomobject]@{ full_name = $repository }
+    head_repository = [pscustomobject]@{ full_name = $repository }
+    created_at = "2026-09-30T09:45:04Z"
+    updated_at = "2026-09-30T09:48:48Z"
     html_url = "https://github.com/$repository/actions/runs/103"
     pull_requests = @([pscustomobject]@{ number = 6 })
 }
 $review = [pscustomobject]@{
     user = [pscustomobject]@{ login = "copilot-pull-request-reviewer[bot]" }
     commit_id = $headSha
-    submitted_at = "2026-09-29T07:59:30Z"
+    submitted_at = "2026-09-30T09:48:39Z"
 }
+$reviewRunJobs = @([pscustomobject]@{
+    run_id = $reviewRun.id
+    jobs = @([pscustomobject]@{
+        conclusion = "success"
+        steps = @(
+            [pscustomobject]@{ name = "Request Copilot review"; conclusion = "success" }
+            [pscustomobject]@{
+                name = "Wait for current-head review and evaluate findings"
+                conclusion = "success"
+            }
+        )
+    })
+})
 $arguments = @{
     ExpectedSha = $deployedSha
     Deployment = $deployment
@@ -102,6 +122,7 @@ $arguments = @{
     ValidationRuns = @($validation)
     QaRuns = @($qa)
     ReviewRuns = @($reviewRun)
+    ReviewRunJobs = $reviewRunJobs
     Reviews = @($review)
     Organization = "ai-enabled-ado-org"
     Project = "sample-project"
@@ -131,6 +152,113 @@ $repeatedReviewEvidence = Resolve-LifecycleEvidence @repeatedReviewArguments
 Assert-True (
     $repeatedReviewEvidence.ReviewUrl -eq $reviewRun.html_url
 ) "Review evidence should select a run containing the exact-head review."
+
+$emptyAssociationRun = $reviewRun.PSObject.Copy()
+$emptyAssociationRun.pull_requests = @()
+$emptyAssociationArguments = $arguments.Clone()
+$emptyAssociationArguments.ReviewRuns = @($emptyAssociationRun)
+$emptyAssociationEvidence = Resolve-LifecycleEvidence @emptyAssociationArguments
+Assert-True (
+    $emptyAssociationEvidence.ReviewUrl -eq $reviewRun.html_url
+) "A trusted exact-head review workflow with an empty PR association should resolve."
+
+function Assert-ReviewEvidenceRejected {
+    param(
+        [Parameter(Mandatory)][hashtable]$Changes,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $caseArguments = $arguments.Clone()
+    foreach ($key in $Changes.Keys) {
+        $caseArguments[$key] = $Changes[$key]
+    }
+    Assert-Throws { Resolve-LifecycleEvidence @caseArguments } $Message
+}
+
+$wrongReviewShaRun = $emptyAssociationRun.PSObject.Copy()
+$wrongReviewShaRun.head_sha = "d" * 40
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($wrongReviewShaRun)
+} "no successful review workflow contains a Copilot review"
+
+$wrongReviewBranchRun = $emptyAssociationRun.PSObject.Copy()
+$wrongReviewBranchRun.head_branch = "other-branch"
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($wrongReviewBranchRun)
+} "no successful review workflow contains a Copilot review"
+
+$wrongReviewRepositoryRun = $emptyAssociationRun.PSObject.Copy()
+$wrongReviewRepositoryRun.repository = [pscustomobject]@{ full_name = "another/repository" }
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($wrongReviewRepositoryRun)
+} "no successful review workflow contains a Copilot review"
+
+$wrongReviewHeadRepositoryRun = $emptyAssociationRun.PSObject.Copy()
+$wrongReviewHeadRepositoryRun.head_repository = [pscustomobject]@{ full_name = "another/repository" }
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($wrongReviewHeadRepositoryRun)
+} "no successful review workflow contains a Copilot review"
+
+$wrongReviewEventRun = $emptyAssociationRun.PSObject.Copy()
+$wrongReviewEventRun.event = "pull_request"
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($wrongReviewEventRun)
+} "no successful review workflow contains a Copilot review"
+
+$conflictingAssociationRun = $reviewRun.PSObject.Copy()
+$conflictingAssociationRun.pull_requests = @(
+    [pscustomobject]@{ number = 6 }
+    [pscustomobject]@{ number = 7 }
+)
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($conflictingAssociationRun)
+} "no successful review workflow contains a Copilot review"
+
+$missingRepositoryRun = $emptyAssociationRun.PSObject.Copy()
+$missingRepositoryRun.head_repository = $null
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($missingRepositoryRun)
+} "no successful review workflow contains a Copilot review"
+
+$unrelatedReview = $review.PSObject.Copy()
+$unrelatedReview.user = [pscustomobject]@{ login = "another-reviewer[bot]" }
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($emptyAssociationRun)
+    Reviews = @($unrelatedReview)
+} "no successful review workflow contains a Copilot review"
+
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($emptyAssociationRun)
+    Reviews = @()
+} "no successful review workflow contains a Copilot review"
+
+$staleReview = $review.PSObject.Copy()
+$staleReview.submitted_at = "2026-09-30T09:48:49Z"
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($emptyAssociationRun)
+    Reviews = @($staleReview)
+} "no successful review workflow contains a Copilot review"
+
+$skippedReviewJob = [pscustomobject]@{
+    run_id = $reviewRun.id
+    jobs = @([pscustomobject]@{
+        conclusion = "success"
+        steps = @([pscustomobject]@{
+            name = "Identify hotel change"
+            conclusion = "success"
+        })
+    })
+}
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($emptyAssociationRun)
+    ReviewRunJobs = @($skippedReviewJob)
+} "no successful review workflow contains a Copilot review"
+
+$failedReviewRun = $emptyAssociationRun.PSObject.Copy()
+$failedReviewRun.conclusion = "failure"
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($failedReviewRun)
+} "no successful review workflow contains a Copilot review"
 
 $staleDeployment = $deployment.PSObject.Copy()
 $staleDeployment.head_sha = "c" * 40
@@ -544,6 +672,12 @@ function Invoke-GitHubApi {
     }
     if ($Uri -match '/actions/runs/42$') {
         return $qa
+    }
+    if ($Uri -match '/actions/runs/103/jobs\?') {
+        return [pscustomobject]@{
+            total_count = 1
+            jobs = $reviewRunJobs[0].jobs
+        }
     }
     if ($Uri -match '/actions/workflows/pr-validation\.yml/runs') {
         $runs = if ($script:boundaryMode -eq 'platform') { @() } else { @($validation) }
