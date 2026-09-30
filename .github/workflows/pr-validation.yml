@@ -137,6 +137,9 @@ jobs:
       - name: Test Azure data hardening contracts
         shell: pwsh
         run: ./scripts/Test-AzureDataHardeningContracts.ps1
+      - name: Test Copilot Azure Boards setup contract
+        shell: pwsh
+        run: ./scripts/Test-CopilotAzureBoardsSetup.ps1
       - name: Test development deployment recovery
         shell: pwsh
         run: ./scripts/Test-DevelopmentDeploymentRecovery.ps1
