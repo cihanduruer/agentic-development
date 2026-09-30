@@ -254,6 +254,11 @@ Assert-ReviewEvidenceRejected @{
     ReviewRunJobs = @($skippedReviewJob)
 } "no successful review workflow contains a Copilot review"
 
+Assert-ReviewEvidenceRejected @{
+    ReviewRuns = @($emptyAssociationRun)
+    ReviewRunJobs = @($reviewRunJobs[0], $reviewRunJobs[0])
+} "no successful review workflow contains a Copilot review"
+
 $failedReviewRun = $emptyAssociationRun.PSObject.Copy()
 $failedReviewRun.conclusion = "failure"
 Assert-ReviewEvidenceRejected @{
