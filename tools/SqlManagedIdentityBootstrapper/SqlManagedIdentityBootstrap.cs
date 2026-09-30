@@ -8,7 +8,9 @@ public sealed record SqlBootstrapOptions(
     string Database,
     string PrincipalName,
     Guid PrincipalObjectId,
-    string AccessToken)
+    string AccessToken,
+    SqlBootstrapMode Mode = SqlBootstrapMode.Bootstrap,
+    string? DiagnosticOutputPath = null)
 {
     public static SqlBootstrapOptions Parse(
         string[] args,
@@ -37,6 +39,8 @@ public sealed record SqlBootstrapOptions(
             "--database",
             "--principal-name",
             "--principal-object-id",
+            "--mode",
+            "--output",
         };
         var unsupportedOption = values.Keys.FirstOrDefault(
             key => !supportedOptions.Contains(key, StringComparer.OrdinalIgnoreCase));
@@ -66,12 +70,39 @@ public sealed record SqlBootstrapOptions(
                 "AZURE_SQL_ACCESS_TOKEN must contain an Azure SQL access token.");
         }
 
+        var modeValue = values.GetValueOrDefault("--mode") ?? "bootstrap";
+        var mode = modeValue.ToUpperInvariant() switch
+        {
+            "BOOTSTRAP" => SqlBootstrapMode.Bootstrap,
+            "DIAGNOSTIC" => SqlBootstrapMode.Diagnostic,
+            _ => throw new ArgumentException(
+                "--mode must be either bootstrap or diagnostic.",
+                nameof(args)),
+        };
+
+        values.TryGetValue("--output", out var outputPath);
+        if (mode == SqlBootstrapMode.Diagnostic && string.IsNullOrWhiteSpace(outputPath))
+        {
+            throw new ArgumentException(
+                "--output is required in diagnostic mode.",
+                nameof(args));
+        }
+
+        if (mode == SqlBootstrapMode.Bootstrap && outputPath is not null)
+        {
+            throw new ArgumentException(
+                "--output is supported only in diagnostic mode.",
+                nameof(args));
+        }
+
         return new SqlBootstrapOptions(
             server,
             database,
             principalName,
             principalObjectId,
-            accessToken);
+            accessToken,
+            mode,
+            outputPath);
     }
 
     private static string RequireValue(
@@ -85,6 +116,12 @@ public sealed record SqlBootstrapOptions(
 
         return value;
     }
+}
+
+public enum SqlBootstrapMode
+{
+    Bootstrap,
+    Diagnostic,
 }
 
 public static class SqlManagedIdentityBootstrap
@@ -613,6 +650,212 @@ public static class SqlManagedIdentityBootstrap
         END CATCH;
         """;
 
+    public const string DiagnosticCommandText = """
+        WITH identity_candidates AS (
+            SELECT
+                principals.principal_id,
+                principals.name,
+                principals.sid,
+                principals.type,
+                principals.type_desc,
+                principals.authentication_type_desc,
+                principals.owning_principal_id
+            FROM sys.database_principals AS principals
+            WHERE principals.name = @apiPrincipalName
+               OR principals.sid = CONVERT(binary(16), @apiPrincipalObjectId)
+        ),
+        relevant_principals AS (
+            SELECT principal_id
+            FROM identity_candidates
+            UNION
+            SELECT principal_id
+            FROM sys.database_principals
+            WHERE name = N'hotel_booking_runtime'
+        )
+        SELECT
+            @apiPrincipalName AS [target.principalName],
+            CONVERT(nvarchar(36), @apiPrincipalObjectId) AS [target.principalObjectId],
+            DB_NAME() AS [databaseName],
+            SUSER_SNAME() AS [observer.name],
+            IS_ROLEMEMBER(N'db_owner') AS [observer.isDatabaseOwner],
+            HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'VIEW DEFINITION')
+                AS [observer.canViewDefinition],
+            @@TRANCOUNT AS [transactionCount],
+            JSON_QUERY(COALESCE((
+                SELECT
+                    candidate.principal_id AS principalId,
+                    candidate.name,
+                    sys.fn_varbintohexstr(candidate.sid) AS sid,
+                    candidate.type,
+                    candidate.type_desc AS typeDescription,
+                    candidate.authentication_type_desc AS authenticationType,
+                    owner.name AS ownerName
+                FROM identity_candidates AS candidate
+                LEFT JOIN sys.database_principals AS owner
+                    ON owner.principal_id = candidate.owning_principal_id
+                ORDER BY candidate.principal_id
+                FOR JSON PATH
+            ), N'[]')) AS identityCandidates,
+            JSON_QUERY(COALESCE((
+                SELECT
+                    grantee.name AS grantee,
+                    permissions.state,
+                    permissions.state_desc AS stateDescription,
+                    permissions.class,
+                    permissions.class_desc AS classDescription,
+                    schema_value.name AS schemaName,
+                    object_value.name AS objectName,
+                    column_value.name AS columnName,
+                    permissions.permission_name AS permission,
+                    grantor.name AS grantor
+                FROM sys.database_permissions AS permissions
+                INNER JOIN relevant_principals AS relevant
+                    ON relevant.principal_id = permissions.grantee_principal_id
+                INNER JOIN sys.database_principals AS grantee
+                    ON grantee.principal_id = permissions.grantee_principal_id
+                LEFT JOIN sys.objects AS object_value
+                    ON permissions.class = 1
+                   AND object_value.object_id = permissions.major_id
+                LEFT JOIN sys.schemas AS schema_value
+                    ON (permissions.class = 1
+                        AND schema_value.schema_id = object_value.schema_id)
+                    OR (permissions.class = 3
+                        AND schema_value.schema_id = permissions.major_id)
+                LEFT JOIN sys.columns AS column_value
+                    ON permissions.class = 1
+                   AND column_value.object_id = permissions.major_id
+                   AND column_value.column_id = permissions.minor_id
+                LEFT JOIN sys.database_principals AS grantor
+                    ON grantor.principal_id = permissions.grantor_principal_id
+                ORDER BY
+                    grantee.name,
+                    permissions.class,
+                    schema_value.name,
+                    object_value.name,
+                    column_value.name,
+                    permissions.permission_name,
+                    permissions.state
+                FOR JSON PATH
+            ), N'[]')) AS directPermissions,
+            JSON_QUERY(COALESCE((
+                SELECT
+                    role_value.name AS roleName,
+                    member_value.name AS memberName
+                FROM sys.database_role_members AS memberships
+                INNER JOIN sys.database_principals AS role_value
+                    ON role_value.principal_id = memberships.role_principal_id
+                INNER JOIN sys.database_principals AS member_value
+                    ON member_value.principal_id = memberships.member_principal_id
+                ORDER BY role_value.name, member_value.name
+                FOR JSON PATH
+            ), N'[]')) AS roleMemberships,
+            JSON_QUERY(COALESCE((
+                SELECT
+                    role_value.name AS roleName,
+                    owner.name AS ownerName,
+                    role_value.owning_principal_id AS ownerPrincipalId
+                FROM sys.database_principals AS role_value
+                LEFT JOIN sys.database_principals AS owner
+                    ON owner.principal_id = role_value.owning_principal_id
+                WHERE role_value.type = N'R'
+                  AND role_value.principal_id IN (
+                      SELECT principal_id FROM relevant_principals
+                  )
+                ORDER BY role_value.name
+                FOR JSON PATH
+            ), N'[]')) AS roleOwnership,
+            JSON_QUERY(COALESCE((
+                SELECT
+                    grantee.name AS grantee,
+                    target.name AS targetPrincipal,
+                    permissions.state,
+                    permissions.permission_name AS permission,
+                    grantor.name AS grantor
+                FROM sys.database_permissions AS permissions
+                INNER JOIN sys.database_principals AS target
+                    ON permissions.class = 4
+                   AND target.principal_id = permissions.major_id
+                INNER JOIN sys.database_principals AS grantee
+                    ON grantee.principal_id = permissions.grantee_principal_id
+                LEFT JOIN sys.database_principals AS grantor
+                    ON grantor.principal_id = permissions.grantor_principal_id
+                WHERE permissions.major_id IN (
+                    SELECT principal_id FROM relevant_principals
+                )
+                ORDER BY
+                    target.name,
+                    grantee.name,
+                    permissions.permission_name,
+                    permissions.state
+                FOR JSON PATH
+            ), N'[]')) AS delegatedPermissions,
+            JSON_QUERY(COALESCE((
+                SELECT
+                    ownership.securableType,
+                    ownership.schemaName,
+                    ownership.securableName,
+                    ownership.ownerName
+                FROM (
+                    SELECT
+                        N'SCHEMA' AS securableType,
+                        schemas.name AS schemaName,
+                        schemas.name AS securableName,
+                        owner.name AS ownerName
+                    FROM sys.schemas AS schemas
+                    INNER JOIN relevant_principals AS relevant
+                        ON relevant.principal_id = schemas.principal_id
+                    INNER JOIN sys.database_principals AS owner
+                        ON owner.principal_id = schemas.principal_id
+                    UNION ALL
+                    SELECT
+                        N'OBJECT',
+                        schemas.name,
+                        objects.name,
+                        owner.name
+                    FROM sys.objects AS objects
+                    INNER JOIN sys.schemas AS schemas
+                        ON schemas.schema_id = objects.schema_id
+                    INNER JOIN relevant_principals AS relevant
+                        ON relevant.principal_id = objects.principal_id
+                    INNER JOIN sys.database_principals AS owner
+                        ON owner.principal_id = objects.principal_id
+                    UNION ALL
+                    SELECT
+                        N'DATABASE_PRINCIPAL',
+                        NULL,
+                        owned.name,
+                        owner.name
+                    FROM sys.database_principals AS owned
+                    INNER JOIN relevant_principals AS relevant
+                        ON relevant.principal_id = owned.owning_principal_id
+                    INNER JOIN sys.database_principals AS owner
+                        ON owner.principal_id = owned.owning_principal_id
+                    UNION ALL
+                    SELECT
+                        N'DATABASE',
+                        NULL,
+                        databases.name,
+                        owner.name
+                    FROM sys.databases AS databases
+                    INNER JOIN relevant_principals AS relevant
+                        ON databases.database_id = DB_ID()
+                       AND databases.owner_sid = (
+                           SELECT sid
+                           FROM sys.database_principals
+                           WHERE principal_id = relevant.principal_id
+                       )
+                    INNER JOIN sys.database_principals AS owner
+                        ON owner.principal_id = relevant.principal_id
+                ) AS ownership
+                ORDER BY
+                    ownership.securableType,
+                    ownership.schemaName,
+                    ownership.securableName
+                FOR JSON PATH
+            ), N'[]')) AS ownedSecurables
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;
+        """;
+
     public static SqlConnection CreateConnection(SqlBootstrapOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -624,6 +867,9 @@ public static class SqlManagedIdentityBootstrap
             Encrypt = true,
             TrustServerCertificate = false,
             ConnectTimeout = 30,
+            ApplicationIntent = options.Mode == SqlBootstrapMode.Diagnostic
+                ? ApplicationIntent.ReadOnly
+                : ApplicationIntent.ReadWrite,
         }.ConnectionString;
 
         return new SqlConnection(connectionString)
@@ -661,6 +907,36 @@ public static class SqlManagedIdentityBootstrap
             new SqlParameter("@apiAuthenticationType", SqlDbType.NVarChar, 60)
             {
                 Value = "EXTERNAL",
+            });
+        return command;
+    }
+
+    public static SqlCommand CreateDiagnosticCommand(
+        SqlConnection connection,
+        SqlBootstrapOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.Mode != SqlBootstrapMode.Diagnostic)
+        {
+            throw new ArgumentException(
+                "Diagnostic command creation requires diagnostic mode.",
+                nameof(options));
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = DiagnosticCommandText;
+        command.CommandTimeout = 60;
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalName", SqlDbType.NVarChar, 128)
+            {
+                Value = options.PrincipalName,
+            });
+        command.Parameters.Add(
+            new SqlParameter("@apiPrincipalObjectId", SqlDbType.UniqueIdentifier)
+            {
+                Value = options.PrincipalObjectId,
             });
         return command;
     }

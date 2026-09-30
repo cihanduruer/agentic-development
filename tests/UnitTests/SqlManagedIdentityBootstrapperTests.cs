@@ -1,4 +1,5 @@
 using AgenticHotelBooking.SqlManagedIdentityBootstrapper;
+using Microsoft.Data.SqlClient;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -61,6 +62,60 @@ public sealed class SqlManagedIdentityBootstrapperTests
     }
 
     [Fact]
+    public void ParseRequiresOutputOnlyForDiagnosticMode()
+    {
+        var diagnostic = SqlBootstrapOptions.Parse(
+            [
+                "--server", "example.database.windows.net",
+                "--database", "hotelbooking",
+                "--principal-name", "agentic-api",
+                "--principal-object-id", PrincipalObjectId.ToString(),
+                "--mode", "diagnostic",
+                "--output", "evidence.json",
+            ],
+            _ => "access-token");
+
+        Assert.Equal(SqlBootstrapMode.Diagnostic, diagnostic.Mode);
+        Assert.Equal("evidence.json", diagnostic.DiagnosticOutputPath);
+        Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(
+            [
+                "--server", "example.database.windows.net",
+                "--database", "hotelbooking",
+                "--principal-name", "agentic-api",
+                "--principal-object-id", PrincipalObjectId.ToString(),
+                "--mode", "diagnostic",
+            ],
+            _ => "access-token"));
+        Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(
+            [
+                "--server", "example.database.windows.net",
+                "--database", "hotelbooking",
+                "--principal-name", "agentic-api",
+                "--principal-object-id", PrincipalObjectId.ToString(),
+                "--output", "evidence.json",
+            ],
+            _ => "access-token"));
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData("-1")]
+    [InlineData("Bootstrap, Diagnostic")]
+    public void ParseRejectsUndefinedOrNumericModes(string mode)
+    {
+        Assert.Throws<ArgumentException>(() => SqlBootstrapOptions.Parse(
+            [
+                "--server", "example.database.windows.net",
+                "--database", "hotelbooking",
+                "--principal-name", "agentic-api",
+                "--principal-object-id", PrincipalObjectId.ToString(),
+                "--mode", mode,
+                "--output", "evidence.json",
+            ],
+            _ => "access-token"));
+    }
+
+    [Fact]
     public void CommandUsesParametersAndValidDynamicSqlExecution()
     {
         var options = CreateOptions();
@@ -70,6 +125,9 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.Equal("access-token", connection.AccessToken);
         Assert.Equal("example.database.windows.net", connection.DataSource);
         Assert.Equal("hotelbooking", connection.Database);
+        Assert.Equal(
+            ApplicationIntent.ReadWrite,
+            new SqlConnectionStringBuilder(connection.ConnectionString).ApplicationIntent);
         Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
         Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
         Assert.Equal("E", command.Parameters["@apiPrincipalType"].Value);
@@ -416,6 +474,94 @@ public sealed class SqlManagedIdentityBootstrapperTests
         Assert.True(postcheckIndex > membershipMutationIndex);
     }
 
+    [Fact]
+    public void DiagnosticCommandIsParameterizedSelectOnlyAndReportsRequiredFacts()
+    {
+        var options = CreateOptions() with
+        {
+            Mode = SqlBootstrapMode.Diagnostic,
+            DiagnosticOutputPath = "evidence.json",
+        };
+        using var connection = SqlManagedIdentityBootstrap.CreateConnection(options);
+        using var command =
+            SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
+
+        Assert.Equal(
+            ApplicationIntent.ReadOnly,
+            new SqlConnectionStringBuilder(connection.ConnectionString).ApplicationIntent);
+        Assert.Equal("agentic-api", command.Parameters["@apiPrincipalName"].Value);
+        Assert.Equal(PrincipalObjectId, command.Parameters["@apiPrincipalObjectId"].Value);
+        Assert.Contains("identityCandidates", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("observer.isDatabaseOwner", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("observer.canViewDefinition", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("directPermissions", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("permissions.state", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("permissions.class", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("schemaName", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("objectName", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("permissions.permission_name", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("grantor", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("roleMemberships", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("roleOwnership", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("delegatedPermissions", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("ownedSecurables", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("FROM sys.databases AS databases", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("databases.owner_sid", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("@@TRANCOUNT", command.CommandText, StringComparison.Ordinal);
+        Assert.Contains("FOR JSON PATH, WITHOUT_ARRAY_WRAPPER", command.CommandText, StringComparison.Ordinal);
+
+        foreach (var mutationVerb in new[]
+                 {
+                     "ALTER", "CREATE", "DELETE", "DROP", "EXEC", "GRANT",
+                     "INSERT", "MERGE", "REVOKE", "TRUNCATE", "UPDATE",
+                 })
+        {
+            Assert.DoesNotMatch(
+                $@"(?im)\b{mutationVerb}\b",
+                command.CommandText);
+        }
+    }
+
+    [Fact]
+    public void DiagnosticWorkflowIsDevelopmentOnlyExactIpAndAlwaysCleansUp()
+    {
+        ValidateDiagnosticWorkflow(ReadDiagnosticWorkflow());
+    }
+
+    [Theory]
+    [InlineData(
+        "environment: development",
+        "environment: production")]
+    [InlineData(
+        "--start-ip-address '${{ steps.target.outputs.runnerIp }}'",
+        "--start-ip-address 0.0.0.0")]
+    [InlineData(
+        "--end-ip-address '${{ steps.target.outputs.runnerIp }}'",
+        "--end-ip-address 255.255.255.255")]
+    [InlineData(
+        "if: always() && steps.target.outcome == 'success'",
+        "if: success() && steps.target.outcome == 'success'")]
+    [InlineData(
+        "--name '${{ steps.target.outputs.ruleName }}'",
+        "--name shared-diagnostic-rule")]
+    [InlineData(
+        "inputs.confirmation == 'DIAGNOSE-DEVELOPMENT-SQL'",
+        "inputs.confirmation != ''")]
+    [InlineData(
+        "github.ref == 'refs/heads/main'",
+        "github.ref != ''")]
+    public void DiagnosticWorkflowPolicyRejectsSafetyMutations(
+        string original,
+        string mutation)
+    {
+        var baseline = ReadDiagnosticWorkflow();
+        Assert.Contains(original, baseline, StringComparison.Ordinal);
+
+        Assert.Throws<InvalidDataException>(
+            () => ValidateDiagnosticWorkflow(
+                baseline.Replace(original, mutation, StringComparison.Ordinal)));
+    }
+
     public static TheoryData<object>
         RejectedRecoverablePermissionStates()
     {
@@ -484,6 +630,78 @@ public sealed class SqlManagedIdentityBootstrapperTests
     private static int CountOccurrences(string value, string expected) =>
         (value.Length - value.Replace(expected, string.Empty, StringComparison.Ordinal).Length)
         / expected.Length;
+
+    private static string ReadDiagnosticWorkflow() =>
+        File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            ".github",
+            "workflows",
+            "diagnose-development-sql.yml"));
+
+    private static void ValidateDiagnosticWorkflow(string workflow)
+    {
+        var requiredFragments = new[]
+        {
+            "workflow_dispatch:",
+            "github.ref == 'refs/heads/main'",
+            "inputs.confirmation == 'DIAGNOSE-DEVELOPMENT-SQL'",
+            "environment: development",
+            "RESOURCE_GROUP: agentic-hotelbookingdev",
+            "DATABASE_NAME: hotelbooking",
+            "--start-ip-address '${{ steps.target.outputs.runnerIp }}'",
+            "--end-ip-address '${{ steps.target.outputs.runnerIp }}'",
+            "--name '${{ steps.target.outputs.ruleName }}'",
+            "if: always() && steps.target.outcome == 'success'",
+            "az sql server firewall-rule delete",
+            "The exact diagnostic firewall rule remains after cleanup.",
+            "--mode diagnostic",
+            "uses: actions/upload-artifact@v4",
+        };
+        foreach (var fragment in requiredFragments)
+        {
+            if (!workflow.Contains(fragment, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Diagnostic workflow is missing required safety fragment: {fragment}");
+            }
+        }
+
+        var forbiddenFragments = new[]
+        {
+            "environment: production",
+            "--start-ip-address 0.0.0.0",
+            "--end-ip-address 255.255.255.255",
+            "--name shared-diagnostic-rule",
+            "if: success() && steps.target.outcome == 'success'",
+            "inputs.confirmation != ''",
+            "github.ref != ''",
+            "az deployment ",
+            "dotnet ef ",
+        };
+        foreach (var fragment in forbiddenFragments)
+        {
+            if (workflow.Contains(fragment, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Diagnostic workflow contains forbidden fragment: {fragment}");
+            }
+        }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "AgenticHotelBooking.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException("Unable to locate the repository root.");
+    }
 
     private static SqlBootstrapOptions CreateOptions() =>
         new(
