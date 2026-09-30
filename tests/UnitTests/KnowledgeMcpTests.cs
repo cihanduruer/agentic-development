@@ -205,9 +205,40 @@ public sealed class KnowledgeMcpTests
             new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content)))
             .SearchAsync("managed identity", Revision, CancellationToken.None);
 
+        Assert.True(result.HasEvidence);
         var passage = Assert.Single(result.Passages).Passage;
         Assert.Contains("managed", passage, StringComparison.Ordinal);
         Assert.Contains("identity", passage, StringComparison.Ordinal);
+        Assert.True(passage.Length <= KnowledgeSearchService.MaximumPassageLength);
+    }
+
+    [Fact]
+    public async Task SearchExcerptKeepsSeparatedTermsInsideOneWindow()
+    {
+        var content = new string('x', 2_000) + " alpha " + new string('x', 2_000) + " omega " + new string('y', 10_000);
+        var result = await new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content)))
+            .SearchAsync("alpha omega", Revision, CancellationToken.None);
+
+        var passage = Assert.Single(result.Passages).Passage;
+        Assert.Contains("alpha", passage, StringComparison.Ordinal);
+        Assert.Contains("omega", passage, StringComparison.Ordinal);
+        Assert.True(passage.Length <= KnowledgeSearchService.MaximumPassageLength);
+    }
+
+    [Fact]
+    public async Task SearchExcerptKeepsLongRequiredTermsWholeWithinBudget()
+    {
+        const string longTerm = "abcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrstabcdefghijklmnopqrst";
+        var shortTerms = "a b c d e f g h i j k l m n o p r s t u v w x y 0 1 2 3 4 5 6 7 8 9";
+        var content = new string('q', 2_000) + " " + longTerm + " " + new string('q', 8_000) + " " + shortTerms;
+        var result = await new KnowledgeSearchService(
+            new FakeKnowledgeSearchRepository(Document("docs/knowledge/security.md", Revision, content)))
+            .SearchAsync($"{longTerm} {shortTerms}", Revision, CancellationToken.None);
+
+        Assert.True(result.HasEvidence, $"{result.Status}: {result.Message}");
+        var passage = Assert.Single(result.Passages).Passage;
+        Assert.Contains(longTerm, passage, StringComparison.Ordinal);
         Assert.True(passage.Length <= KnowledgeSearchService.MaximumPassageLength);
     }
 

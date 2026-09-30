@@ -192,6 +192,7 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
 
         var normalizedRevision = revision.ToLowerInvariant();
         var passages = new List<KnowledgePassage>();
+        var incompleteEvidence = false;
         var scanned = 0;
         while (passages.Count < MaximumResults && scanned < MaximumCandidateScan)
         {
@@ -208,15 +209,27 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
                 break;
             }
 
-            passages.AddRange(documents
+            foreach (var document in documents
                 .Where(document =>
                     string.Equals(document.Revision, normalizedRevision, StringComparison.Ordinal) &&
                     IsCanonicalKnowledgePath(document.Path) &&
                     queryTerms.All(term =>
                         ContainsWholeTerm(document.Title, term) ||
-                        ContainsWholeTerm(document.Content, term)))
-                .Select(document => ToPassage(document, queryTerms))
-                .Take(MaximumResults - passages.Count));
+                        ContainsWholeTerm(document.Content, term))))
+            {
+                var passage = ToPassage(document, queryTerms);
+                if (passage is null)
+                {
+                    incompleteEvidence = true;
+                    continue;
+                }
+
+                passages.Add(passage);
+                if (passages.Count == MaximumResults)
+                {
+                    break;
+                }
+            }
 
             if (documents.Count < pageSize)
             {
@@ -227,8 +240,14 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         return passages.Count == 0
             ? NoEvidence(
                 normalizedRevision,
-                scanned >= MaximumCandidateScan ? "scan_limit_reached" : "no_evidence",
-                scanned >= MaximumCandidateScan
+                incompleteEvidence
+                    ? "incomplete_evidence"
+                    : scanned >= MaximumCandidateScan
+                        ? "scan_limit_reached"
+                        : "no_evidence",
+                incompleteEvidence
+                    ? $"Matching knowledge evidence at revision {normalizedRevision} cannot be represented within the passage bounds."
+                    : scanned >= MaximumCandidateScan
                     ? $"Knowledge evidence scan limit reached at revision {normalizedRevision}; no complete result can be claimed."
                     : $"No matching knowledge evidence exists at revision {normalizedRevision}.")
             : new KnowledgeSearchResult(
@@ -267,12 +286,15 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
         return [.. terms];
     }
 
-    private static KnowledgePassage ToPassage(KnowledgeSearchHit document, IReadOnlyList<string> queryTerms)
+    private static KnowledgePassage? ToPassage(KnowledgeSearchHit document, IReadOnlyList<string> queryTerms)
     {
         var truncated = document.Content.Length > MaximumPassageLength;
-        var passage = truncated
-            ? BuildRelevantExcerpt(document.Content, queryTerms)
-            : document.Content;
+        var passage = truncated ? BuildRelevantExcerpt(document.Content, queryTerms) : document.Content;
+        if (passage is null)
+        {
+            return null;
+        }
+
         var escapedPath = string.Join(
             '/',
             document.Path.Split('/').Select(Uri.EscapeDataString));
@@ -289,37 +311,54 @@ public sealed class KnowledgeSearchService(IKnowledgeSearchRepository repository
             document.ContentHash);
     }
 
-    private static string BuildRelevantExcerpt(string content, IReadOnlyList<string> queryTerms)
+    private static string? BuildRelevantExcerpt(string content, IReadOnlyList<string> queryTerms)
     {
         var occurrences = queryTerms
-            .Select(term => FindWholeTermOccurrence(content, term))
-            .Where(index => index >= 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(term => (Term: term, Index: FindWholeTermOccurrence(content, term)))
+            .Where(match => match.Index >= 0)
             .ToArray();
         if (occurrences.Length == 0)
         {
             return content[..MaximumPassageLength];
         }
 
-        var first = occurrences.Min();
-        var last = occurrences.Max();
-        if (last - first < MaximumPassageLength)
+        var first = occurrences.Min(match => match.Index);
+        var last = occurrences.Max(match => match.Index + match.Term.Length);
+        if (last - first <= MaximumPassageLength)
         {
-            var start = Math.Max(0, Math.Min(first - MaximumPassageLength / 2, content.Length - MaximumPassageLength));
+            var start = Math.Clamp(
+                (first + last) / 2 - MaximumPassageLength / 2,
+                Math.Max(0, last - MaximumPassageLength),
+                Math.Min(first, content.Length - MaximumPassageLength));
             return content.Substring(start, MaximumPassageLength);
         }
 
-        var snippetLength = Math.Max(1, (MaximumPassageLength - (occurrences.Length - 1) * 9) / occurrences.Length);
-        var snippets = occurrences.Select(index =>
+        const int separatorLength = 5;
+        var requiredLength = occurrences.Sum(match => match.Term.Length) +
+            (occurrences.Length - 1) * separatorLength;
+        if (requiredLength > MaximumPassageLength)
         {
-            var start = Math.Max(0, index - snippetLength / 2);
-            if (start + snippetLength > content.Length)
-            {
-                start = content.Length - snippetLength;
-            }
+            return null;
+        }
 
-            return content.Substring(start, snippetLength);
+        var contextBudget = MaximumPassageLength - requiredLength;
+        var contextPerSnippet = contextBudget / occurrences.Length;
+        var remainingContext = contextBudget % occurrences.Length;
+        var snippets = occurrences.Select((match, index) =>
+        {
+            var snippetContext = contextPerSnippet + (index < remainingContext ? 1 : 0);
+            var leftContext = snippetContext / 2;
+            var rightContext = snippetContext - leftContext;
+            var start = Math.Max(0, match.Index - leftContext);
+            var end = Math.Min(content.Length, match.Index + match.Term.Length + rightContext);
+            start = Math.Min(start, match.Index);
+            end = Math.Max(end, match.Index + match.Term.Length);
+
+            return content[start..end];
         });
-        return string.Join("\n...\n", snippets);
+        var excerpt = string.Join("\n...\n", snippets);
+        return excerpt.Length <= MaximumPassageLength ? excerpt : null;
     }
 
     private static int FindWholeTermOccurrence(string text, string term)
