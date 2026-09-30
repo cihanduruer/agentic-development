@@ -175,11 +175,24 @@ public static class SqlManagedIdentityBootstrap
                    )
                )
             BEGIN
-                DECLARE @ActualApiAuthenticationType nvarchar(60) = (
-                    SELECT authentication_type_desc
+                DECLARE @ActualApiAuthenticationType nvarchar(60);
+                IF (
+                    SELECT COUNT_BIG(*)
                     FROM sys.database_principals
-                    WHERE principal_id = @ExistingApiPrincipalId
-                );
+                    WHERE name = @apiPrincipalName
+                       OR sid = @ApiPrincipalSid
+                ) > 1
+                BEGIN
+                    SET @ActualApiAuthenticationType = N'<ambiguous>';
+                END
+                ELSE
+                BEGIN
+                    SELECT @ActualApiAuthenticationType =
+                        authentication_type_desc
+                    FROM sys.database_principals
+                    WHERE name = @apiPrincipalName
+                       OR sid = @ApiPrincipalSid;
+                END;
                 DECLARE @IdentityMismatchMessage nvarchar(2048) = CONCAT(
                     N'The API principal name, SID, type, or authentication type does not match the expected identity. ',
                     N'Expected authentication type: ',

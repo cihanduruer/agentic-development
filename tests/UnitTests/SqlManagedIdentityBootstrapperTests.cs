@@ -101,6 +101,14 @@ public sealed class SqlManagedIdentityBootstrapperTests
             "actual authentication type:",
             commandText,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "SET @ActualApiAuthenticationType = N'<ambiguous>'",
+            commandText,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WHERE name = @apiPrincipalName",
+            commandText,
+            StringComparison.Ordinal);
         Assert.Contains("type = @apiPrincipalType", commandText, StringComparison.Ordinal);
         Assert.Contains(
             "authentication_type_desc = @apiAuthenticationType",
