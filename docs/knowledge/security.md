@@ -1,6 +1,6 @@
 ---
 owner: Security owner
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 # Security
 
@@ -31,6 +31,19 @@ Each development deployment then performs the repeatable data-plane sequence:
 6. Classify the API independently from SQL: an absent or identity-only API without a runtime SQL setting follows the initial path even when a prior failed attempt already created SQL. After SQL identity bootstrap, that path configures the API before deploying the artifact because no prior configured service exists. A configured upgrade deploys and proves the migration-disabled artifact while its existing SQL setting remains unchanged. A failing catalog blocks the normal path. A manual development run may continue only when the current setting is unambiguously one of the repository's passwordless managed-identity forms and the operator supplies the exact `RECOVER-STRANDED-MANAGED-IDENTITY` confirmation; legacy, mixed, unexpected-target, and unsupported settings remain blocked. The workflow then captures the prior setting, fails before mutation unless the temporary file is permission-restricted, refreshes the GitHub OIDC Azure login immediately before applying the managed-identity configuration, and proves a SQL-backed request. Any deployment or readiness failure obtains another fresh Azure login before restoring and proving the prior app setting. The temporary prior-setting and diagnostic files are deleted in an always step that fails unless absence can be proven. The pre-existing SQL authentication mode is observed separately so diagnostics never invent a legacy fallback for an already-Entra-only server. After managed-identity readiness succeeds, a separate SQL-only Bicep phase enforces Entra-only authentication and another SQL-backed request verifies the final state.
 7. Automatic development deployments never delete the legacy credential. A separately confirmed manual development run may remove only the active legacy `sql-connection-string` after migration, managed-identity bootstrap, API deployment, and the operations persistence smoke all succeed. Production requires its own exact cleanup confirmation and waits for both API health and a successful SQL-backed catalog request. Cleanup never creates or broadens a role assignment. It uses the supported Key Vault data-plane delete operation with output suppressed and metadata-only absence verification. If the deployment identity lacks pre-provisioned metadata/delete access constrained to that secret, the workflow fails closed and an approved operator must delete that exact active secret and rerun verification.
 8. Obtain a fresh GitHub OIDC Azure login in the always path, then remove the temporary GitHub runner firewall rule. Cleanup never relies on an assertion cached by an earlier deployment phase.
+
+Failed development bootstrap runs may be investigated through the manual
+`Diagnose development SQL permissions` workflow documented in
+`docs/runbooks/development-sql-diagnostics.md`. The workflow is constrained to the
+canonical tagged development SQL server, `hotelbooking` database, and development API
+managed identity. It requires an exact typed confirmation, verifies the configured
+GitHub OIDC identity is still SQL Entra administrator, creates one run-unique exact-IP
+firewall rule, and executes only the bootstrapper's parameterized diagnostic `SELECT`.
+Its sanitized artifact records identity candidates, direct permissions, memberships,
+ownership and delegated-permission facts, and `@@TRANCOUNT`. A fresh OIDC login in an
+`always()` cleanup deletes only the exact temporary rule and proves its absence. The
+diagnostic cannot target production, deploy resources, change application
+configuration, or issue SQL permission or data mutations.
 
 No SQL login or SQL administrator password is used by the running API or stored in GitHub or application settings. After the explicitly approved cleanup, upgraded environments verify the absence of the active legacy Key Vault secret. Key Vault soft-delete and purge protection can retain a recoverable deleted version for the configured retention period; the deployment does not purge it or delete the vault because permanent purge is a separately approved irreversible operation.
 

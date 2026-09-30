@@ -1,0 +1,199 @@
+name: Diagnose development SQL permissions
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DIAGNOSE-DEVELOPMENT-SQL to collect read-only development SQL evidence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: diagnose-development-sql
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      inputs.confirmation == 'DIAGNOSE-DEVELOPMENT-SQL'
+    environment: development
+    runs-on: ubuntu-latest
+    env:
+      RESOURCE_GROUP: agentic-hotelbookingdev
+      DATABASE_NAME: hotelbooking
+      EVIDENCE_DIRECTORY: sql-diagnostic-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Resolve exact development targets and firewall pre-state
+        id: target
+        shell: pwsh
+        env:
+          EXPECTED_ADMIN_OBJECT_ID: ${{ vars.AZURE_DEPLOYMENT_PRINCIPAL_OBJECT_ID }}
+        run: |
+          New-Item -ItemType Directory -Path $env:EVIDENCE_DIRECTORY | Out-Null
+          if ([string]::IsNullOrWhiteSpace($env:EXPECTED_ADMIN_OBJECT_ID)) {
+            throw 'The development SQL administrator object ID is not configured.'
+          }
+
+          $servers = @(az sql server list `
+            --resource-group $env:RESOURCE_GROUP `
+            --query "[?tags.application=='agentic-hotelbooking' && tags.environment=='dev'].{name:name}" `
+            --output json `
+            --only-show-errors | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $servers.Count -ne 1 -or
+              $servers[0].name -notmatch '^ahb-dev-[a-z0-9]+-sql$') {
+            throw 'Expected exactly one tagged development SQL server with the canonical name.'
+          }
+
+          $apps = @(az webapp list `
+            --resource-group $env:RESOURCE_GROUP `
+            --query "[?tags.application=='agentic-hotelbooking' && tags.environment=='dev'].{name:name,principalId:identity.principalId}" `
+            --output json `
+            --only-show-errors | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $apps.Count -ne 1 -or
+              $apps[0].name -notmatch '^ahb-dev-[a-z0-9]+-api$' -or
+              [string]::IsNullOrWhiteSpace($apps[0].principalId)) {
+            throw 'Expected exactly one tagged development API with a managed identity.'
+          }
+
+          $admins = @(az sql server ad-admin list `
+            --resource-group $env:RESOURCE_GROUP `
+            --server $servers[0].name `
+            --output json `
+            --only-show-errors | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $admins.Count -ne 1 -or
+              $admins[0].sid -ne $env:EXPECTED_ADMIN_OBJECT_ID) {
+            throw 'The development SQL Entra administrator is not the configured GitHub OIDC identity.'
+          }
+
+          $ip = (Invoke-RestMethod 'https://api.ipify.org').Trim()
+          $parsedIp = [System.Net.IPAddress]::None
+          if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsedIp) -or
+              $parsedIp.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+            throw 'The runner public IPv4 address could not be validated.'
+          }
+
+          $ruleName = "github-sql-diagnostic-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $preState = az sql server firewall-rule list `
+            --resource-group $env:RESOURCE_GROUP `
+            --server $servers[0].name `
+            --query "[].{name:name,startIpAddress:startIpAddress,endIpAddress:endIpAddress}" `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($preState)) {
+            throw 'Unable to capture the development SQL firewall pre-state.'
+          }
+          $preState | Set-Content "$env:EVIDENCE_DIRECTORY/firewall-pre-state.json"
+
+          "serverName=$($servers[0].name)" | Out-File $env:GITHUB_OUTPUT -Append
+          "principalName=$($apps[0].name)" | Out-File $env:GITHUB_OUTPUT -Append
+          "principalId=$($apps[0].principalId)" | Out-File $env:GITHUB_OUTPUT -Append
+          "runnerIp=$ip" | Out-File $env:GITHUB_OUTPUT -Append
+          "ruleName=$ruleName" | Out-File $env:GITHUB_OUTPUT -Append
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore diagnostic tool
+        run: dotnet restore tools/SqlManagedIdentityBootstrapper/SqlManagedIdentityBootstrapper.csproj --locked-mode
+      - name: Create unique exact-IP diagnostic firewall rule
+        id: firewall
+        shell: pwsh
+        run: |
+          az sql server firewall-rule create `
+            --resource-group $env:RESOURCE_GROUP `
+            --server '${{ steps.target.outputs.serverName }}' `
+            --name '${{ steps.target.outputs.ruleName }}' `
+            --start-ip-address '${{ steps.target.outputs.runnerIp }}' `
+            --end-ip-address '${{ steps.target.outputs.runnerIp }}' `
+            --only-show-errors `
+            --output none
+      - name: Collect SELECT-only SQL permission evidence
+        shell: pwsh
+        run: |
+          $env:AZURE_SQL_ACCESS_TOKEN = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($env:AZURE_SQL_ACCESS_TOKEN)) {
+            throw 'Unable to acquire an Azure SQL access token.'
+          }
+          Write-Output "::add-mask::$env:AZURE_SQL_ACCESS_TOKEN"
+          dotnet run `
+            --project tools/SqlManagedIdentityBootstrapper/SqlManagedIdentityBootstrapper.csproj `
+            --no-restore `
+            -- `
+            --mode diagnostic `
+            --output "$env:EVIDENCE_DIRECTORY/sql-permissions.json" `
+            --server '${{ steps.target.outputs.serverName }}.database.windows.net' `
+            --database $env:DATABASE_NAME `
+            --principal-name '${{ steps.target.outputs.principalName }}' `
+            --principal-object-id '${{ steps.target.outputs.principalId }}'
+          Remove-Item Env:AZURE_SQL_ACCESS_TOKEN
+      - name: Refresh Azure login for firewall cleanup
+        id: cleanup-login
+        if: always() && steps.target.outcome == 'success'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Remove exact diagnostic firewall rule and verify post-state
+        if: always() && steps.target.outcome == 'success'
+        shell: pwsh
+        run: |
+          if ('${{ steps.cleanup-login.outcome }}' -ne 'success') {
+            throw 'Fresh Azure login failed; diagnostic firewall cleanup cannot be verified.'
+          }
+          $cleanupState = az sql server firewall-rule list `
+            --resource-group $env:RESOURCE_GROUP `
+            --server '${{ steps.target.outputs.serverName }}' `
+            --query "[].{name:name,startIpAddress:startIpAddress,endIpAddress:endIpAddress}" `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($cleanupState)) {
+            throw 'Unable to inspect development SQL firewall rules before cleanup.'
+          }
+          if (@($cleanupState | ConvertFrom-Json).name -contains
+              '${{ steps.target.outputs.ruleName }}') {
+            az sql server firewall-rule delete `
+              --resource-group $env:RESOURCE_GROUP `
+              --server '${{ steps.target.outputs.serverName }}' `
+              --name '${{ steps.target.outputs.ruleName }}' `
+              --only-show-errors `
+              --output none
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Unable to remove the exact diagnostic firewall rule.'
+            }
+          }
+          $postState = az sql server firewall-rule list `
+            --resource-group $env:RESOURCE_GROUP `
+            --server '${{ steps.target.outputs.serverName }}' `
+            --query "[].{name:name,startIpAddress:startIpAddress,endIpAddress:endIpAddress}" `
+            --output json `
+            --only-show-errors
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($postState)) {
+            throw 'Unable to capture the development SQL firewall post-state.'
+          }
+          $postState | Set-Content "$env:EVIDENCE_DIRECTORY/firewall-post-state.json"
+          if (@($postState | ConvertFrom-Json).name -contains '${{ steps.target.outputs.ruleName }}') {
+            throw 'The exact diagnostic firewall rule remains after cleanup.'
+          }
+      - name: Upload sanitized diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-sql-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sql-diagnostic-evidence
+          if-no-files-found: error
+          retention-days: 14

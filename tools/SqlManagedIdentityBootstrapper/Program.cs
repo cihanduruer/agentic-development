@@ -7,8 +7,24 @@ var options = SqlBootstrapOptions.Parse(
 await using var connection = SqlManagedIdentityBootstrap.CreateConnection(options);
 await connection.OpenAsync();
 
-await using var command = SqlManagedIdentityBootstrap.CreateCommand(connection, options);
-await command.ExecuteNonQueryAsync();
+if (options.Mode == SqlBootstrapMode.Diagnostic)
+{
+    await using var command =
+        SqlManagedIdentityBootstrap.CreateDiagnosticCommand(connection, options);
+    var result = await command.ExecuteScalarAsync();
+    if (result is not string json || string.IsNullOrWhiteSpace(json))
+    {
+        throw new InvalidDataException("SQL diagnostic query returned no JSON evidence.");
+    }
 
-Console.WriteLine(
-    $"Bootstrapped managed identity '{options.PrincipalName}' in database '{options.Database}'.");
+    await File.WriteAllTextAsync(options.DiagnosticOutputPath!, json);
+    Console.WriteLine("Wrote sanitized SQL permission diagnostic evidence.");
+}
+else
+{
+    await using var command = SqlManagedIdentityBootstrap.CreateCommand(connection, options);
+    await command.ExecuteNonQueryAsync();
+
+    Console.WriteLine(
+        $"Bootstrapped managed identity '{options.PrincipalName}' in database '{options.Database}'.");
+}
