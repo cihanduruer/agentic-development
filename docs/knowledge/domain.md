@@ -1,6 +1,6 @@
 ---
 owner: Domain owner
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 # Domain rules
 
@@ -12,6 +12,7 @@ last_reviewed: 2026-09-29
 - **Reservation:** confirmed allocation of one room for a stay and party.
 - **Availability:** absence of an overlapping reservation and sufficient room capacity.
 - **Stay price:** nightly rate multiplied by the number of nights in the stay, displayed in euros before confirmation and on the confirmed reservation.
+- **Vehicle preference:** an optional Economy, Compact, SUV, or Luxury category recorded with a new reservation; it is not a guaranteed rental.
 
 ## Rules
 
@@ -24,3 +25,5 @@ last_reviewed: 2026-09-29
 7. A confirmed reservation receives an immutable, non-secret reference.
 8. Dates use `DateOnly`; event timestamps use UTC `DateTimeOffset`.
 9. Total stay price equals the selected room's nightly rate multiplied by `check-out.DayNumber - check-in.DayNumber`.
+10. A new reservation may omit its vehicle preference. When supplied, it must be exactly Economy, Compact, SUV, or Luxury.
+11. The confirmed vehicle preference is immutable: it cannot be added or changed on an existing reservation.

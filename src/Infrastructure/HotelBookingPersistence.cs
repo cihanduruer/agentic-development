@@ -40,6 +40,9 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
             entity.HasIndex(item => new { item.RoomId, item.CheckIn, item.CheckOut });
             entity.Property(item => item.Reference).HasMaxLength(20);
             entity.Property(item => item.GuestName).HasMaxLength(160);
+            entity.Property(item => item.VehiclePreference)
+                .HasConversion<string>()
+                .HasMaxLength(20);
         });
 
         modelBuilder.Entity<AgentEventEntity>(entity =>
@@ -136,6 +139,7 @@ public sealed class ReservationEntity
     public int Guests { get; set; }
     public required string GuestName { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public VehiclePreference? VehiclePreference { get; set; }
 }
 
 public sealed class AgentEventEntity
@@ -402,7 +406,8 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
                 CheckOut = request.CheckOut,
                 Guests = request.Guests,
                 GuestName = request.GuestName.Trim(),
-                CreatedAt = DateTimeOffset.UtcNow
+                CreatedAt = DateTimeOffset.UtcNow,
+                VehiclePreference = request.VehiclePreference
             };
             dbContext.Reservations.Add(entity);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -421,7 +426,8 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
                 entity.Guests,
                 entity.GuestName,
                 entity.CreatedAt,
-                room.NightlyRate);
+                room.NightlyRate,
+                entity.VehiclePreference);
         }
         finally
         {

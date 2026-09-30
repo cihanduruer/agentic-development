@@ -75,6 +75,23 @@ public sealed class BrandPaletteTests
             ReadSource("src/Web/wwwroot/index.html"));
     }
 
+    [Fact]
+    public void VehiclePreferenceControlIsLabeledAndExplainsItsLimits()
+    {
+        var home = ReadSource("src/Web/Pages/Home.razor");
+
+        Assert.Contains("<label for=\"vehicle-preference\">Vehicle preference</label>", home);
+        Assert.Contains("aria-describedby=\"vehicle-preference-help\"", home);
+        Assert.Contains("<option value=\"\">No preference</option>", home);
+        Assert.Contains("A vehicle preference is not a guaranteed rental.", home);
+        Assert.Contains("cannot be added or changed after confirmation", home);
+
+        var css = ReadSource("src/Web/wwwroot/css/app.css");
+        Assert.Equal("1px solid var(--brand-dark-blue)",
+            Declaration(css, ".vehicle-preference select", "border"));
+        Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "select:focus-visible", "outline"));
+    }
+
     private static string Declaration(string css, string selector, string property)
     {
         var values = Regex.Matches(css, @"(?<selectors>[^{}]+)\{(?<body>[^{}]*)\}")

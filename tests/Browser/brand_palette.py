@@ -1,4 +1,4 @@
-"""AB#960 browser evidence. Build the solution and start only the Web dev server first.
+"""AB#960 and AB#961 browser evidence. Build the solution and start only the Web dev server first.
 
 python -m pip install -r tests/Browser/requirements.txt
 python tests/Browser/brand_palette.py --web-url http://127.0.0.1:5167 --output <artifact-directory>
@@ -103,7 +103,7 @@ def audit_text(page):
 
 
 def run(args, api, output):
-    evidence = {"schemaVersion": 1, "workItem": "AB#960",
+    evidence = {"schemaVersion": 1, "workItem": "AB#960,AB#961",
                 "sourceSha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "workingTreeDiff": subprocess.check_output(["git", "-c", "core.safecrlf=false", "diff", "--stat"], cwd=ROOT, text=True),
                 "web": args.web_url, "api": api, "isolation": "Owned process; EF InMemory; SQL connection empty",
@@ -194,6 +194,13 @@ def run(args, api, output):
                 evidence["checks"].append(check_focus(room))
                 evidence["checks"].append(check_pair(room, "borderTopColor", "backgroundColor", 3))
                 expect(page.locator(".stay-total")).to_contain_text(re.compile(r"567[,.]00"))
+                vehicle = page.get_by_label("Vehicle preference", exact=True)
+                expect(vehicle.locator("option")).to_have_text(
+                    ["No preference", "Economy", "Compact", "SUV", "Luxury"])
+                vehicle.select_option("Compact")
+                vehicle.select_option("SUV")
+                vehicle.select_option("")
+                vehicle.select_option("Luxury")
                 capture(page, size + "-search-selected")
 
                 for selector in [".btn-primary", ".btn-outline-primary", ".btn-success"]:
@@ -239,14 +246,25 @@ def run(args, api, output):
                 assert booked.value.status == 201
                 reservation = booked.value.json()
                 assert reservation["totalStayPrice"] == 567 and reservation["nights"] == 3
+                assert reservation["vehiclePreference"] == "Luxury"
                 expect(page.locator(".confirmation")).to_contain_text(reservation["reference"])
+                expect(page.locator(".confirmation")).to_contain_text("Vehicle preference: Luxury")
+                expect(page.locator(".confirmation")).to_contain_text("not a guaranteed rental")
+                expect(vehicle).to_be_disabled()
+                expect(confirm).to_be_disabled()
                 capture(page, size + "-confirmation")
-                with page.expect_response(lambda r: r.url.endswith("/api/reservations")) as duplicate:
-                    confirm.click()
-                assert duplicate.value.status == 409
-                capture(page, size + "-overlap-error")
+                duplicate = ctx.request.post(api + "/api/reservations", data={
+                    "hotelId": reservation["hotelId"], "roomId": reservation["roomId"],
+                    "checkIn": reservation["checkIn"], "checkOut": reservation["checkOut"],
+                    "guests": reservation["guests"], "guestName": "Duplicate Browser Test",
+                    "vehiclePreference": "Luxury"})
+                assert duplicate.status == 409
                 search.click()
                 expect(page.locator(".room-option")).to_have_count(1)
+                page.locator(".room-option").first.click()
+                expect(page.get_by_label("Vehicle preference", exact=True)).to_be_enabled()
+                expect(page.get_by_label("Vehicle preference", exact=True)).to_have_value("")
+                expect(page.get_by_role("button", name="Confirm booking")).to_be_enabled()
                 page.get_by_label("Guests", exact=True).fill("8")
                 search.click()
                 expect(page.locator(".empty-state")).to_contain_text("No rooms")
