@@ -46,6 +46,10 @@ No proof means no completion. Before returning `complete`, provide:
 - unresolved gaps;
 - security or deployment impact.
 
+## Cloud-only verification
+
+When a work item or coordinator specifies cloud-only execution, all implementation, testing, browser evidence, and validation must run in the hosted cloud agent. Do not use a developer desktop, shared development site, shared SQL database, or live reservation flow; loopback processes and isolated in-memory fixtures inside the cloud runner are permitted. Report the exact cloud commands, commit SHA, artifact locations, skipped fixtures, and blockers without presenting local or pre-commit evidence as proof.
+
 Production releases, permanent deletion, spending, secrets, external publication, and irreversible operations always require human approval.
 
 ## Required checks
