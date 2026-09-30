@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   eligibility:
-    name: eligibility
+    name: Review eligibility
     runs-on: ubuntu-latest
     outputs:
       eligible: ${{ steps.check.outputs.eligible }}
@@ -319,7 +319,7 @@ jobs:
             core.info(`${unresolved.length} unresolved medium/low finding(s); no blocking high-confidence finding remains.`);
 
   not-eligible:
-    name: Copilot findings gate
+    name: Copilot review not required
     needs: eligibility
     if: needs.eligibility.outputs.eligible != 'true'
     runs-on: ubuntu-latest
