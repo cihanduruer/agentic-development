@@ -2,40 +2,38 @@
 
 This folder documents how the Hotel Booking system is developed, validated, observed, and deployed. Azure Boards provides product-work visibility, GitHub is the code and delivery system, GitHub Copilot agents perform bounded software work, and Azure hosts the development environment and Microsoft-native AI services.
 
-For a meeting-ready What/Why/How walkthrough, use the [Agentic Development presentation](PRESENTATION.md).
+For a nontechnical 5-10 minute overview, use the [team demo guide](../../demo/TEAM-DEMO-GUIDE.md). For exact actions, copy-paste prompts, expected results, and recovery guidance, use the [step-by-step showcase](SHOWCASE.md).
 
-For a practical 10-15 minute replay with live-demo preflight and safe fallbacks, use the [showcase guide](SHOWCASE.md).
+For developers and architects, start with the [Azure service responsibilities and harness diagrams](AZURE-SERVICES-AND-HARNESS.md). The [technical presentation](PRESENTATION.md) is an optional deeper explanation.
 
 ## Development process
 
 ```mermaid
 flowchart TD
-    PO["Product owner<br/>Copilot Desktop discussion"] --> WI["Azure Boards<br/>Hotel User Story or Bug"]
-    WI --> INTAKE["GitHub Actions<br/>Agentic intake every 5 minutes"]
+    PO["Product owner<br/>Copilot Desktop discussion"] --> WI["Azure Boards<br/>New Hotel User Story by default"]
+    WI --> INTAKE["GitHub Actions<br/>Scheduled intake - pickup can be delayed"]
     INTAKE --> ISSUE["Linked GitHub issue<br/>Acceptance criteria + AB# ID"]
     ISSUE --> DEV["GitHub Copilot developer agent<br/>Grounded implementation + tests"]
     DEV --> PR["Draft pull request<br/>Branch + evidence"]
     PR --> CI["PR validation<br/>Restore, format, build, test, Bicep"]
     CI --> REVIEW["Copilot code review<br/>Findings and improvements"]
-    REVIEW --> QA["Independent QA agent<br/>Acceptance and negative-path evidence"]
-    QA --> READY["Release proposal<br/>Immutable evidence"]
-    READY --> APPROVAL{"Manual release approval"}
-    APPROVAL -->|Approved| DEPLOY["GitHub Actions deployment"]
+    REVIEW --> QA["Independent QA workflow<br/>Custom QA agent not-run"]
+    QA --> MERGE["Coordinator merges after gates<br/>No extra development-demo approval"]
+    MERGE --> DEPLOY["GitHub Actions<br/>Development deployment"]
+    DEPLOY --> AZURE["Development Hotel<br/>Web, API, SQL"]
+    MERGE --> MAINQA["Exact-main QA evidence"]
+    MAINQA --> READY["Release proposal<br/>Immutable packages"]
+    READY --> APPROVAL{"Manual production approval"}
+    APPROVAL -->|Approved| PROD["Production promotion"]
     APPROVAL -->|Rejected| DEV
-    DEPLOY --> AZURE["Azure environment<br/>Web, API, SQL, AI, monitoring"]
-
     KNOWLEDGE["Versioned knowledge center<br/>docs/knowledge + ADRs"] -. grounds .-> DEV
     KNOWLEDGE -. grounds .-> REVIEW
     KNOWLEDGE -. grounds .-> QA
-    ROUTER["Deterministic policy<br/>+ Microsoft Agent Framework"] -. routes .-> DEV
-    ROUTER -. routes .-> QA
-    OPS["Operations dashboard<br/>+ Application Insights"] -. observes .-> INTAKE
-    OPS -. observes .-> DEV
-    OPS -. observes .-> QA
-    OPS -. observes .-> DEPLOY
 ```
 
 The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check.
+
+The runtime C# routing API is a separate capability, not the dispatcher for the GitHub developer/QA workflow shown above. Agent Operations displays events explicitly ingested into the API; it does not automatically observe Desktop chat, Boards intake, or every Actions run. See the [harness diagrams](AZURE-SERVICES-AND-HARNESS.md) for these boundaries.
 
 ## System ownership
 

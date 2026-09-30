@@ -11,8 +11,13 @@ theme: default
 ## From product intent to governed delivery
 
 **Audience:** architects, developers, product owners, and DevOps engineers  
-**Format:** 35-45 minutes plus discussion  
-**Repository knowledge revision:** `7e6c3b15bdd28fdc142ae0960df009de5d0c8088`
+**Format:** optional 35-45 minute technical deep dive
+
+**For the live demo:** use the [5-10 minute team guide](../../demo/TEAM-DEMO-GUIDE.md) and its six-slide deck instead.
+
+**Repository source baseline:** `f48fe735ee7873e0f75a84034e3f12ef88108d16`
+
+**Policy update:** 2026-09-30; development-demo delivery is authorized without another human release approval. Pending changes are not claimed as deployed.
 
 <!--
 Speaker notes:
@@ -50,7 +55,7 @@ Use this slide to align vocabulary. "Agentic" means software can choose and perf
 
 ## The desired outcome
 
-**One traceable chain:** requirement -> implementation -> review -> QA evidence -> release artifact -> approved deployment.
+**One traceable chain:** requirement -> cloud implementation -> review -> QA evidence -> merge -> development deployment. Production promotion remains separately approved.
 
 <!--
 Speaker notes:
@@ -88,7 +93,9 @@ flowchart LR
     PR --> CI["Validation"]
     CI --> REV["Copilot review gate"]
     REV --> QA["Independent QA evidence"]
-    QA --> REL["Immutable release proposal"]
+    QA --> MERGE["Coordinator merges<br/>No extra demo approval"]
+    MERGE --> DEVD["Development deployment"]
+    DEVD --> REL["Verified main QA<br/>Immutable release proposal"]
     REL --> HUMAN{"Human approval"}
     HUMAN -->|Approve| PROD["Production promotion"]
     HUMAN -->|Reject| DEV
@@ -113,7 +120,7 @@ Walk left to right. Each transition has a machine-verifiable contract. Productio
 | Workflow orchestration and evidence collection | GitHub Actions |
 | Product/domain/architecture/security rules | `docs/knowledge/` and ADRs |
 | Runtime, identity, data, AI, and monitoring | Azure |
-| Production authorization | Human operator + protected workflow |
+| Production authorization | Human operator + manual verified-artifact workflow |
 
 **Important:** An agent can do work; it does not become the owner of the decision.
 
@@ -142,6 +149,8 @@ This slide is useful when ownership questions arise. Keep Azure Boards for produ
 - Update canonical knowledge with behavior or architecture changes.
 
 > Chat history and model memory are not authoritative.
+
+Agents can read repository knowledge now. The separate Search MCP integration is in progress; demonstrate actual retrieved passages, citations, and revision before calling either the chat client or development agent connected. A local documentation commit does not update Search.
 
 <!--
 Speaker notes:
@@ -173,6 +182,8 @@ sequenceDiagram
 ```
 
 **Recovery:** manual dispatch accepts one work-item ID and only `New` or `Active` state.
+
+**Normal capture:** a new Hotel requirement becomes a User Story in `sample-project`, initially `New`, without `github-synced`. The product owner need not know technical tags or dispatch commands. Scheduled intake owns the next step; its five-minute schedule can be delayed.
 
 <!--
 Speaker notes:
@@ -234,6 +245,7 @@ This is the concrete story behind the architecture. The implementation was impro
 - Reads the operating contract and canonical knowledge.
 - Adds tests and preserves security/architecture rules.
 - Opens a pull request with evidence.
+- Implements and tests in cloud agents/runners; local documentation work requires an explicit exception.
 
 ## QA role
 
@@ -259,8 +271,10 @@ flowchart TD
     T["Task metadata"] --> P{"Deterministic policy"}
     P -->|Incomplete evidence| H["human_review"]
     P -->|High risk / irreversible| H
-    P -->|One safe worker| W["Select worker directly"]
-    P -->|Multiple safe workers| M["Microsoft Agent Framework"]
+    P -->|Otherwise eligible| E{"Prompt Shields +<br/>exact-revision Search grounding"}
+    E -->|Failure / missing evidence| H
+    E -->|One safe worker| W["Select worker directly"]
+    E -->|Multiple safe workers| M["Microsoft Agent Framework"]
     M --> V{"Validate structured result"}
     V -->|Live worker + confidence met| W
     V -->|Invalid / low confidence / failure| H
@@ -319,6 +333,7 @@ This is data minimization. It reduces leakage risk and also improves routing con
 - Unresolved High or unclassified findings block.
 - Resolved findings trigger re-evaluation.
 - Privileged workflow does not execute pull-request code.
+- Actual review and the not-required alternative are mutually exclusive; one skipped job is normal. Clearer display names are being delivered separately.
 
 > A green check is evidence for an exact revision, not a general statement about a branch.
 
@@ -333,6 +348,8 @@ Explain why head-SHA binding matters: an approval or test result for an older co
 
 GitHub may intentionally mark a Copilot PR run `action_required` before jobs start.
 
+This is workflow execution authorization, not development release approval. The user has authorized development-demo release after evidence passes; that does not change this GitHub setting.
+
 ## Supported paths
 
 - Maintainer approves the run from the merge box, or
@@ -346,6 +363,8 @@ GitHub may intentionally mark a Copilot PR run `action_required` before jobs sta
 - Verify the live PR still has the supplied SHA.
 - Reject stale SHA requests.
 - Never use `pull_request_target` to execute untrusted PR code.
+
+An administrator can disable **Require approval for workflow runs** under **Settings -> Copilot -> Cloud agent** when policy permits. Do not claim it is disabled without verifying the setting.
 
 <!--
 Speaker notes:
@@ -434,6 +453,8 @@ The operations event stream records:
 - work-item correlation and knowledge revision.
 
 Events are persisted before SignalR broadcast. Retention and query sizes are bounded.
+
+This is not a mirror of Desktop conversations, Azure Boards intake, or GitHub Actions. Those activities appear only if explicitly ingested; show Boards and Actions for delivery progress.
 
 **Excluded:** prompts, source code, tokens, credentials, personal data, and tool-output bodies.
 
@@ -527,8 +548,8 @@ Pause here. Assign an owner and a follow-up artifact for each accepted decision.
 
 ## Near term
 
-- Synchronize merged/released evidence back to Azure Boards.
-- Remove lifecycle tags such as `ready-for-triage` when state advances.
+- Complete the Search MCP chat demonstration, then independently prove cloud development-agent tool use.
+- Keep automated QA evidence distinct from the deferred fully agentic QA implementation.
 - Define alerting for failed routing, intake, QA, and deployment.
 - Prepare for GitHub Actions Node runtime and Ubuntu runner changes.
 
@@ -549,7 +570,7 @@ Pause here. Assign an owner and a follow-up artifact for each accepted decision.
 
 <!--
 Speaker notes:
-These are recommendations, not claims of current implementation. Prioritize lifecycle closure and measurable outcomes before expanding agent autonomy.
+These are recommendations, not claims of current implementation. Evidence-backed Boards synchronization already adds delivery links/tags and removes ready-for-triage; it does not change work-item state.
 -->
 
 ---
@@ -599,5 +620,4 @@ Use these four questions to structure the remaining meeting. Keep the discussion
 - `scripts/Start-AgenticWork.ps1` - idempotent Azure Boards intake
 - `src/Infrastructure/MicrosoftAgentRouter.cs` - deterministic/model routing
 
-**Grounding:** content is sourced from repository revision `7e6c3b15bdd28fdc142ae0960df009de5d0c8088`.
-
+**Grounding:** repository source baseline `f48fe735ee7873e0f75a84034e3f12ef88108d16`, plus the 2026-09-30 development-demo policy documented in `docs/knowledge/agentic-delivery.md`. See the short guide's dated readiness notes for pending PRs; this document is not live-deployment evidence.

@@ -1,0 +1,118 @@
+name: Hotel browser evidence
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore and build
+        run: |
+          dotnet restore --locked-mode
+          dotnet build --no-restore
+
+      - name: Install browser runner
+        run: |
+          python -m pip install --requirement tests/Browser/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Start isolated Web server
+        run: |
+          nohup dotnet run --project src/Web/AgenticHotelBooking.Web.csproj --no-build \
+            --urls http://127.0.0.1:5167 > "$RUNNER_TEMP/hotel-web.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/hotel-web.pid"
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:5167/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/hotel-web.log"
+          exit 1
+
+      - name: Run isolated browser evidence
+        id: browser
+        continue-on-error: true
+        run: |
+          rm -rf browser-evidence
+          mkdir -p browser-evidence
+          python tests/Browser/brand_palette.py \
+            --web-url http://127.0.0.1:5167 \
+            --channel chromium \
+            --output browser-evidence
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Stop isolated Web server
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/hotel-web.pid"; then
+            kill "$(cat "$RUNNER_TEMP/hotel-web.pid")" 2>/dev/null || true
+            wait "$(cat "$RUNNER_TEMP/hotel-web.pid")" 2>/dev/null || true
+          fi
+
+      - name: Verify evidence provenance
+        if: always()
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test -f browser-evidence/browser-evidence.json
+          python - "$EXPECTED_SHA" <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          expected = sys.argv[1]
+          evidence = json.loads(Path("browser-evidence/browser-evidence.json").read_text())
+          checked_out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          diff = subprocess.check_output(["git", "diff", "--stat"], text=True)
+          if evidence.get("sourceSha") != expected or checked_out != expected:
+              raise SystemExit(f"Evidence SHA mismatch: {evidence.get('sourceSha')} / {checked_out} / {expected}")
+          if evidence.get("workingTreeDiff"):
+              raise SystemExit(f"Evidence was captured from a dirty source tree: {evidence['workingTreeDiff']}")
+          if evidence.get("status") != "passed":
+              raise SystemExit(f"Browser evidence status: {evidence.get('status')}")
+          if diff:
+              raise SystemExit(f"Checked-out source tree is dirty: {diff}")
+          if evidence.get("unexpectedRequests"):
+              raise SystemExit(f"Unexpected requests: {evidence['unexpectedRequests']}")
+          PY
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotel-browser-evidence-${{ github.event.pull_request.head.sha }}
+          path: |
+            browser-evidence/browser-evidence.json
+            browser-evidence/*.png
+            browser-evidence/isolated-api.log
+            ${{ runner.temp }}/hotel-web.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail on browser evidence failure
+        if: steps.browser.outcome != 'success'
+        run: exit 1

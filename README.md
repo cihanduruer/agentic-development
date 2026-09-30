@@ -37,4 +37,6 @@ The catalog is seeded for demonstration. Payments, cancellations, loyalty, dynam
 
 ## Development Pipeline
 
+For a simple, nontechnical walkthrough, start with the [5-10 minute team demo](demo/TEAM-DEMO-GUIDE.md).
+
 For the agentic development process, AI operations, architecture, CI/CD, security controls, observability, local setup, and the end-to-end process diagram, see the [Development Pipeline documentation](docs/development-pipeline/).
