@@ -12,7 +12,8 @@ public sealed class BrandPaletteTests
         ["--brand-blue"] = "#04668C",
         ["--brand-light-blue"] = "#8DC4E6",
         ["--brand-cream"] = "#F9F6EF",
-        ["--brand-taupe"] = "#D4CDBF"
+        ["--brand-taupe"] = "#D4CDBF",
+        ["--brand-orange"] = "#FFA500"
     };
 
     [Fact]
@@ -24,6 +25,24 @@ public sealed class BrandPaletteTests
         {
             Assert.Contains($"{token.Key}: {token.Value};", css, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void HomePageUsesAccessibleOrangeBackground()
+    {
+        var css = ReadSource("src/Web/wwwroot/css/app.css");
+        var homeCss = ReadSource("src/Web/Pages/Home.razor.css");
+        var home = ReadSource("src/Web/Pages/Home.razor");
+
+        Assert.Contains("<div class=\"home-page\">", home);
+        var background = Hex(ResolveToken(css, Declaration(homeCss, ".home-page", "background")));
+        var foreground = Hex(ResolveToken(css, Declaration(css, "body", "color")));
+        var foregroundLuminance = Luminance(foreground) + 0.05;
+        var backgroundLuminance = Luminance(background) + 0.05;
+        var contrast = Math.Max(foregroundLuminance, backgroundLuminance) /
+                       Math.Min(foregroundLuminance, backgroundLuminance);
+
+        Assert.True(contrast >= 4.5, $"Home page text has contrast {contrast:F2}:1.");
     }
 
     [Theory]
