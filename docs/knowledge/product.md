@@ -35,8 +35,11 @@ The Hotel web application uses these shared CSS design tokens:
 | `--brand-light-blue` | `#8DC4E6` | Accent and selected/active surfaces |
 | `--brand-cream` | `#F9F6EF` | Page, card, form, and table surfaces |
 | `--brand-taupe` | `#D4CDBF` | Secondary surfaces, borders, and disabled states |
+| `--brand-orange` | `#FFA500` | Home page background |
 
 Dark blue and blue are used for text, controls, and focus indicators on cream surfaces. Light blue and taupe remain backgrounds or decorative borders, not low-contrast text or required control boundaries. Required room and input boundaries use blue or dark blue. Disabled controls retain dark blue text on taupe without reduced opacity.
+
+The home page uses orange as its page background; dark-blue body text maintains WCAG AA contrast against it. Hotel cards, booking panels, forms, and other shared surfaces retain their existing cream backgrounds.
 
 Keyboard focus uses a three-pixel blue outline with cream separation on light surfaces, and a cream outline with dark blue separation in navigation. Navigation icons inherit the link color; the current page is underlined. Selected rooms retain a distinct inset border and a visible `Selected` label in addition to `aria-pressed`. Empty catalog and availability results have explicit status text. Errors, connection states, and confirmations retain their text meaning rather than relying on color.
 
