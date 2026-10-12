@@ -30,7 +30,7 @@ public sealed class ArchitecturePageTests
         Assert.Contains("aria-hidden=\"true\"", page);
         Assert.Contains("@media (prefers-reduced-motion: reduce)", styles);
         Assert.Contains("animation: none;", styles);
-        Assert.Contains("@media (max-width: 800px)", styles);
+        Assert.Contains("@media (max-width: 1000px)", styles);
     }
 
     private static int Count(string text, string value) =>
