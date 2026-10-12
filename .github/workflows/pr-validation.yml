@@ -114,6 +114,9 @@ jobs:
       - name: Test QA evidence script
         shell: pwsh
         run: ./scripts/Test-New-QaEvidence.ps1
+      - name: Test QA provenance discovery
+        shell: pwsh
+        run: ./scripts/Test-QaEvidenceSourceContext.ps1
       - name: Test web deployment configuration
         shell: pwsh
         run: ./scripts/Test-Set-WebApiConfiguration.ps1
