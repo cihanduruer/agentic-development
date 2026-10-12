@@ -1,0 +1,287 @@
+.architecture-page {
+    --architecture-ink: var(--brand-dark-blue);
+    --architecture-edge: var(--brand-blue);
+    max-width: 76rem;
+    margin: 0 auto;
+    padding-bottom: 2rem;
+}
+
+.architecture-heading {
+    padding: clamp(1.4rem, 4vw, 3rem);
+    margin-bottom: 1.5rem;
+    border-radius: 1.25rem;
+    background: var(--brand-dark-blue);
+    color: var(--brand-cream);
+}
+
+.architecture-heading h1 {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    margin-bottom: .65rem;
+}
+
+.architecture-heading > p:not(.eyebrow) {
+    max-width: 52rem;
+    font-size: 1.05rem;
+}
+
+.diagram-key {
+    display: flex;
+    gap: .65rem;
+    align-items: flex-start;
+    margin: 1.25rem 0 0;
+    font-size: .95rem !important;
+}
+
+.key-arrow {
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: var(--brand-light-blue);
+    color: var(--brand-dark-blue);
+    font-weight: 800;
+}
+
+.architecture-section {
+    padding: clamp(1rem, 3vw, 1.75rem);
+    margin: 1.25rem 0;
+    border: 1px solid var(--brand-taupe);
+    border-radius: 1rem;
+    background: var(--brand-cream);
+    box-shadow: 0 8px 24px rgb(22 74 97 / 6%);
+}
+
+.section-heading {
+    display: flex;
+    align-items: center;
+    gap: .85rem;
+    margin-bottom: 1rem;
+}
+
+.section-heading h2 {
+    margin: 0;
+    font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.section-heading .eyebrow {
+    margin: 0 0 .2rem;
+    color: var(--architecture-edge);
+}
+
+.section-number {
+    display: grid;
+    place-items: center;
+    flex: 0 0 2.8rem;
+    height: 2.8rem;
+    border: 2px solid var(--architecture-edge);
+    border-radius: 50%;
+    color: var(--architecture-ink);
+    font-weight: 800;
+}
+
+.section-intro, .flow-note {
+    max-width: 68rem;
+}
+
+.flow-track {
+    display: flex;
+    align-items: stretch;
+    gap: 1rem;
+    list-style: none;
+    padding: .75rem 0;
+    margin: 0;
+}
+
+.flow-node {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0;
+}
+
+.step-number {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    margin: 0 auto .45rem;
+    border-radius: 50%;
+    background: var(--brand-blue);
+    color: var(--brand-cream);
+    font-weight: 800;
+}
+
+.node-card {
+    flex: 1 1 auto;
+    padding: .9rem;
+    border: 1px solid var(--brand-blue);
+    border-top: 4px solid var(--brand-blue);
+    border-radius: .65rem;
+    background: var(--brand-cream);
+}
+
+.node-card h3, .boundary-card h3 {
+    font-size: 1.05rem;
+    line-height: 1.3;
+}
+
+.node-card p, .boundary-card p {
+    margin: 0;
+}
+
+.node-card p + p, .boundary-card p + p {
+    margin-top: .65rem;
+}
+
+.flow-link {
+    position: absolute;
+    z-index: 1;
+    top: 1rem;
+    left: calc(100% + .1rem);
+    width: .8rem;
+    height: 2px;
+    background: var(--architecture-edge);
+}
+
+.flow-link::after {
+    position: absolute;
+    top: -4px;
+    right: -1px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid var(--architecture-edge);
+    content: "";
+}
+
+.flow-link::before {
+    position: absolute;
+    z-index: 1;
+    top: -3px;
+    left: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--brand-orange);
+    box-shadow: 0 0 0 2px var(--brand-cream);
+    content: "";
+    animation: flow-dot 1.7s ease-in-out infinite alternate;
+}
+
+.flow-node:nth-child(2) .flow-link::before { animation-delay: .25s; }
+.flow-node:nth-child(3) .flow-link::before { animation-delay: .5s; }
+.flow-node:nth-child(4) .flow-link::before { animation-delay: .75s; }
+
+.flow-note {
+    margin: .6rem 0 0;
+    padding-left: .8rem;
+    border-left: 3px solid var(--brand-blue);
+}
+
+.boundary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .85rem;
+}
+
+.boundary-card {
+    padding: 1rem;
+    border: 1px solid var(--brand-blue);
+    border-radius: .7rem;
+    background: var(--brand-cream);
+}
+
+.boundary-card h3 {
+    margin-bottom: .5rem;
+}
+
+.release-boundary {
+    margin: 1rem 0 0;
+    padding: 1rem;
+    border-left: .35rem solid var(--brand-blue);
+    border-radius: .3rem;
+    background: var(--brand-light-blue);
+    color: var(--brand-dark-blue);
+}
+
+@keyframes flow-dot {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(.8rem - 6px)); }
+}
+
+@media (max-width: 1000px) {
+    .flow-track {
+        flex-direction: column;
+        gap: .75rem;
+    }
+
+    .flow-node {
+        display: grid;
+        grid-template-columns: 2rem minmax(0, 1fr);
+        column-gap: .7rem;
+        padding: 0;
+    }
+
+    .step-number {
+        margin: .65rem 0 0;
+    }
+
+    .node-card {
+        grid-column: 2;
+    }
+
+    .flow-link {
+        top: auto;
+        bottom: -.75rem;
+        left: .95rem;
+        width: 2px;
+        height: .75rem;
+    }
+
+    .flow-link::after {
+        top: auto;
+        right: -4px;
+        bottom: -1px;
+        border-top: 6px solid var(--architecture-edge);
+        border-right: 5px solid transparent;
+        border-bottom: 0;
+        border-left: 5px solid transparent;
+    }
+
+    .flow-link::before {
+        top: 0;
+        left: -2px;
+        animation-name: flow-dot-down;
+    }
+
+    @keyframes flow-dot-down {
+        from { transform: translateY(0); }
+        to { transform: translateY(calc(.75rem - 6px)); }
+    }
+}
+
+@media (max-width: 520px) {
+    .boundary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flow-link::before {
+        animation: none;
+        left: calc(50% - 4px);
+    }
+
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 1000px) {
+    .flow-link::before {
+        top: calc(50% - 3px);
+        left: -2px;
+    }
+}

@@ -1,0 +1,266 @@
+@page "/architecture"
+
+<PageTitle>Hotel Architecture</PageTitle>
+
+<section class="architecture-page" aria-labelledby="architecture-title">
+    <header class="architecture-heading">
+        <p class="eyebrow">A simple map of the Hotel application</p>
+        <h1 id="architecture-title">How Hotel works</h1>
+        <p>
+            Follow a guest booking, see where information is stored, and discover how a change
+            reaches the running demo. This is a system overview, not a live traffic monitor.
+        </p>
+        <p class="diagram-key">
+            <span class="key-arrow" aria-hidden="true">→</span>
+            Read each numbered flow from left to right, or top to bottom on a small screen.
+            Moving dots are decorative; the numbered steps and labels explain the flow without them.
+        </p>
+    </header>
+
+    <section class="architecture-section" aria-labelledby="runtime-title">
+        <div class="section-heading">
+            <span class="section-number" aria-hidden="true">01</span>
+            <div>
+                <p class="eyebrow">What happens while the app is running</p>
+                <h2 id="runtime-title">Guest booking</h2>
+            </div>
+        </div>
+        <ol class="flow-track" aria-label="Guest booking request flow">
+            <li class="flow-node">
+                <span class="step-number">1</span>
+                <div class="node-card">
+                    <h3>Guest's browser</h3>
+                    <p>Browses hotels, checks dates and guests, and confirms a room.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">2</span>
+                <div class="node-card">
+                    <h3>Hotel web app</h3>
+                    <p>Blazor WebAssembly files are served by Azure Static Web Apps.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">3</span>
+                <div class="node-card">
+                    <h3>Booking API</h3>
+                    <p>ASP.NET Core checks availability and applies booking rules.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">4</span>
+                <div class="node-card">
+                    <h3>Azure SQL</h3>
+                    <p>Stores the hotel catalog and confirmed reservations.</p>
+                </div>
+            </li>
+        </ol>
+        <p class="flow-note">
+            The API accesses SQL with its managed identity and a restricted database role.
+            The browser does not connect directly to the database.
+        </p>
+    </section>
+
+    <section class="architecture-section" aria-labelledby="routing-title">
+        <div class="section-heading">
+            <span class="section-number" aria-hidden="true">02</span>
+            <div>
+                <p class="eyebrow">A separate API capability</p>
+                <h2 id="routing-title">Safe runtime routing</h2>
+            </div>
+        </div>
+        <p class="section-intro">
+            When a routing request is made, the API checks policy and Prompt Shields, then looks
+            for evidence from the requested knowledge revision. Azure OpenAI is considered only
+            when more than one safe worker remains. A failed safety, evidence, or model check
+            returns the request for human review.
+        </p>
+        <ol class="flow-track" aria-label="Runtime routing flow">
+            <li class="flow-node">
+                <span class="step-number">1</span>
+                <div class="node-card">
+                    <h3>Booking API</h3>
+                    <p>Deterministic C# policy checks the request and eligible workers.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">2</span>
+                <div class="node-card">
+                    <h3>Content Safety</h3>
+                    <p>Prompt Shields checks routing metadata before a suggestion is considered.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">3</span>
+                <div class="node-card">
+                    <h3>Azure AI Search</h3>
+                    <p>Checks for evidence matching the exact requested knowledge revision.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">4</span>
+                <div class="node-card">
+                    <h3>Optional model suggestion</h3>
+                    <p>Agent Framework may ask Azure OpenAI to choose among multiple safe options.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">5</span>
+                <div class="node-card">
+                    <h3>Bounded decision</h3>
+                    <p>The API validates the result; unsafe or failed checks go to human review.</p>
+                </div>
+            </li>
+        </ol>
+        <p class="flow-note">
+            This returns a routing decision. It does not start a GitHub coding agent, approve a
+            change, or deploy software.
+        </p>
+    </section>
+
+    <section class="architecture-section live-section" aria-labelledby="live-title">
+        <div class="section-heading">
+            <span class="section-number" aria-hidden="true">03</span>
+            <div>
+                <p class="eyebrow">What "live" means in this demo</p>
+                <h2 id="live-title">Operations events</h2>
+            </div>
+        </div>
+        <p class="section-intro">
+            The Agent Operations page loads recent event history and listens for new API events.
+            An accepted event is saved before the API broadcasts it to connected dashboards.
+        </p>
+        <ol class="flow-track" aria-label="Live operations event flow">
+            <li class="flow-node">
+                <span class="step-number">1</span>
+                <div class="node-card">
+                    <h3>API records event</h3>
+                    <p>Operations or routing work produces an event.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">2</span>
+                <div class="node-card">
+                    <h3>Saved in SQL</h3>
+                    <p>Bounded event history is persisted before broadcast.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">3</span>
+                <div class="node-card">
+                    <h3>SignalR broadcast</h3>
+                    <p>The API's SignalR hub sends the accepted event to listeners.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">4</span>
+                <div class="node-card">
+                    <h3>Operations page</h3>
+                    <p>Connected dashboards add the new event to the recent list.</p>
+                </div>
+            </li>
+        </ol>
+        <p class="flow-note">
+            This page explains the configured path; it does not show current event counts or prove
+            that a live cloud service is connected.
+        </p>
+    </section>
+
+    <section class="architecture-section" aria-labelledby="boundaries-title">
+        <div class="section-heading">
+            <span class="section-number" aria-hidden="true">04</span>
+            <div>
+                <p class="eyebrow">Who can see or change what</p>
+                <h2 id="boundaries-title">Data boundaries</h2>
+            </div>
+        </div>
+        <div class="boundary-grid">
+            <article class="boundary-card">
+                <h3>Browser</h3>
+                <p>Displays the booking and operations screens and calls the API over HTTPS.</p>
+                <p><strong>No direct database access.</strong></p>
+            </article>
+            <article class="boundary-card">
+                <h3>Booking API</h3>
+                <p>Applies booking rules and uses its managed identity to access SQL and configured AI services.</p>
+                <p><strong>Operations event writes require an Entra role outside Development.</strong></p>
+            </article>
+            <article class="boundary-card">
+                <h3>Azure SQL</h3>
+                <p>Holds hotel and room catalog data, reservations, and bounded operations-event history.</p>
+                <p><strong>The API database role is restricted.</strong></p>
+            </article>
+            <article class="boundary-card">
+                <h3>Revisioned knowledge</h3>
+                <p>Azure AI Search contains indexed chunks of canonical repository knowledge used for routing evidence checks.</p>
+                <p><strong>It is not the hotel catalog or reservation store.</strong></p>
+            </article>
+        </div>
+        <p class="flow-note">
+            Application Insights is configured for API telemetry, with Log Analytics as its
+            workspace. Configuration is not proof that a particular event is currently being emitted.
+        </p>
+    </section>
+
+    <section class="architecture-section delivery-section" aria-labelledby="delivery-title">
+        <div class="section-heading">
+            <span class="section-number" aria-hidden="true">05</span>
+            <div>
+                <p class="eyebrow">How a change reaches the demo</p>
+                <h2 id="delivery-title">Software delivery</h2>
+            </div>
+        </div>
+        <p class="section-intro">
+            This is a separate path from runtime routing. Boards tracks the requirement; GitHub
+            stores code and runs the cloud development and verification workflows.
+        </p>
+        <ol class="flow-track" aria-label="Software delivery flow">
+            <li class="flow-node">
+                <span class="step-number">1</span>
+                <div class="node-card">
+                    <h3>Azure Boards</h3>
+                    <p>Holds the agreed requirement and its work state.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">2</span>
+                <div class="node-card">
+                    <h3>GitHub repository</h3>
+                    <p>Holds source, versioned knowledge, branches, and pull requests.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">3</span>
+                <div class="node-card">
+                    <h3>Cloud development &amp; checks</h3>
+                    <p>Agents implement a bounded change; review and QA gather evidence.</p>
+                </div>
+                <span class="flow-link" aria-hidden="true"></span>
+            </li>
+            <li class="flow-node">
+                <span class="step-number">4</span>
+                <div class="node-card">
+                    <h3>GitHub Actions</h3>
+                    <p>Verified changes can deploy the development web app and API to Azure.</p>
+                </div>
+            </li>
+        </ol>
+        <p class="release-boundary">
+            <strong>Production is separate:</strong> a release proposal still requires explicit
+            human approval and a manual promotion. A successful development deployment does not
+            deploy production.
+        </p>
+    </section>
+</section>
