@@ -198,6 +198,23 @@ jobs:
               }
               return 'unknown';
             };
+            const findingSeveritiesByUrl = body => {
+              const severities = new Map();
+              for (const line of body.split(/\r?\n/)) {
+                const badge = line.match(/\balt=["']?(high|medium|low)\s+severity["']?/i);
+                const links = [...line.matchAll(/\]\((https:\/\/github\.com\/[^)\s]+#discussion_r\d+)\)/gi)];
+                if (badge && links.length === 1) {
+                  severities.set(links[0][1], badge[1].toLowerCase());
+                }
+              }
+              return severities;
+            };
+            const severityForComment = (comment, findingSeverities) => {
+              const commentSeverity = severity(comment.body);
+              return commentSeverity === 'unknown'
+                ? findingSeverities.get(comment.url) || commentSeverity
+                : commentSeverity;
+            };
             const severityRegressions = [
               ['<img alt="High severity">', 'high'],
               ['Severity: Medium', 'medium'],
@@ -209,6 +226,22 @@ jobs:
                 core.setFailed(`Severity parser regression for '${sample}'.`);
                 return;
               }
+            }
+            const findingSeverityRegressions = findingSeveritiesByUrl([
+              '- <img alt="Medium severity"> [first finding](https://github.com/owner/repo/pull/1#discussion_r123)',
+              '- <img alt="Low severity"> [second finding](https://github.com/owner/repo/pull/1#discussion_r456)'
+            ].join('\n'));
+            const commentSeverityRegressions = [
+              [{ body: 'Finding without an inline severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'medium'],
+              [{ body: 'High severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'high'],
+              [{ body: 'Finding without a matching summary badge', url: 'https://github.com/owner/repo/pull/1#discussion_r789' }, 'unknown']
+            ];
+            if (findingSeverityRegressions.get('https://github.com/owner/repo/pull/1#discussion_r123') !== 'medium'
+                || findingSeverityRegressions.get('https://github.com/owner/repo/pull/1#discussion_r456') !== 'low'
+                || commentSeverityRegressions.some(([comment, expected]) =>
+                  severityForComment(comment, findingSeverityRegressions) !== expected)) {
+              core.setFailed('Review-summary finding severity regression.');
+              return;
             }
 
             const reportsFindings = body => {
@@ -258,12 +291,16 @@ jobs:
 
             const reviewBody = activeReviewBody(currentReview.body || '');
             const reviewBodySeverity = severity(reviewBody);
+            const findingSeverities = findingSeveritiesByUrl(reviewBody);
             const reviewBodyReportsFindings = reportsFindings(reviewBody);
             const unresolved = connection.nodes
               .filter(thread => !thread.isResolved)
               .flatMap(thread => thread.comments.nodes)
               .filter(comment => isCopilotReviewer(comment.author?.login))
-              .map(comment => ({ ...comment, severity: severity(comment.body) }));
+              .map(comment => ({
+                ...comment,
+                severity: severityForComment(comment, findingSeverities)
+              }));
             const blocking = unresolved.filter(comment =>
               comment.severity === 'high' || comment.severity === 'unknown');
             if (reviewBodySeverity === 'high'
