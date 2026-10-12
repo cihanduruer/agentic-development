@@ -72,6 +72,12 @@ The model receives labels and evidence metadata, not source code, prompts, secre
 
 The development deployment smoke verifies the deterministic `qa-agent` route with task category `quality-assurance` and required capability `api-testing`. This canonical section intentionally keeps the searchable quality assurance API testing terms together so the exact-revision Azure AI Search grounding gate has explicit evidence for that supported route.
 
+## Knowledge MCP proof of concept
+
+The separate `tools/KnowledgeMcp` service exposes only the read-only `search_knowledge` tool over remote HTTP. The Copilot cloud-agent configuration is an administrator-managed repository setting under **Settings → Copilot → MCP servers**, not a repository instructions file. Allowlist only `search_knowledge` and reference the token through the `COPILOT_MCP_KNOWLEDGE_TOKEN` Agents secret. GitHub documents cloud-agent MCP support for tools over remote HTTP and secret-backed headers, but not OAuth or MCP resources/prompts; see [Configure MCP servers for your repository](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers).
+
+The Copilot App chat client has separate MCP configuration and must be independently verified and configured; cloud-agent settings do not prove App connectivity. Sequence any live demonstration with chat retrieval first, then a cloud development-agent task. In both cases, use only a full revision already proven present in Search and retain tool-call, citation, exact-revision, unauthenticated-rejection, missing-revision, and no-hit evidence as durable workflow artifacts. Do not infer live connectivity from source code or configuration alone; see `docs/runbooks/knowledge-mcp-poc.md`.
+
 ## Autonomy
 
 - Read and analysis may run automatically.

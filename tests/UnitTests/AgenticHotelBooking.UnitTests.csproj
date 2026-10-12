@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Application\AgenticHotelBooking.Application.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\AgenticHotelBooking.Infrastructure.csproj" />
     <ProjectReference Include="..\..\tools\SqlManagedIdentityBootstrapper\SqlManagedIdentityBootstrapper.csproj" />
+    <ProjectReference Include="..\..\tools\KnowledgeMcp\KnowledgeMcp.csproj" />
   </ItemGroup>
 
 </Project>
