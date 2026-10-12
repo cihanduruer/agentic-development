@@ -214,7 +214,7 @@
     to { transform: translateX(calc(.8rem - 6px)); }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 1000px) {
     .flow-track {
         flex-direction: column;
         gap: .75rem;
@@ -279,7 +279,7 @@
 
 }
 
-@media (prefers-reduced-motion: reduce) and (max-width: 800px) {
+@media (prefers-reduced-motion: reduce) and (max-width: 1000px) {
     .flow-link::before {
         top: calc(50% - 3px);
         left: -2px;
