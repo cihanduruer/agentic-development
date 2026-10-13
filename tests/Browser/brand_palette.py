@@ -162,10 +162,11 @@ def run(args, api, output):
                 active.focus()
                 assert styles(active)["outlineColor"] == COLORS["cream"]
                 evidence["checks"].append(check_focus(active))
-                page.get_by_role("link", name="About", exact=True).focus()
-                assert styles(page.get_by_role("link", name="About", exact=True))["outlineColor"] == COLORS["blue"]
                 page.keyboard.press("Tab")
-                expect(page.get_by_role("button", name="View rooms").first).to_be_focused()
+                view_rooms = page.get_by_role("button", name="View rooms").first
+                expect(view_rooms).to_be_focused()
+                assert styles(view_rooms)["outlineColor"] == COLORS["blue"]
+                evidence["checks"].append(check_focus(view_rooms))
                 page.keyboard.press("Enter")
                 check_in = (date.today() + timedelta(days=days)).isoformat()
                 check_out = (date.today() + timedelta(days=days + 3)).isoformat()
