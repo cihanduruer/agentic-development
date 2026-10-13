@@ -201,11 +201,12 @@ jobs:
             const findingSeveritiesByUrl = body => {
               const severities = new Map();
               for (const line of body.split(/\r?\n/)) {
-                const badge = line.match(/\balt=["']?(high|medium|low)\s+severity["']?/i);
+                const badges = new Set([...line.matchAll(/\balt=["']?(high|medium|low)\s+severity["']?/gi)]
+                  .map(match => match[1].toLowerCase()));
                 const links = [...line.matchAll(/\]\((https:\/\/github\.com\/[^)\s]+#discussion_r\d+)\)/gi)];
-                if (badge && links.length === 1) {
+                if (badges.size > 0 && links.length === 1) {
                   const url = links[0][1];
-                  const level = badge[1].toLowerCase();
+                  const level = badges.size === 1 ? [...badges][0] : 'unknown';
                   severities.set(url, severities.has(url) && severities.get(url) !== level
                     ? 'unknown'
                     : level);
@@ -235,9 +236,11 @@ jobs:
               '- <img alt="Medium severity"> [first finding](https://github.com/owner/repo/pull/1#discussion_r123)',
               '- <img alt="Low severity"> [second finding](https://github.com/owner/repo/pull/1#discussion_r456)',
               '- <img alt="High severity"> [conflicting finding](https://github.com/owner/repo/pull/1#discussion_r321)',
-              '- <img alt="Low severity"> [conflicting finding](https://github.com/owner/repo/pull/1#discussion_r321)'
+              '- <img alt="Low severity"> [conflicting finding](https://github.com/owner/repo/pull/1#discussion_r321)',
+              '- <img alt="Medium severity"><img alt="Low severity"> [mixed badges](https://github.com/owner/repo/pull/1#discussion_r654)'
             ].join('\n'));
             const commentSeverityRegressions = [
+              [{ body: 'Mixed badges on one entry', url: 'https://github.com/owner/repo/pull/1#discussion_r654' }, 'unknown'],
               [{ body: 'Conflicting summary entries', url: 'https://github.com/owner/repo/pull/1#discussion_r321' }, 'unknown'],
               [{ body: 'Finding without an inline severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'medium'],
               [{ body: 'High severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'high'],
@@ -264,9 +267,18 @@ jobs:
                 || (open && Number(open[1]) > 0)
                 || recommendsChanges;
             };
-            const activeReviewBody = body => body.replace(
-              /<details>\s*<summary><strong>\s*resolved since last review[\s\S]*?<\/details>/gi,
-              '');
+            const activeReviewBody = body => {
+              const sections = body.split(/<!--\s*ccr-overview-v2\s*-->/i);
+              const latest = sections.length > 1 ? sections[sections.length - 1] : body;
+              return latest.replace(
+                /<details>\s*<summary><strong>\s*(?:\d+\s+)?resolved since last review[\s\S]*?<\/details>/gi,
+                '');
+            };
+            const badgeSeverity = body => {
+              const levels = new Set([...body.matchAll(/\balt=["']?(high|medium|low)\s+severity["']?/gi)]
+                .map(match => match[1].toLowerCase()));
+              return ['high', 'medium', 'low'].find(level => levels.has(level)) || null;
+            };
             const findingsRegressions = [
               ['Findings: 0', false],
               ['Findings: 0\n<summary><strong>Open (0)</strong></summary>', false],
@@ -291,13 +303,27 @@ jobs:
               '</details>'
             ].join('\n');
             if (severity(activeReviewBody(reviewHistoryRegression)) !== 'medium'
-                || reportsFindings(activeReviewBody(reviewHistoryRegression))) {
+                || reportsFindings(activeReviewBody(reviewHistoryRegression))
+                || severity(activeReviewBody([
+                  '<details>',
+                  '<summary><strong>1 resolved since last review</strong></summary>',
+                  '<img alt="High severity"> fixed finding',
+                  '</details>',
+                  '<img alt="Medium severity"> active finding'
+                ].join('\n'))) !== 'medium'
+                || badgeSeverity(activeReviewBody([
+                  '<!-- ccr-overview-v2 -->',
+                  '### Changes recommended',
+                  '<img alt="High severity"> superseded open finding',
+                  '<!-- ccr-overview-v2 -->',
+                  '<img alt="Medium severity"> Title that mentions high severity text'
+                ].join('\n'))) !== 'medium') {
               core.setFailed('Resolved review-history regression.');
               return;
             }
 
             const reviewBody = activeReviewBody(currentReview.body || '');
-            const reviewBodySeverity = severity(reviewBody);
+            const reviewBodySeverity = badgeSeverity(reviewBody) || severity(reviewBody);
             const findingSeverities = findingSeveritiesByUrl(reviewBody);
             const reviewBodyReportsFindings = reportsFindings(reviewBody);
             const unresolved = connection.nodes
