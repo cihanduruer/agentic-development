@@ -1,3 +1,4 @@
+using AgenticHotelBooking.Application;
 using AgenticHotelBooking.Domain;
 using AgenticHotelBooking.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,56 @@ public sealed class BookingServiceTests
 
         Assert.Single(rooms);
         Assert.Equal("Family Loft", rooms[0].Name);
+    }
+
+    [Fact]
+    public async Task CatalogAndAvailabilityExposeTheSameCurrentRoomAmenities()
+    {
+        await using var context = CreateContext();
+        var service = new EntityFrameworkHotelBookingService(context);
+        var hotel = (await service.GetHotelsAsync(CancellationToken.None))[0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
+
+        var available = await service.SearchAvailabilityAsync(
+            hotel.Id,
+            checkIn,
+            checkIn.AddDays(1),
+            1,
+            CancellationToken.None);
+        var catalogRoom = Assert.Single(hotel.Rooms, room => room.Name == "Canal King");
+        var availableRoom = Assert.Single(available, room => room.Id == catalogRoom.Id);
+
+        Assert.Equal(catalogRoom.Amenities, availableRoom.Amenities);
+        Assert.Contains("Free Wi-Fi", catalogRoom.Amenities);
+    }
+
+    [Fact]
+    public void AmenityFilterUsesMatchAllAndNoSelectionPreservesAvailableRooms()
+    {
+        var rooms = new[]
+        {
+            new Room(Guid.NewGuid(), "Only first", 2, 100m)
+            {
+                Amenities = ["Air conditioning", "Free Wi-Fi"]
+            },
+            new Room(Guid.NewGuid(), "Both amenities", 2, 110m)
+            {
+                Amenities = ["Air conditioning", "Free Wi-Fi", "Balcony"]
+            },
+            new Room(Guid.NewGuid(), "Only second", 2, 120m)
+            {
+                Amenities = ["Balcony"]
+            }
+        };
+
+        Assert.Equal(rooms, RoomAmenityFilter.MatchAll(rooms, []));
+        var matching = RoomAmenityFilter.MatchAll(
+            rooms,
+            ["Air conditioning", "Balcony", "air conditioning"]);
+
+        var match = Assert.Single(matching);
+        Assert.Equal("Both amenities", match.Name);
+        Assert.Empty(RoomAmenityFilter.MatchAll(rooms, ["Kitchenette"]));
     }
 
     [Fact]

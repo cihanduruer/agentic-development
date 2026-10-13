@@ -12,6 +12,7 @@ Demonstrate an evidence-grounded, fully agentic software-delivery lifecycle with
 
 - A guest browses hotels and rooms.
 - A guest searches availability using dates and party size.
+- A guest can refine available rooms using accessible amenity filters drawn from the selected hotel's current room catalog; multiple amenities use match-all semantics, and all filters can be cleared together.
 - A guest creates one reservation and receives a stable reference.
 - A guest may optionally choose Economy, Compact, SUV, or Luxury as a vehicle
   preference while creating a reservation, or proceed with no preference.

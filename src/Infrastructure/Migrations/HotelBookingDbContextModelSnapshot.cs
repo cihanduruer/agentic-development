@@ -178,6 +178,10 @@ namespace AgenticHotelBooking.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AmenityData")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Capacity")
                         .HasColumnType("int");
 
@@ -203,6 +207,7 @@ namespace AgenticHotelBooking.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("10af946b-1653-4ef7-b68c-47b436c34eb2"),
+                            AmenityData = "[\"Air conditioning\",\"Coffee maker\",\"Free Wi-Fi\"]",
                             Capacity = 2,
                             HotelId = new Guid("3d41ab14-06c3-4c9a-bf29-61f4392f2227"),
                             Name = "Canal King",
@@ -211,6 +216,7 @@ namespace AgenticHotelBooking.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("4135eb2b-04a0-4fa8-bb8d-fca4d16f96be"),
+                            AmenityData = "[\"Air conditioning\",\"Free Wi-Fi\",\"Kitchenette\"]",
                             Capacity = 4,
                             HotelId = new Guid("3d41ab14-06c3-4c9a-bf29-61f4392f2227"),
                             Name = "Family Loft",
@@ -219,6 +225,7 @@ namespace AgenticHotelBooking.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("163e83ce-a115-4b6d-a5c1-f794b2ced41e"),
+                            AmenityData = "[\"Air conditioning\",\"Coffee maker\",\"Free Wi-Fi\"]",
                             Capacity = 2,
                             HotelId = new Guid("0e7b82cc-4ded-4707-82a4-1e80db408af9"),
                             Name = "Harbor Studio",
@@ -227,6 +234,7 @@ namespace AgenticHotelBooking.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("bf8607bf-832f-4b05-bf7a-9ff0a1113fef"),
+                            AmenityData = "[\"Air conditioning\",\"Balcony\",\"Free Wi-Fi\"]",
                             Capacity = 3,
                             HotelId = new Guid("0e7b82cc-4ded-4707-82a4-1e80db408af9"),
                             Name = "Panorama Suite",

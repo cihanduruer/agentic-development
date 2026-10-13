@@ -60,22 +60,59 @@ else
             {
                 <p class="empty-state" role="status">No rooms are available for these dates and guest count.</p>
             }
-            <div class="room-list">
-                @foreach (var room in rooms)
+            else
+            {
+                var matchingRooms = GetMatchingRooms();
+                @if (AmenityOptions.Count > 0)
                 {
-                    <button class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
-                            @onclick="() => SelectRoom(room)"
-                            aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
-                        <strong>@room.Name</strong>
-                        <span>Up to @room.Capacity guests</span>
-                        <span>@FormatEuro(room.NightlyRate) per night</span>
-                        @if (selectedRoom?.Id == room.Id)
-                        {
-                            <span class="room-selection">Selected</span>
-                        }
-                    </button>
+                    <fieldset class="amenity-filters" aria-describedby="amenity-filter-help">
+                        <legend>Filter available rooms by amenities</legend>
+                        <p id="amenity-filter-help">Choose one or more amenities. Rooms must include every selected amenity.</p>
+                        <div class="amenity-options">
+                            @foreach (var (amenity, index) in AmenityOptions.Select((name, index) => (name, index)))
+                            {
+                                var inputId = $"amenity-filter-{index}";
+                                <label for="@inputId">
+                                    <input id="@inputId"
+                                           type="checkbox"
+                                           checked="@selectedAmenities.Contains(amenity)"
+                                           @onchange="args => ToggleAmenity(amenity, args)" />
+                                    @amenity
+                                </label>
+                            }
+                        </div>
+                        <button type="button"
+                                class="btn btn-outline-primary"
+                                @onclick="ClearAmenityFilters"
+                                disabled="@(selectedAmenities.Count == 0)">Clear all filters</button>
+                    </fieldset>
                 }
-            </div>
+
+                @if (matchingRooms.Count == 0)
+                {
+                    <p class="empty-state" role="status">Available rooms were found, but none match all selected amenities. Clear filters or choose different amenities.</p>
+                }
+                else
+                {
+                    <div class="room-list">
+                        @foreach (var room in matchingRooms)
+                        {
+                            <button type="button"
+                                    class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
+                                    @onclick="() => SelectRoom(room)"
+                                    aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
+                                <strong>@room.Name</strong>
+                                <span>Up to @room.Capacity guests</span>
+                                <span>@FormatEuro(room.NightlyRate) per night</span>
+                                @if (selectedRoom?.Id == room.Id)
+                                {
+                                    <span class="room-selection">Selected</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            }
         }
 
         @if (selectedRoom is not null)
@@ -140,6 +177,7 @@ else
     private string? error;
     private string guestName = string.Empty;
     private VehiclePreference? vehiclePreference;
+    private readonly HashSet<string> selectedAmenities = new(StringComparer.OrdinalIgnoreCase);
     private static readonly VehiclePreference[] VehiclePreferences = Enum.GetValues<VehiclePreference>();
     private int guests = 2;
     private DateOnly checkIn = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
@@ -148,6 +186,12 @@ else
     private bool IsStayValid =>
         checkIn >= DateOnly.FromDateTime(DateTime.Today) && NumberOfNights > 0;
     private decimal TotalStayPrice => selectedRoom?.NightlyRate * NumberOfNights ?? 0m;
+    private IReadOnlyList<string> AmenityOptions => selectedHotel?.Rooms
+        .SelectMany(room => room.Amenities)
+        .Where(amenity => !string.IsNullOrWhiteSpace(amenity))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(amenity => amenity, StringComparer.OrdinalIgnoreCase)
+        .ToArray() ?? [];
 
     private static string FormatEuro(decimal amount) =>
         amount.ToString("C", CultureInfo.GetCultureInfo("nl-NL"));
@@ -171,6 +215,7 @@ else
         selectedRoom = null;
         reservation = null;
         vehiclePreference = null;
+        selectedAmenities.Clear();
         error = null;
     }
 
@@ -179,6 +224,32 @@ else
         StartNewReservationIfConfirmed();
         selectedRoom = room;
         error = null;
+    }
+
+    private IReadOnlyList<Room> GetMatchingRooms() =>
+        RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities);
+
+    private void ToggleAmenity(string amenity, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedAmenities.Add(amenity);
+        }
+        else
+        {
+            selectedAmenities.Remove(amenity);
+        }
+
+        if (selectedRoom is not null &&
+            !GetMatchingRooms().Any(room => room.Id == selectedRoom.Id))
+        {
+            selectedRoom = null;
+        }
+    }
+
+    private void ClearAmenityFilters()
+    {
+        selectedAmenities.Clear();
     }
 
     private async Task SearchRooms()

@@ -14,6 +14,29 @@ public interface IHotelBookingService
     Task<Reservation> CreateReservationAsync(BookingRequest request, CancellationToken cancellationToken);
 }
 
+public static class RoomAmenityFilter
+{
+    public static IReadOnlyList<Room> MatchAll(
+        IEnumerable<Room> availableRooms,
+        IEnumerable<string> selectedAmenities)
+    {
+        ArgumentNullException.ThrowIfNull(availableRooms);
+        ArgumentNullException.ThrowIfNull(selectedAmenities);
+
+        var selected = selectedAmenities
+            .Where(amenity => !string.IsNullOrWhiteSpace(amenity))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var rooms = availableRooms.ToArray();
+        return selected.Length == 0
+            ? rooms
+            : rooms
+                .Where(room => selected.All(amenity =>
+                    room.Amenities.Contains(amenity, StringComparer.OrdinalIgnoreCase)))
+                .ToArray();
+    }
+}
+
 public enum AgentEventKind
 {
     WorkReceived,

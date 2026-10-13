@@ -58,9 +58,28 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task HotelsReturnsSeededCatalog()
     {
         var response = await client.GetAsync("/api/hotels");
+        var hotels = await response.Content.ReadFromJsonAsync<Hotel[]>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Canal House", await response.Content.ReadAsStringAsync());
+        Assert.Contains(hotels!, hotel => hotel.Name == "Canal House");
+        Assert.Contains(hotels![0].Rooms, room => room.Amenities.Count > 0);
+    }
+
+    [Fact]
+    public async Task AvailabilityReturnsAmenitiesFromTheSameRoomCatalog()
+    {
+        var hotels = await client.GetFromJsonAsync<Hotel[]>("/api/hotels");
+        var hotel = hotels![0];
+        var checkIn = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(150));
+        var response = await client.GetAsync(
+            $"/api/hotels/{hotel.Id}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkIn.AddDays(1):yyyy-MM-dd}&guests=2");
+        var availableRooms = await response.Content.ReadFromJsonAsync<Room[]>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var rooms = availableRooms ?? throw new InvalidOperationException("Availability response was empty.");
+        Assert.NotEmpty(rooms);
+        var catalogRoom = Assert.Single(hotel.Rooms, room => room.Id == rooms[0].Id);
+        Assert.Equal(catalogRoom.Amenities, rooms[0].Amenities);
     }
 
     [Fact]

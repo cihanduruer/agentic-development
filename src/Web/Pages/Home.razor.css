@@ -4,3 +4,36 @@
     min-height: calc(100vh - 4.6rem);
     padding: 1.1rem 1.5rem;
 }
+
+.amenity-filters {
+    border: 1px solid var(--brand-dark-blue);
+    border-radius: .7rem;
+    margin-top: 1rem;
+    padding: 1rem;
+}
+
+.amenity-filters legend {
+    float: none;
+    width: auto;
+    padding: 0 .35rem;
+    font-weight: 700;
+}
+
+.amenity-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.amenity-options label {
+    align-items: center;
+    display: inline-flex;
+    gap: .4rem;
+}
+
+.amenity-options input {
+    accent-color: var(--brand-blue);
+    min-height: 1.1rem;
+    min-width: 1.1rem;
+}
