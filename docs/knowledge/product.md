@@ -1,6 +1,6 @@
 ---
 owner: Product owner
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-13
 ---
 # Product
 
@@ -44,3 +44,11 @@ The home page uses orange as its page background; dark-blue body text maintains 
 Keyboard focus uses a three-pixel blue outline with cream separation on light surfaces, and a cream outline with dark blue separation in navigation. Navigation icons inherit the link color; the current page is underlined. Selected rooms retain a distinct inset border and a visible `Selected` label in addition to `aria-pressed`. Empty catalog and availability results have explicit status text. Errors, connection states, and confirmations retain their text meaning rather than relying on color.
 
 `tests/UnitTests/BrandPaletteTests.cs` checks the exact tokens and their use in application-owned rules. `tests/Browser/brand_palette.py` checks computed browser styles, contrast, keyboard/interaction states, responsive layouts, and the booking journey against a separately started local in-memory API. Its screenshots and JSON results are evidence artifacts, not committed images; it never targets the shared development database.
+
+## Public and administrative pages
+
+The public home/navigation is booking-only and must not expose administrator links or copy. The delivery overview, Hotel service map, and Agent Operations dashboard are directly addressable at `/admin`, `/admin/architecture`, and `/admin/operations`. `/architecture` and `/operations` redirect to their corresponding `/admin/` routes. Admin screens visibly disclose that no sign-in or authorization is configured; do not claim they are protected.
+
+The delivery overview is a repository-sourced stage model, not a live status feed. Without connected Boards, GitHub, Actions, deployment, and release data, it must label stage status and stage-update time unavailable, distinguish source references from run evidence, and never infer or invent progress. Its page-model render timestamp is not delivery-event evidence.
+
+The architecture page describes the declared Hotel Azure services and repository delivery path. Numbered connectors carry visible labels naming the call or delivery action; moving dots are decorative and do not represent live traffic. Written flow explanations, a legend, service responsibilities and declared tiers, and an end-to-end delivery flow provide the same information without animation. Respect reduced-motion preferences, use semantic ordered lists and card headings, retain keyboard-visible focus and responsive layouts, and do not expose unrelated platform services as Hotel architecture.

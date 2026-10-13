@@ -15,9 +15,9 @@ theme: default
 
 **For the live demo:** use the [5-10 minute team guide](../../demo/TEAM-DEMO-GUIDE.md) and its six-slide deck instead.
 
-**Repository source baseline:** `f48fe735ee7873e0f75a84034e3f12ef88108d16`
+**Knowledge revision:** `33aa5437e142003bc833738769da28df4aef6eed`
 
-**Policy update:** 2026-09-30; development-demo delivery is authorized without another human release approval. Pending changes are not claimed as deployed.
+**Policy update:** 2026-10-13; development-demo delivery is authorized without another human release approval. This document does not claim current deployment or live delivery status.
 
 <!--
 Speaker notes:
@@ -99,9 +99,13 @@ flowchart LR
     REL --> HUMAN{"Human approval"}
     HUMAN -->|Approve| PROD["Production promotion"]
     HUMAN -->|Reject| DEV
+    PROPOSAL["Proposal only: durable coordinator<br/>evidence envelopes + deterministic readiness"] -. not implemented .-> MERGE
+    SHADOW["Microsoft-Decision-1 recovery classification<br/>shadow mode only"] -. no control effect .-> PROPOSAL
 ```
 
 **Implemented:** intake, development, validation, review, QA evidence, release proposal, development deployment, and manual production promotion.
+
+**Not implemented:** a durable delivery coordinator and per-stage evidence-envelope store. Microsoft-Decision-1 recovery classification is only proposed for shadow mode and cannot drive workflow transitions, retries, permissions, gates, merges, or release approval.
 
 <!--
 Speaker notes:
@@ -432,6 +436,49 @@ This is a key DevOps distinction. Build once, verify, then promote the same byte
 
 **Identity:** GitHub Actions uses OIDC; App Service uses managed identity; operations writers use Entra application roles.
 
+---
+
+# Web route map and honest status
+
+```mermaid
+flowchart LR
+    PUBLIC["Public navigation<br/>Guest booking only"] --> HOME["/"]
+    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>Repository-sourced delivery stages"]
+    DIRECT --> ARCH["/admin/architecture<br/>Hotel services only"]
+    DIRECT --> OPS["/admin/operations<br/>API operations events"]
+    OLD1["/architecture"] -->|redirect| ARCH
+    OLD2["/operations"] -->|redirect| OPS
+    OVERVIEW -. "live state unavailable" .-> SOURCES["Source-contract links<br/>not run evidence"]
+```
+
+The delivery overview displays unavailable status and update time until trusted live evidence is connected; its separate page-render timestamp is not current Boards, PR, workflow, deployment, or release status. The admin routes have no sign-in/authorization; hiding public navigation links does not secure them.
+
+<!--
+Speaker notes:
+Show the guest UI and admin routes as separate navigation surfaces. Be explicit that the overview is currently a static model and the architecture diagram is not a cloud-health monitor.
+-->
+
+---
+
+# Proposed coordinator: evidence first, policy deterministic
+
+```mermaid
+flowchart TD
+    STAGE["Existing delivery stage"] --> ENV["Proposed durable evidence envelope"]
+    ENV --> POLICY["Proposed deterministic readiness policy"]
+    POLICY -->|sufficient evidence| NEXT["Proposed next-stage eligibility"]
+    POLICY -->|missing, stale, conflicting| WAIT["Wait / fail / human review"]
+    CLASSIFIER["Microsoft-Decision-1 recovery classification"] -. shadow-mode observation only .-> ENV
+    CLASSIFIER -. "must not influence policy" .-> POLICY
+```
+
+This is a design proposal, not implemented automation or an ADR decision. A future envelope would bind stage outcome, canonical work identity, exact revision, event time, source, and verifiable artifact references. The deterministic policy—not a model—would own readiness. The named recovery classification may only produce shadow observations until a separately reviewed decision changes that boundary.
+
+<!--
+Speaker notes:
+Keep the dashed paths visibly distinct from implemented automation. Do not imply a new coordinator, model integration, or live feed exists.
+-->
+
 <!--
 Speaker notes:
 The architecture deliberately avoids stored Azure client secrets for workflows and avoids model API keys in the application.
@@ -452,7 +499,7 @@ The operations event stream records:
 - approval checkpoints;
 - work-item correlation and knowledge revision.
 
-Events are persisted before SignalR broadcast. Retention and query sizes are bounded.
+Events are persisted before SignalR broadcast. Retention and query sizes are bounded. The browser page is `/admin/operations`; it is publicly readable and has no page-level sign-in/authorization.
 
 This is not a mirror of Desktop conversations, Azure Boards intake, or GitHub Actions. Those activities appear only if explicitly ingested; show Boards and Actions for delivery progress.
 
@@ -614,10 +661,11 @@ Use these four questions to structure the remaining meeting. Keep the discussion
 - `docs/knowledge/agentic-delivery.md` - routing, autonomy, and evidence rules
 - `docs/knowledge/architecture.md` - runtime and agent architecture
 - `docs/knowledge/security.md` - identity, data, and action controls
+- `docs/knowledge/product.md` - public/admin route and accessibility behavior
 - `docs/adr/0001-agentic-delivery-platform.md` - platform decision
 - `docs/adr/0002-microsoft-native-agent-routing.md` - routing decision
 - `.github/workflows/` - executable delivery controls
 - `scripts/Start-AgenticWork.ps1` - idempotent Azure Boards intake
 - `src/Infrastructure/MicrosoftAgentRouter.cs` - deterministic/model routing
 
-**Grounding:** repository source baseline `f48fe735ee7873e0f75a84034e3f12ef88108d16`, plus the 2026-09-30 development-demo policy documented in `docs/knowledge/agentic-delivery.md`. See the short guide's dated readiness notes for pending PRs; this document is not live-deployment evidence.
+**Grounding:** knowledge revision `33aa5437e142003bc833738769da28df4aef6eed`, with current route behavior in `src/Web/Pages/` and declared Azure resources in `infra/modules/platform.bicep`. This document and its proposal diagrams are not live-deployment evidence.

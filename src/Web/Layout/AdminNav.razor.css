@@ -1,0 +1,40 @@
+.admin-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 0 0 .75rem;
+}
+
+.admin-nav a {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    padding: .45rem .8rem;
+    border: 1px solid var(--brand-blue);
+    border-radius: .5rem;
+    color: var(--brand-dark-blue);
+    background: var(--brand-cream);
+    font-weight: 700;
+}
+
+.admin-nav a.active {
+    color: var(--brand-cream);
+    background: var(--brand-dark-blue);
+    text-decoration: underline;
+    text-underline-offset: .2em;
+}
+
+.admin-nav a:focus-visible {
+    outline: 3px solid var(--brand-blue);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 3px var(--brand-cream);
+}
+
+.admin-access-note {
+    margin: 0 0 1rem;
+    padding: .7rem .9rem;
+    border: 2px solid var(--brand-dark-blue);
+    border-radius: .5rem;
+    background: var(--brand-taupe);
+    color: var(--brand-dark-blue);
+}

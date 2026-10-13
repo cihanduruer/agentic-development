@@ -1,0 +1,9 @@
+@page "/operations"
+@inject NavigationManager Navigation
+
+<PageTitle>Moving to Agent Operations</PageTitle>
+<p role="status">Agent Operations has moved. <a href="/admin/operations">Continue to Agent Operations</a>.</p>
+
+@code {
+    protected override void OnInitialized() => Navigation.NavigateTo("/admin/operations", replace: true);
+}

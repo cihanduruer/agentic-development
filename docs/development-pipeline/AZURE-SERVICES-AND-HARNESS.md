@@ -1,8 +1,8 @@
 # Azure services and the agentic development harness
 
-**Audience:** developers and architects. **Reviewed:** 2026-09-30.
+**Audience:** developers and architects. **Reviewed:** 2026-10-13.
 
-**Source baseline:** `f48fe735ee7873e0f75a84034e3f12ef88108d16`, plus the agreed development-demo policy in the [delivery contract](../knowledge/agentic-delivery.md). These diagrams describe repository wiring, not proof that every optional integration has run.
+**Knowledge revision:** `33aa5437e142003bc833738769da28df4aef6eed`, plus the changes described in the linked current repository sources. These diagrams describe repository wiring, not proof that every optional integration has run.
 
 The **harness** is the surrounding system that gives an agent its task, knowledge, permissions, checks, and evidence. It is not one Azure service or an unrestricted AI controller.
 
@@ -16,7 +16,7 @@ There are two separate paths:
 | Service or component | Task / responsibility | Caller and boundary |
 |---|---|---|
 | Azure DevOps **Boards** | User Stories, Bugs, acceptance criteria, work state, and delivery links | Copilot captures agreed requirements; the Actions intake uses the Azure DevOps API. Boards is not the source-code host or build engine. |
-| **Azure Static Web Apps** | Hosts the Blazor WebAssembly Hotel UI and Agent Operations page | The browser loads static files and calls the separately hosted API. No agent implementation runs in the web page. |
+| **Azure Static Web Apps** | Hosts the Blazor WebAssembly Hotel UI, delivery overview, Hotel architecture map, and Agent Operations page | The browser loads static files and calls the separately hosted API. Admin routes have no sign-in/authorization. No agent implementation runs in the web page. |
 | **Azure App Service + App Service plan** | Runs the ASP.NET Core booking API, operations ingestion, SignalR hub, and routing endpoint | The plan provides compute; the API's system-assigned managed identity authenticates to Azure data/AI services. |
 | **Azure SQL Database** | Persists hotels, rooms, reservations, and bounded operations-event history | EF Core uses the API identity and the restricted `hotel_booking_runtime` role. The deployment identity handles migrations; runtime is not a schema administrator. |
 | **Azure AI Search** | Stores revisioned chunks of canonical Markdown; checks exact-revision grounding for runtime routing | The deployment indexer writes; the API reads. The current router checks for matching evidence, not a full chat answer. A provisioned index does not mean Copilot has an MCP connection. |
@@ -68,6 +68,8 @@ flowchart TD
     MAINQA --> PACKAGE["Immutable release proposal"]
     PACKAGE --> HUMAN["Human production approval"]
     HUMAN --> PROD["Manual production promotion"]
+    PROPOSAL["Proposed only: durable coordinator<br/>stage evidence envelopes + deterministic readiness"] -. "not implemented" .-> MERGE
+    SHADOW["Microsoft-Decision-1 recovery classification<br/>shadow mode only"] -. "no effect on transitions" .-> PROPOSAL
 ```
 
 **Development demo:** no additional human merge/release approval after required checks pass. The coordinator still verifies evidence; the diagram does not claim native auto-merge is configured. Explicit leave-unmerged instructions still apply.
@@ -77,6 +79,8 @@ flowchart TD
 **Intake contract:** capture creates a `New` User Story without `github-synced`; the scheduler owns later assignment and `Active`. Five-minute cron is not a pickup SLA. Delivery synchronization adds evidence links and tags but does **not** automatically close a story.
 
 **Execution contract:** implementation and application tests stay in cloud agents/runners. The user may explicitly permit local documentation work. Workflow-run approval is a separate GitHub repository setting and is not removed by development release authorization.
+
+The durable coordinator, immutable per-stage evidence envelopes, and deterministic readiness policy in the dashed callouts are proposals, not current platform automation. Microsoft-Decision-1 recovery classification is shadow-only in that proposal and cannot affect a retry, permission, gate, merge, deployment, or approval. See the [proposal](../knowledge/agentic-delivery.md#delivery-coordinator-proposal-not-implemented).
 
 ## 3. Azure runtime and knowledge paths
 
@@ -96,6 +100,10 @@ flowchart LR
     CHAT["Copilot chat client"] -. Pending integration .-> MCP["Authenticated read-only knowledge MCP"]
     DEV["Cloud development agent"] -. Separate pending client configuration .-> MCP
     MCP -. Planned managed-identity read .-> SEARCH
+    ROUTES["Public navigation: /<br/>Booking only"] --> SWA
+    ADMIN["Direct admin routes: /admin<br/>/admin/architecture<br/>/admin/operations<br/>No sign-in configured"] --> SWA
+    OLD["/architecture and /operations"] -. redirect .-> ADMIN
+    ADMIN -. "static model; live delivery state unavailable" .-> SRC["Workflow/source links, not run evidence"]
 ```
 
 Solid edges show implemented repository paths. Dotted telemetry configuration is not proof of emitted events; dotted MCP paths are the separately implemented integration and must be demonstrated before being described as connected.
@@ -104,7 +112,7 @@ Repository knowledge remains authoritative. The indexer stores document path, re
 
 For the MCP milestone, demonstrate a **real chat tool call** returning passages with revision and citations, then a **separate cloud developer tool call**. The existing routing existence check is not either of those demonstrations.
 
-Agent Operations reads the SQL-backed operations API and receives API-hosted SignalR updates. It does not automatically consume every Boards change, GitHub workflow, or Desktop conversation. Use GitHub Actions for delivery-run status and Boards for product state.
+Agent Operations is at `/admin/operations`; it reads the SQL-backed operations API and receives API-hosted SignalR updates. It does not automatically consume every Boards change, GitHub workflow, or Desktop conversation. The `/admin` delivery overview is a static source model and has no live Boards/Actions/deployment integration; its source links are not delivery-run evidence. Use GitHub Actions for delivery-run status and Boards for product state. `/architecture` and `/operations` redirect to their `/admin/` routes. Admin routes currently have no sign-in or authorization, and may be publicly reachable.
 
 ## 4. Runtime routing: policy controls the model
 

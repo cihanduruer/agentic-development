@@ -1,0 +1,77 @@
+.delivery-overview { max-width: 82rem; margin: 0 auto; }
+
+.overview-heading {
+    padding: clamp(1.25rem, 4vw, 2.5rem);
+    border-radius: 1rem;
+    background: var(--brand-dark-blue);
+    color: var(--brand-cream);
+}
+
+.overview-heading h1 { font-size: clamp(2rem, 5vw, 3rem); }
+.overview-heading > p:last-child { max-width: 65rem; }
+
+.live-data-warning, .coordinator-note {
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 2px solid var(--brand-dark-blue);
+    border-radius: .75rem;
+    background: var(--brand-light-blue);
+    color: var(--brand-dark-blue);
+}
+
+.live-data-warning h2 { font-size: 1.3rem; }
+.live-data-warning p:last-child, .coordinator-note { margin-bottom: 0; }
+.delivery-overview > section > h2 { margin-top: 1.5rem; }
+
+.delivery-stages {
+    display: grid;
+    gap: .8rem;
+    list-style: none;
+    padding: 0;
+    counter-reset: stages;
+}
+
+.delivery-stage {
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--brand-taupe);
+    border-left: .35rem solid var(--brand-blue);
+    border-radius: .7rem;
+    background: var(--brand-cream);
+}
+
+.stage-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.stage-heading h3 { flex: 1 1 16rem; margin: 0; font-size: 1.15rem; }
+
+.stage-number {
+    display: grid;
+    flex: 0 0 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--brand-blue);
+    color: var(--brand-cream);
+    font-weight: 800;
+}
+
+.stage-state {
+    padding: .3rem .65rem;
+    border: 1px solid var(--brand-dark-blue);
+    border-radius: 999px;
+    background: var(--brand-taupe);
+    color: var(--brand-dark-blue);
+    font-weight: 700;
+}
+
+.stage-availability { margin: .65rem 0; }
+.stage-details { display: grid; gap: .55rem; margin: 0; }
+.stage-details > div { display: grid; grid-template-columns: minmax(7rem, .25fr) minmax(0, 1fr); gap: .4rem; }
+.stage-details dt { font-weight: 700; }
+.stage-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.stage-details dd span { color: var(--brand-dark-blue); }
+.stage-details code { overflow-wrap: anywhere; color: var(--brand-dark-blue); }
+
+@media (max-width: 600px) {
+    .stage-details > div { grid-template-columns: 1fr; gap: .1rem; }
+    .stage-heading h3 { flex-basis: calc(100% - 3rem); }
+}

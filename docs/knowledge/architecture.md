@@ -1,6 +1,6 @@
 ---
 owner: Architecture owner
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-13
 ---
 # Architecture
 
@@ -16,7 +16,13 @@ The MVP is a modular monolith:
 
 Entity Framework Core stores the catalog, reservations (including an optional vehicle-preference category), and AI operations events in Azure SQL. Vehicle preferences are accepted only during reservation creation; reservation updates are not supported, and `PUT` or `PATCH` requests to `/api/reservations/{reservationId:guid}` return HTTP 409 Conflict without modifying the reservation. The running API authenticates explicitly with its App Service system-assigned managed identity through Microsoft Entra ID and receives only the custom `hotel_booking_runtime` database role. The GitHub OIDC deployment principal, configured as the SQL Entra administrator, applies migrations and idempotently creates the contained API user; the runtime does not migrate schemas or use SQL administrator credentials. Reservation creation uses a serializable transaction and an indexed overlap query to preserve atomic overlap protection. Operations-event writes prune records older than the configured age and records beyond the configured capacity; reads clamp caller-supplied limits before issuing an ordered database query. Local and integration execution uses the EF in-memory provider with the same application services.
 
-Static Web Apps rewrites client-side routes to the Blazor `index.html`, so direct navigation to pages such as `/operations` loads the SPA. Deployment writes the environment-specific HTTPS API endpoint to `appsettings.json` and removes publish-time Brotli and gzip variants of that runtime configuration; a browser must never receive a precompressed variant containing the local development endpoint.
+Static Web Apps rewrites client-side routes to the Blazor `index.html`, so direct navigation to SPA routes loads the application. The public navigation is booking-only. Delivery overview, architecture, and operations routes are `/admin`, `/admin/architecture`, and `/admin/operations`; `/architecture` and `/operations` redirect to the corresponding admin route. These pages are not protected by sign-in or authorization in the current web app. Deployment writes the environment-specific HTTPS API endpoint to `appsettings.json` and removes publish-time Brotli and gzip variants of that runtime configuration; a browser must never receive a precompressed variant containing the local development endpoint.
+
+The delivery overview currently renders a source-derived static model. It does not ingest live Boards, GitHub, workflow, deployment, lifecycle-sync, or release events. Stage status and stage-update time are `Unavailable` until trustworthy live evidence is connected. The page-model timestamp is explicitly not a stage-update time. Source links are not run artifacts. Do not translate an unconnected source into a claim about actual delivery state. The supported status vocabulary is passed, running, failed, waiting, and not started.
+
+The `/admin/architecture` page is a static, accessible map of the Hotel services declared in `infra/modules/platform.bicep` and the Boards/GitHub path described by `.github/workflows/` and `docs/knowledge/agentic-delivery.md`. Every numbered connector has a visible label naming its configured call or delivery action. Moving dots are decorative, never live traffic; the numbered prose remains sufficient when reduced motion is requested. SKU labels are declarations from Bicep, not live resource discovery. Azure AI Content Safety Prompt Shields, exact-revision Azure AI Search, and optional Azure OpenAI through Microsoft Agent Framework remain separate stages in the existing runtime routing contract.
+
+The Hotel service map covers Azure Static Web Apps with Blazor WebAssembly, the App Service ASP.NET Core API and its hosted SignalR hub, Azure SQL, Azure AI Search, Azure AI Content Safety, Azure OpenAI through Microsoft Agent Framework, and Application Insights with Log Analytics. Its delivery path is Azure Boards into GitHub issues/cloud-agent work, pull-request validation/review/QA, merge, development deployment, lifecycle synchronization, release proposal, and a human-approved manual production promotion. The relevant delivery sources are `.github/workflows/agentic-intake.yml`, `pr-validation.yml`, `hotel-code-review.yml`, `qa-evidence.yml`, `deploy-development.yml`, `sync-development-lifecycle.yml`, `release-proposal.yml`, and `deploy-production.yml`.
 
 ## Operations
 

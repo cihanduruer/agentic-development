@@ -29,9 +29,30 @@ flowchart TD
     KNOWLEDGE["Versioned knowledge center<br/>docs/knowledge + ADRs"] -. grounds .-> DEV
     KNOWLEDGE -. grounds .-> REVIEW
     KNOWLEDGE -. grounds .-> QA
+    COORD["Proposal only: durable coordinator<br/>evidence envelopes + deterministic readiness"] -. not implemented .-> MERGE
+    SHADOW["Microsoft-Decision-1 recovery classification<br/>shadow mode only"] -. no control effect .-> COORD
 ```
 
-The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check.
+The app route map is separate from the delivery workflow:
+
+```mermaid
+flowchart LR
+    PUBLIC["Public navigation<br/>Guest booking only"] --> HOME["/"]
+    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>Static stage model"]
+    DIRECT --> ARCH["/admin/architecture<br/>Hotel service map"]
+    DIRECT --> OPS["/admin/operations<br/>API event dashboard"]
+    OLD1["/architecture"] -->|redirect| ARCH
+    OLD2["/operations"] -->|redirect| OPS
+    OVERVIEW -. "live delivery data unavailable" .-> SOURCES["Workflow and contract source links"]
+```
+
+The delivery coordinator pictured above is the current human/process coordination model, not a
+durable coordinator service. A separate durable-coordinator and per-stage evidence-envelope design
+is proposed only; see the explicitly non-implemented proposal in
+[`docs/knowledge/agentic-delivery.md`](../knowledge/agentic-delivery.md). Microsoft-Decision-1
+recovery classification is proposed for shadow mode only.
+
+The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check. The `/admin` stage view does not connect to those live systems and must not be used to infer their current status.
 
 The runtime C# routing API is a separate capability, not the dispatcher for the GitHub developer/QA workflow shown above. Agent Operations displays events explicitly ingested into the API; it does not automatically observe Desktop chat, Boards intake, or every Actions run. See the [harness diagrams](AZURE-SERVICES-AND-HARNESS.md) for these boundaries.
 
@@ -126,7 +147,7 @@ The development deployment uses `gpt-4.1-mini` in Sweden Central. The API in Wes
 
 ## AI operations and observability
 
-The API persists typed operations events in Azure SQL and broadcasts them through SignalR only after a successful write. Retention defaults to 30 days and 2,000 records, and a caller can retrieve no more than 500 events per request. The `/operations` dashboard remains publicly readable and shows recent and live:
+The API persists typed operations events in Azure SQL and broadcasts them through SignalR only after a successful write. Retention defaults to 30 days and 2,000 records, and a caller can retrieve no more than 500 events per request. The `/admin/operations` dashboard remains publicly readable and shows recent and live:
 
 - routing decisions and confidence;
 - policy or model identifier;
@@ -139,7 +160,7 @@ The API persists typed operations events in Azure SQL and broadcasts them throug
 
 Application Insights and Log Analytics provide runtime telemetry. Event contracts intentionally exclude prompts, source code, credentials, tokens, guest personal data, and tool-output bodies. Correlation IDs are operational identifiers rather than user identifiers.
 
-Outside Development, `POST /api/operations/events` and `POST /api/orchestration/route` require a Microsoft Entra bearer token whose audience matches `OperationsAuth__Audience` and whose `roles` claim contains `Operations.Ingest`. Missing authority, audience, or role configuration fails API startup. `GET /api/operations/events`, `/hubs/operations`, and hotel-booking endpoints remain public. Development is the explicit exception for local and integration-test ingestion.
+Outside Development, `POST /api/operations/events` and `POST /api/orchestration/route` require a Microsoft Entra bearer token whose audience matches `OperationsAuth__Audience` and whose `roles` claim contains `Operations.Ingest`. Missing authority, audience, or role configuration fails API startup. `GET /api/operations/events`, `/hubs/operations`, and hotel-booking endpoints remain public. Development is the explicit exception for local and integration-test ingestion. This API writer policy does not protect the web admin routes; the UI has no sign-in or authorization, and hiding links is not an access control.
 
 ## Pull-request validation
 
@@ -232,7 +253,9 @@ dotnet run --project src\Web\AgenticHotelBooking.Web.csproj
 Local endpoints:
 
 - Booking application: <http://localhost:5051>
-- Operations dashboard: <http://localhost:5051/operations>
+- Delivery overview: <http://localhost:5051/admin>
+- Hotel architecture: <http://localhost:5051/admin/architecture>
+- Operations dashboard: <http://localhost:5051/admin/operations>
 - API health: <http://localhost:5224/health>
 
 Model-assisted routing is disabled locally by default; deterministic policy remains active. To use an Azure model, configure:
