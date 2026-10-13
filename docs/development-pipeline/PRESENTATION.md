@@ -15,9 +15,9 @@ theme: default
 
 **For the live demo:** use the [5-10 minute team guide](../../demo/TEAM-DEMO-GUIDE.md) and its six-slide deck instead.
 
-**Knowledge revision:** `33aa5437e142003bc833738769da28df4aef6eed`
+**Knowledge revision:** `42b577e40e705755723b35570c24b4bb466c2a40` is the source baseline for this update.
 
-**Policy update:** 2026-10-13; development-demo delivery is authorized without another human release approval. This document does not claim current deployment or live delivery status.
+**Policy update:** 2026-10-13; development-demo delivery is authorized without another human release approval. This document does not claim a current deployment or a verified live Azure Boards credential connection.
 
 <!--
 Speaker notes:
@@ -443,19 +443,21 @@ This is a key DevOps distinction. Build once, verify, then promote the same byte
 ```mermaid
 flowchart LR
     PUBLIC["Public navigation<br/>Guest booking only"] --> HOME["/"]
-    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>Repository-sourced delivery stages"]
+    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>API-backed delivery status"]
+    OVERVIEW -->|GET /api/delivery/status| API["App Service API"]
+    API --> GH["GitHub public API"]
+    API -. selected AB# item; human provisioning .-> AB["Azure Boards REST v7.1"]
     DIRECT --> ARCH["/admin/architecture<br/>Hotel services only"]
     DIRECT --> OPS["/admin/operations<br/>API operations events"]
     OLD1["/architecture"] -->|redirect| ARCH
     OLD2["/operations"] -->|redirect| OPS
-    OVERVIEW -. "live state unavailable" .-> SOURCES["Source-contract links<br/>not run evidence"]
 ```
 
-The delivery overview displays unavailable status and update time until trusted live evidence is connected; its separate page-render timestamp is not current Boards, PR, workflow, deployment, or release status. The admin routes have no sign-in/authorization; hiding public navigation links does not secure them.
+The delivery overview reads a 45-second cached GitHub/Boards status projection from the backend API and displays real source timestamps and evidence links. Missing evidence stays `Not started`; upstream failure shows stale or unreachable state rather than fabricated progress. The Azure Boards API identity is not verified until the human provisioning in `docs/runbooks/boards-status-connector.md` is complete. Admin routes have no sign-in/authorization; hiding public navigation links does not secure them. This describes implemented read paths, not a claim that live services were accessed during this change.
 
 <!--
 Speaker notes:
-Show the guest UI and admin routes as separate navigation surfaces. Be explicit that the overview is currently a static model and the architecture diagram is not a cloud-health monitor.
+Show the guest UI and admin routes as separate navigation surfaces. Explain that `/admin` is API-backed public metadata, not an Azure health monitor; the Boards connection remains unverified until its service principal is provisioned.
 -->
 
 ---

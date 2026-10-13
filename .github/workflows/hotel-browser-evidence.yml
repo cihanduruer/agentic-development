@@ -64,6 +64,9 @@ jobs:
             --output browser-evidence
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
+      - name: Run admin console browser smoke
+        run: python tests/Browser/architecture_page.py --web-url http://127.0.0.1:5167
+
       - name: Stop isolated Web server
         if: always()
         run: |

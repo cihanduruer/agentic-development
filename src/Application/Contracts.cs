@@ -85,3 +85,56 @@ public interface IAgentRouter
 {
     Task<RoutingDecision> RouteAsync(RoutingRequest request, CancellationToken cancellationToken);
 }
+
+public sealed record DeliveryStatusSnapshot(
+    DateTimeOffset RefreshedAtUtc,
+    bool IsStale,
+    string? UnreachableMessage,
+    string BoardsConnection,
+    IReadOnlyList<DeliverySummary> Deliveries)
+{
+    public DeliverySummary? SelectedDelivery { get; init; }
+}
+
+public sealed record DeliverySummary(
+    int? WorkItemId,
+    string GitHubIssueTitle,
+    string GitHubIssueUrl,
+    int GitHubIssueNumber,
+    DateTimeOffset UpdatedAtUtc,
+    string OverallStatus,
+    string? PullRequestTitle,
+    int? PullRequestNumber,
+    string? PullRequestUrl,
+    IReadOnlyList<DeliveryStageSummary> Stages,
+    BoardsWorkItemSummary? BoardsWorkItem);
+
+public sealed record DeliveryStageSummary(
+    string Name,
+    string Status,
+    DateTimeOffset? UpdatedAtUtc,
+    long? DurationMilliseconds,
+    string? Url,
+    string? HeadSha)
+{
+    public IReadOnlyList<DeliveryEvidenceLink> RelatedEvidence { get; init; } = [];
+}
+
+public sealed record DeliveryEvidenceLink(string Label, string Url);
+
+public sealed record BoardsWorkItemSummary(
+    int Id,
+    string Title,
+    string State,
+    string Type,
+    IReadOnlyList<string> Tags,
+    DateTimeOffset? ChangedAtUtc,
+    string Url,
+    IReadOnlyList<DeliveryLinkSummary> Links);
+
+public sealed record DeliveryLinkSummary(string Label, string Url);
+
+public interface IDeliveryStatusService
+{
+    Task<DeliveryStatusSnapshot> GetStatusAsync(int? workItemId, CancellationToken cancellationToken);
+}

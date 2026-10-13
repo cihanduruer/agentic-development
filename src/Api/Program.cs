@@ -53,6 +53,13 @@ if (!builder.Environment.IsDevelopment())
             policy.RequireAuthenticatedUser().RequireRole(requiredRole));
 }
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IDeliveryStatusService>(services => new DeliveryStatusService(
+    new HttpClient { BaseAddress = new Uri("https://api.github.com/") },
+    new HttpClient { BaseAddress = new Uri("https://dev.azure.com/ai-enabled-ado-org/") },
+    services.GetRequiredService<IConfiguration>(),
+    services.GetRequiredService<Azure.Core.TokenCredential>(),
+    services.GetRequiredService<TimeProvider>()));
 var routerOptions = new MicrosoftRouterOptions(
     builder.Configuration.GetValue("MicrosoftRouting:ModelEnabled", false),
     builder.Configuration.GetValue("MicrosoftRouting:MinimumConfidence", 0.8),
@@ -79,6 +86,8 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
         .AllowCredentials()));
 
 var app = builder.Build();
+var boardsAuthMode = Program.GetBoardsAuthModeForLog(builder.Configuration["BoardsStatus:AuthMode"]);
+app.Logger.BoardsAuthMode(boardsAuthMode);
 
 if (Program.ShouldApplyDatabaseMigrations(
         app.Environment.IsDevelopment(),
@@ -164,6 +173,37 @@ app.MapGet("/api/operations/events", (
     CancellationToken cancellationToken) =>
     store.GetRecentAsync(limit ?? 100, cancellationToken));
 
+app.MapGet("/api/delivery/status", async (
+    string? workItemId,
+    IDeliveryStatusService service,
+    CancellationToken cancellationToken) =>
+{
+    int? selectedId = null;
+    if (workItemId is not null)
+    {
+        if (!int.TryParse(workItemId, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "workItemId must be a positive integer.");
+        }
+
+        selectedId = parsed;
+    }
+
+    try
+    {
+        return Results.Ok(await service.GetStatusAsync(selectedId, cancellationToken));
+    }
+    catch (KeyNotFoundException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "The work item is not present in recent GitHub deliveries.");
+    }
+});
+
 var ingestEvent = app.MapPost("/api/operations/events", async (
     RecordAgentEventRequest request,
     IAgentEventStore store,
@@ -213,4 +253,15 @@ public partial class Program
 {
     public static bool ShouldApplyDatabaseMigrations(bool isDevelopment, bool configured) =>
         isDevelopment && configured;
+
+    public static string GetBoardsAuthModeForLog(string? configuredMode) =>
+        configuredMode is "ManagedIdentity" or "Pat" ? configuredMode : "Unconfigured";
+}
+
+internal static partial class DeliveryStatusLog
+{
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Boards status authentication mode: {AuthMode}")]
+    public static partial void BoardsAuthMode(this ILogger logger, string authMode);
 }

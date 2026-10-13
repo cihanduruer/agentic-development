@@ -63,6 +63,36 @@ html, body {
 .event-table small { display: block; color: var(--brand-dark-blue); max-width: 28rem; }
 .event-kind { font-weight: 700; }
 
+.delivery-status-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: .3rem .65rem;
+    border: 1px solid var(--brand-dark-blue);
+    border-radius: 999px;
+    background: var(--brand-taupe);
+    color: var(--brand-dark-blue);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.delivery-status-badge::before { margin-inline-end: .4rem; font-weight: 900; }
+.delivery-status-badge.passed::before { content: "✓"; }
+.delivery-status-badge.running::before { content: "◉"; }
+.delivery-status-badge.failed::before { content: "!"; }
+.delivery-status-badge.waiting::before { content: "…"; }
+.delivery-status-badge.skipped::before { content: "–"; }
+.delivery-status-badge.not-started::before { content: "○"; }
+.delivery-status-badge.running { animation: delivery-pulse 1.8s ease-in-out infinite; }
+
+@keyframes delivery-pulse {
+    50% { box-shadow: 0 0 0 .25rem var(--brand-light-blue); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .delivery-status-badge.running { animation: none; }
+}
+
 h1:focus {
     outline: none;
 }

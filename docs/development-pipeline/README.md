@@ -38,12 +38,14 @@ The app route map is separate from the delivery workflow:
 ```mermaid
 flowchart LR
     PUBLIC["Public navigation<br/>Guest booking only"] --> HOME["/"]
-    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>Static stage model"]
+    DIRECT["Direct admin routes<br/>No sign-in or authorization"] --> OVERVIEW["/admin<br/>API-backed delivery status"]
     DIRECT --> ARCH["/admin/architecture<br/>Hotel service map"]
     DIRECT --> OPS["/admin/operations<br/>API event dashboard"]
     OLD1["/architecture"] -->|redirect| ARCH
     OLD2["/operations"] -->|redirect| OPS
-    OVERVIEW -. "live delivery data unavailable" .-> SOURCES["Workflow and contract source links"]
+    OVERVIEW -->|GET /api/delivery/status| STATUS["API: bounded cached public delivery projection"]
+    STATUS --> GH["GitHub public API"]
+    STATUS -. selected work item; human provisioning required .-> BOARDS["Azure Boards REST v7.1"]
 ```
 
 The delivery coordinator pictured above is the current human/process coordination model, not a
@@ -52,7 +54,7 @@ is proposed only; see the explicitly non-implemented proposal in
 [`docs/knowledge/agentic-delivery.md`](../knowledge/agentic-delivery.md). Microsoft-Decision-1
 recovery classification is proposed for shadow mode only.
 
-The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check. The `/admin` stage view does not connect to those live systems and must not be used to infer their current status.
+The intake, pull-request validation, Copilot review gate, independent QA evidence gate, development deployment, release proposal, manual production deployment, routing telemetry, and operations dashboard are implemented. Production release remains manual-only and cannot be triggered by a push or successful check. The `/admin` page reads a fixed GitHub and Azure Boards projection from the API; stale and unverified sources remain explicit. Its source connection is not evidence that live Azure DevOps organization provisioning has been completed.
 
 The runtime C# routing API is a separate capability, not the dispatcher for the GitHub developer/QA workflow shown above. Agent Operations displays events explicitly ingested into the API; it does not automatically observe Desktop chat, Boards intake, or every Actions run. See the [harness diagrams](AZURE-SERVICES-AND-HARNESS.md) for these boundaries.
 

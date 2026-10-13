@@ -209,6 +209,16 @@ Do not open or dispatch **Deploy production** during this walkthrough.
 3. Explain that synchronization updates evidence links/tags; it does not itself set the story to Closed.
 4. Only describe the work as complete when its agreed outcome and deployment evidence support that claim.
 
+Open the Hotel's **Delivery overview** at `/admin`:
+
+1. Select a recent `AB#` delivery and compare the overall status with its ordered stage diagram.
+2. Open the issue, PR, and workflow evidence links; read status text and timestamps rather than relying on badge color.
+3. Point out the refreshed UTC time, relative/absolute event times, and any known run duration.
+4. If the Azure Boards connector displays `Not connected (reason)` or an unavailable reason, state that the API identity has not been verified. Do not infer a Boards state from GitHub.
+5. Explain that the API caches for 45 seconds (4 minutes without a GitHub token), the visible page polls every 20 seconds, and errors retain clearly marked stale last-good data.
+
+The page reads delivery metadata through `GET /api/delivery/status`; the browser never calls GitHub or Boards directly. It is public read-only metadata, not an authenticated admin page. Azure Boards identity setup is a separate human deployment step in [the connector runbook](../runbooks/boards-status-connector.md).
+
 Optionally open the Hotel's **Agent operations** page:
 
 1. Point to an existing event's correlation, route, effective worker, and knowledge revision.
@@ -219,9 +229,9 @@ Optionally open the Hotel's **Agent operations** page:
 The operations page is now `/admin/operations`; `/operations` redirects there. The delivery overview
 is `/admin`, and the Hotel service map is `/admin/architecture`; `/architecture` redirects to the map.
 The public navigation remains booking-only. **Admin access gap:** these routes have no sign-in or
-authorization. Do not claim they are protected. The overview is a static source model: its default
-states and render timestamp are not live delivery evidence, and its links identify source contracts
-rather than workflow runs.
+authorization. Do not claim they are protected. The overview reads real returned delivery evidence
+through its API, but the implementation alone does not prove live source connectivity. Show the
+explicit stale/unreachable state and last update if a source is not available.
 
 **Close:** "We can follow the requirement to code, independent evidence, and the development result. Boards tracks product work; GitHub tracks delivery; Agent Operations shows the runtime events we explicitly ingest."
 

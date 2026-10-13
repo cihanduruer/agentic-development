@@ -2,7 +2,7 @@
 
 **Audience:** developers and architects. **Reviewed:** 2026-10-13.
 
-**Knowledge revision:** `33aa5437e142003bc833738769da28df4aef6eed`, plus the changes described in the linked current repository sources. These diagrams describe repository wiring, not proof that every optional integration has run.
+**Knowledge revision:** `42b577e40e705755723b35570c24b4bb466c2a40` is the source baseline for this update; this document describes repository wiring, not proof that every optional integration has run.
 
 The **harness** is the surrounding system that gives an agent its task, knowledge, permissions, checks, and evidence. It is not one Azure service or an unrestricted AI controller.
 
@@ -15,9 +15,9 @@ There are two separate paths:
 
 | Service or component | Task / responsibility | Caller and boundary |
 |---|---|---|
-| Azure DevOps **Boards** | User Stories, Bugs, acceptance criteria, work state, and delivery links | Copilot captures agreed requirements; the Actions intake uses the Azure DevOps API. Boards is not the source-code host or build engine. |
-| **Azure Static Web Apps** | Hosts the Blazor WebAssembly Hotel UI, delivery overview, Hotel architecture map, and Agent Operations page | The browser loads static files and calls the separately hosted API. Admin routes have no sign-in/authorization. No agent implementation runs in the web page. |
-| **Azure App Service + App Service plan** | Runs the ASP.NET Core booking API, operations ingestion, SignalR hub, and routing endpoint | The plan provides compute; the API's system-assigned managed identity authenticates to Azure data/AI services. |
+| Azure DevOps **Boards** | User Stories, Bugs, acceptance criteria, work state, and delivery links | Copilot captures agreed requirements; Actions intake and the API read path use the Azure DevOps API. The API reads one allowlisted selected work item only. Boards is not the source-code host or build engine. |
+| **Azure Static Web Apps** | Hosts the Blazor WebAssembly Hotel UI, delivery overview, Hotel architecture map, and Agent Operations page | The browser loads static files and calls the separately hosted API for delivery status. Admin routes have no sign-in/authorization. No agent implementation runs in the web page. |
+| **Azure App Service + App Service plan** | Runs the ASP.NET Core booking API, delivery-status API, operations ingestion, SignalR hub, and routing endpoint | The plan provides compute; the API's system-assigned managed identity authenticates to Azure data/AI services and, after human organization provisioning, Azure Boards. |
 | **Azure SQL Database** | Persists hotels, rooms, reservations, and bounded operations-event history | EF Core uses the API identity and the restricted `hotel_booking_runtime` role. The deployment identity handles migrations; runtime is not a schema administrator. |
 | **Azure AI Search** | Stores revisioned chunks of canonical Markdown; checks exact-revision grounding for runtime routing | The deployment indexer writes; the API reads. The current router checks for matching evidence, not a full chat answer. A provisioned index does not mean Copilot has an MCP connection. |
 | **Azure AI Content Safety / Prompt Shields** | Detects prompt attacks in routing task metadata and live worker descriptions | Called by the API before worker selection. Detection, malformed responses, and service failure stop automatic routing. It is not a permission grant or a guarantee against hallucinations. |
@@ -88,6 +88,9 @@ The durable coordinator, immutable per-stage evidence envelopes, and determinist
 flowchart LR
     GUEST["Browser: guest or operator"] --> SWA["Static Web Apps: Blazor UI"]
     SWA -->|HTTPS API calls| API["App Service: .NET API"]
+    SWA -->|GET /api/delivery/status| API
+    API -->|Fixed public read API; 45s cache| GH["GitHub API: recent issues, PRs, allowlisted runs"]
+    API -. "Selected AB# GET; identity needs human provisioning" .-> AB["Azure Boards REST v7.1"]
     API -->|Managed identity / EF Core| SQL["Azure SQL: catalog, bookings, events"]
     API -->|Routing safety check| SHIELD["AI Content Safety: Prompt Shields"]
     API -->|Exact-revision evidence lookup| SEARCH["Azure AI Search"]
@@ -103,16 +106,16 @@ flowchart LR
     ROUTES["Public navigation: /<br/>Booking only"] --> SWA
     ADMIN["Direct admin routes: /admin<br/>/admin/architecture<br/>/admin/operations<br/>No sign-in configured"] --> SWA
     OLD["/architecture and /operations"] -. redirect .-> ADMIN
-    ADMIN -. "static model; live delivery state unavailable" .-> SRC["Workflow/source links, not run evidence"]
+    ADMIN -->|Selected delivery + ordered status list| API
 ```
 
-Solid edges show implemented repository paths. Dotted telemetry configuration is not proof of emitted events; dotted MCP paths are the separately implemented integration and must be demonstrated before being described as connected.
+Solid edges show implemented repository paths. The Boards API call is implemented but its external service-principal membership is unverified until the human steps in `docs/runbooks/boards-status-connector.md` are completed. Dotted telemetry configuration is not proof of emitted events; dotted MCP paths are the separately implemented integration and must be demonstrated before being described as connected.
 
 Repository knowledge remains authoritative. The indexer stores document path, revision, owner, review date, content, and deterministic chunk identity. A local edit/commit does not update the hosted index.
 
 For the MCP milestone, demonstrate a **real chat tool call** returning passages with revision and citations, then a **separate cloud developer tool call**. The existing routing existence check is not either of those demonstrations.
 
-Agent Operations is at `/admin/operations`; it reads the SQL-backed operations API and receives API-hosted SignalR updates. It does not automatically consume every Boards change, GitHub workflow, or Desktop conversation. The `/admin` delivery overview is a static source model and has no live Boards/Actions/deployment integration; its source links are not delivery-run evidence. Use GitHub Actions for delivery-run status and Boards for product state. `/architecture` and `/operations` redirect to their `/admin/` routes. Admin routes currently have no sign-in or authorization, and may be publicly reachable.
+Agent Operations is at `/admin/operations`; it reads the SQL-backed operations API and receives API-hosted SignalR updates. It does not automatically consume every Boards change, GitHub workflow, or Desktop conversation. The `/admin` delivery overview gets a bounded GitHub/Boards status projection through `GET /api/delivery/status`; the API validates AB# identity against recent issues, reads only the selected Board item, returns no raw payload, caches for 45 seconds (4 minutes without a GitHub token), and marks last-good data stale on upstream failures. The UI polls at 20 seconds while visible. The Board connection remains unverified until human identity provisioning; no implementation or fake-response test proves hosted connectivity. `/architecture` and `/operations` redirect to their `/admin/` routes. Admin routes currently have no sign-in or authorization, and may be publicly reachable.
 
 ## 4. Runtime routing: policy controls the model
 

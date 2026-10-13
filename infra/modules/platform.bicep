@@ -241,6 +241,18 @@ resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
           name: 'OperationsEvents__MaxQueryLimit'
           value: '500'
         }
+        {
+          name: 'BoardsStatus__Organization'
+          value: 'ai-enabled-ado-org'
+        }
+        {
+          name: 'BoardsStatus__Project'
+          value: 'sample-project'
+        }
+        {
+          name: 'BoardsStatus__AuthMode'
+          value: 'ManagedIdentity'
+        }
       ]
     }
   }
