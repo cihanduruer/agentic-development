@@ -250,8 +250,8 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
         },
         @{
             Name = 'action-extra-path'
-            Old = '          dotnet-version: 10.0.x'
-            New = "          dotnet-version: 10.0.x`n          path: unexpected"
+            Old = '          dotnet-version: 10.0.401'
+            New = "          dotnet-version: 10.0.401`n          path: unexpected"
             SemanticContextMutation = $true
             OracleScope = 'step-with'
             OracleStepName = '-'

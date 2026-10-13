@@ -34,7 +34,7 @@ public sealed class DeliveryStatusServiceTests
         Assert.Equal("Delivery artifact", board.Links[0].Label);
         Assert.Contains("Passed", selected.Stages.Single(stage => stage.Name == "PR validation").Status);
         Assert.Equal(30_000, selected.Stages.Single(stage => stage.Name == "PR validation").DurationMilliseconds);
-        Assert.Equal("Not started", selected.Stages.Single(stage => stage.Name == "GitHub issue and cloud agent").Status);
+        Assert.Equal("Passed", selected.Stages.Single(stage => stage.Name == "GitHub issue and cloud agent").Status);
         Assert.Equal(2, selected.Stages.Single(stage => stage.Name == "QA evidence").RelatedEvidence.Count);
         Assert.Equal("Connected", snapshot.BoardsConnection);
         Assert.DoesNotContain("FakeCredential", json, StringComparison.OrdinalIgnoreCase);
@@ -44,14 +44,14 @@ public sealed class DeliveryStatusServiceTests
         Assert.DoesNotContain("secret-body", json, StringComparison.Ordinal);
         Assert.DoesNotContain("assignedTo", json, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, handler.BoardsRequestCount);
-        Assert.Equal(3, handler.GitHubRequestCount);
+        Assert.Equal(4, handler.GitHubRequestCount);
         Assert.Equal("Bearer " + FakeGitHubToken, handler.LastGitHubAuthorization);
         Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
         Assert.Contains(handler.Requests, request => request.Path.Contains("/_apis/wit/workitems/965", StringComparison.Ordinal));
 
         var unselected = await service.GetStatusAsync(null, CancellationToken.None);
         Assert.Null(unselected.SelectedDelivery);
-        Assert.Equal(3, handler.GitHubRequestCount);
+        Assert.Equal(4, handler.GitHubRequestCount);
     }
 
     [Theory]
@@ -191,6 +191,85 @@ public sealed class DeliveryStatusServiceTests
     }
 
     [Fact]
+    public async Task PostMergeRunsAreAttributedByMergeCommitAndMissingIntakeRunIsDerivedFromIssue()
+    {
+        const string mergeSha = "fedcba9876543210fedcba9876543210fedcba98";
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? request.RequestUri.Query.Contains("branch=main", StringComparison.Ordinal)
+                    ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name": "Deploy development",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "head_sha": "{{mergeSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/888",
+                      "created_at": "2026-10-13T10:20:00Z",
+                      "run_started_at": "2026-10-13T10:20:00Z",
+                      "updated_at": "2026-10-13T10:25:00Z",
+                      "pull_requests": []
+                    }]}
+                    """)
+                    : JsonResponse(HttpStatusCode.OK, """{"workflow_runs":[]}""")
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == 966);
+        Assert.Equal("Passed", delivery.Stages.Single(stage => stage.Name == "Development deployment").Status);
+        Assert.Equal("Passed", delivery.Stages.Single(stage => stage.Name == "Boards intake").Status);
+        Assert.Equal("Passed", delivery.Stages.Single(stage => stage.Name == "GitHub issue and cloud agent").Status);
+        var other = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == WorkItemId);
+        Assert.Equal("Not started", other.Stages.Single(stage => stage.Name == "Development deployment").Status);
+    }
+
+    [Fact]
+    public async Task MergeCommitRunsOfPrScopedWorkflowsDoNotReplaceThePullRequestEvidence()
+    {
+        const string mergeSha = "fedcba9876543210fedcba9876543210fedcba98";
+        const string prHeadSha = "abcdef0123456789abcdef0123456789abcdef01";
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name": "PR validation", "status": "completed", "conclusion": "success",
+                      "head_sha": "{{prHeadSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/901",
+                      "created_at": "2026-10-13T10:10:00Z", "updated_at": "2026-10-13T10:12:00Z",
+                      "pull_requests": [{ "number": 44 }]
+                    }, {
+                      "name": "PR validation", "status": "completed", "conclusion": "failure",
+                      "head_sha": "{{mergeSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/902",
+                      "created_at": "2026-10-13T10:20:00Z", "updated_at": "2026-10-13T10:25:00Z",
+                      "pull_requests": []
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == 966);
+        Assert.Equal("Passed", delivery.Stages.Single(stage => stage.Name == "PR validation").Status);
+    }
+
+    [Fact]
+    public async Task OversizedUpstreamResponseDegradesToUnavailableInsteadOfThrowing()
+    {
+        var oversized = new string('x', 5 * 1024 * 1024);
+        var handler = new DeliveryHandler(githubResponse: _ =>
+            JsonResponse(HttpStatusCode.OK, $$"""[{"body":"{{oversized}}"}]"""));
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        Assert.True(snapshot.IsStale);
+        Assert.Empty(snapshot.Deliveries);
+    }
+
+    [Fact]
     public async Task GitHubRateLimitServesMarkedStaleLastGoodSnapshot()
     {
         var time = new ManualTimeProvider();
@@ -215,9 +294,9 @@ public sealed class DeliveryStatusServiceTests
         Assert.True(stale.IsStale);
         Assert.Contains("last successful update", stale.UnreachableMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(original.Deliveries[0].GitHubIssueUrl, stale.Deliveries[0].GitHubIssueUrl);
-        Assert.Equal(4, handler.GitHubRequestCount);
+        Assert.Equal(5, handler.GitHubRequestCount);
         await service.GetStatusAsync(null, CancellationToken.None);
-        Assert.Equal(4, handler.GitHubRequestCount);
+        Assert.Equal(5, handler.GitHubRequestCount);
     }
 
     [Fact]
@@ -241,8 +320,8 @@ public sealed class DeliveryStatusServiceTests
         time.Advance(TimeSpan.FromSeconds(46));
         var refreshed = await service.GetStatusAsync(null, CancellationToken.None);
 
-        Assert.Equal(6, handler.GitHubRequestCount);
-        Assert.Equal(3, handler.ConditionalGitHubRequestCount);
+        Assert.Equal(8, handler.GitHubRequestCount);
+        Assert.Equal(4, handler.ConditionalGitHubRequestCount);
         Assert.Equal(2, refreshed.Deliveries.Count);
         Assert.Equal(first.Deliveries.Select(delivery => delivery.GitHubIssueUrl),
             refreshed.Deliveries.Select(delivery => delivery.GitHubIssueUrl));
@@ -408,11 +487,11 @@ public sealed class DeliveryStatusServiceTests
         await service.GetStatusAsync(null, CancellationToken.None);
         time.Advance(TimeSpan.FromMinutes(3));
         await service.GetStatusAsync(null, CancellationToken.None);
-        Assert.Equal(3, handler.GitHubRequestCount);
+        Assert.Equal(4, handler.GitHubRequestCount);
 
         time.Advance(TimeSpan.FromMinutes(2));
         await service.GetStatusAsync(null, CancellationToken.None);
-        Assert.Equal(6, handler.GitHubRequestCount);
+        Assert.Equal(8, handler.GitHubRequestCount);
     }
 
     [Fact]
@@ -577,6 +656,7 @@ public sealed class DeliveryStatusServiceTests
                       "updated_at": "2026-10-13T10:15:00Z",
                       "state": "closed",
                       "merged_at": "2026-10-13T10:14:00Z",
+                      "merge_commit_sha": "fedcba9876543210fedcba9876543210fedcba98",
                       "base": { "ref": "main" },
                       "head": { "sha": "abcdef0123456789abcdef0123456789abcdef01", "repo": { "full_name": "cihanduruer/agentic-development" } }
                     }]

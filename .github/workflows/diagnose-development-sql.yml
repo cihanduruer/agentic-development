@@ -111,7 +111,7 @@ jobs:
           "ruleName=$ruleName" | Out-File $env:GITHUB_OUTPUT -Append
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.401
       - name: Restore diagnostic tool
         run: dotnet restore tools/SqlManagedIdentityBootstrapper/SqlManagedIdentityBootstrapper.csproj --locked-mode
       - name: Create unique exact-IP diagnostic firewall rule
