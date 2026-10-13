@@ -249,6 +249,59 @@ public sealed class DeliveryStatusServiceTests
     }
 
     [Fact]
+    public async Task OnlyTheRequestedDeliveryCarriesBoardsProjection()
+    {
+        var handler = new DeliveryHandler();
+        using var service = CreateService(handler);
+
+        var selected = await service.GetStatusAsync(WorkItemId, CancellationToken.None);
+        Assert.NotNull(selected.SelectedDelivery!.BoardsWorkItem);
+
+        var unselected = await service.GetStatusAsync(null, CancellationToken.None);
+        Assert.All(unselected.Deliveries, delivery => Assert.Null(delivery.BoardsWorkItem));
+
+        var other = await service.GetStatusAsync(966, CancellationToken.None);
+        Assert.Null(other.Deliveries.Single(delivery => delivery.WorkItemId == WorkItemId).BoardsWorkItem);
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("startup_failure")]
+    public void TerminalUnsuccessfulRunConclusionsAreFailed(string conclusion)
+    {
+        var method = typeof(DeliveryStatusService).GetMethod(
+            "ToStatus",
+            global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Static)!;
+
+        Assert.Equal("Failed", method.Invoke(null, ["completed", conclusion]));
+    }
+
+    [Fact]
+    public async Task StaleMessageKeepsTheTrueLastSuccessfulTimestamp()
+    {
+        var time = new ManualTimeProvider();
+        var issueReads = 0;
+        var handler = new DeliveryHandler(githubResponse: request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/issues", StringComparison.Ordinal) && ++issueReads > 1)
+            {
+                return JsonResponse(HttpStatusCode.Forbidden, """{"message":"API rate limit exceeded"}""");
+            }
+
+            return DeliveryHandler.StandardGitHubResponse(request);
+        });
+        using var service = CreateService(handler, timeProvider: time);
+        await service.GetStatusAsync(null, CancellationToken.None);
+        time.Advance(TimeSpan.FromSeconds(46));
+        await service.GetStatusAsync(null, CancellationToken.None);
+        time.Advance(TimeSpan.FromSeconds(46));
+
+        var second = await service.GetStatusAsync(null, CancellationToken.None);
+
+        Assert.Contains("2026-10-13 10:00:00 UTC", second.UnreachableMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UnknownWorkItemMustNotBeQueriedFromBoards()
     {
         var handler = new DeliveryHandler();
@@ -382,7 +435,7 @@ public sealed class DeliveryStatusServiceTests
                       "html_url": "https://github.com/cihanduruer/agentic-development/pull/43",
                       "updated_at": "2026-10-13T10:10:00Z",
                       "state": "open",
-                      "merged": false,
+                      "merged_at": null,
                       "head": { "sha": "{{HeadSha}}" }
                     }, {
                       "number": 44,
@@ -391,7 +444,7 @@ public sealed class DeliveryStatusServiceTests
                       "html_url": "https://github.com/cihanduruer/agentic-development/pull/44",
                       "updated_at": "2026-10-13T10:15:00Z",
                       "state": "closed",
-                      "merged": true,
+                      "merged_at": "2026-10-13T10:14:00Z",
                       "head": { "sha": "abcdef0123456789abcdef0123456789abcdef01" }
                     }]
                     """);

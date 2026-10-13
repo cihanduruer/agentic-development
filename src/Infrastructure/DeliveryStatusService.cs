@@ -60,6 +60,7 @@ public sealed class DeliveryStatusService(
     private DeliveryStatusSnapshot? lastGood;
     private DeliveryStatusSnapshot? noDataFailure;
     private DateTimeOffset lastFetchedAt;
+    private DateTimeOffset lastSuccessAt;
     private DateTimeOffset noDataFailureAt;
 
     public async Task<DeliveryStatusSnapshot> GetStatusAsync(
@@ -111,6 +112,7 @@ public sealed class DeliveryStatusService(
                 snapshot = await LoadSelectedBoardsItemAsync(snapshot, workItemId, cancellationToken);
                 lastGood = snapshot with { SelectedDelivery = null };
                 lastFetchedAt = timeProvider.GetUtcNow();
+                lastSuccessAt = lastFetchedAt;
                 noDataFailure = null;
                 return Select(lastGood, workItemId);
             }
@@ -121,7 +123,7 @@ public sealed class DeliveryStatusService(
                     lastGood = lastGood with
                     {
                         IsStale = true,
-                        UnreachableMessage = $"Delivery sources unavailable; showing last successful update at {lastFetchedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC."
+                        UnreachableMessage = $"Delivery sources unavailable; showing last successful update at {lastSuccessAt.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC."
                     };
                     lastFetchedAt = timeProvider.GetUtcNow();
                     return Select(lastGood, workItemId);
@@ -539,18 +541,17 @@ public sealed class DeliveryStatusService(
 
     private static DeliveryStatusSnapshot Select(DeliveryStatusSnapshot snapshot, int? workItemId)
     {
+        var scrubbed = snapshot.Deliveries
+            .Select(item => item.WorkItemId == workItemId ? item : item with { BoardsWorkItem = null })
+            .ToArray();
         if (workItemId is null)
         {
-            return snapshot;
+            return snapshot with { Deliveries = scrubbed, SelectedDelivery = null };
         }
 
-        var selected = snapshot.Deliveries.Where(item => item.WorkItemId == workItemId).ToArray();
-        if (selected.Length == 0)
-        {
-            throw new KeyNotFoundException("The work item is not present in recent GitHub deliveries.");
-        }
-
-        return snapshot with { SelectedDelivery = selected[0] };
+        var selected = scrubbed.FirstOrDefault(item => item.WorkItemId == workItemId)
+            ?? throw new KeyNotFoundException("The work item is not present in recent GitHub deliveries.");
+        return snapshot with { Deliveries = scrubbed, SelectedDelivery = selected };
     }
 
     private static List<IssueData> ParseIssues(JsonElement root)
@@ -615,8 +616,10 @@ public sealed class DeliveryStatusService(
                 continue;
             }
 
-            var merged = element.TryGetProperty("merged", out var mergedElement) &&
-                mergedElement.ValueKind == JsonValueKind.True;
+            var merged = (element.TryGetProperty("merged", out var mergedElement) &&
+                mergedElement.ValueKind == JsonValueKind.True) ||
+                (element.TryGetProperty("merged_at", out var mergedAt) &&
+                mergedAt.ValueKind == JsonValueKind.String);
             if (ReadOptionalString(element, "state") != "open" && !merged)
             {
                 continue;
@@ -877,7 +880,7 @@ public sealed class DeliveryStatusService(
     {
         "in_progress" or "queued" or "requested" or "waiting" or "pending" => "Running",
         "completed" when conclusion == "success" => "Passed",
-        "completed" when conclusion is "failure" or "cancelled" or "timed_out" or "action_required" => "Failed",
+        "completed" when conclusion is "failure" or "cancelled" or "timed_out" or "action_required" or "stale" or "startup_failure" => "Failed",
         "completed" when conclusion is "skipped" or "neutral" => "Skipped",
         _ => "Waiting"
     };

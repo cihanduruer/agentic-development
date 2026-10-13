@@ -43,7 +43,7 @@ The home page uses orange as its page background; dark-blue body text maintains 
 
 Keyboard focus uses a three-pixel blue outline with cream separation on light surfaces, and a cream outline with dark blue separation in navigation. Navigation icons inherit the link color; the current page is underlined. Selected rooms retain a distinct inset border and a visible `Selected` label in addition to `aria-pressed`. Empty catalog and availability results have explicit status text. Errors, connection states, and confirmations retain their text meaning rather than relying on color.
 
-`tests/UnitTests/BrandPaletteTests.cs` checks the exact tokens and their use in application-owned rules. `tests/Browser/brand_palette.py` checks computed browser styles, contrast, keyboard/interaction states, responsive layouts, and the booking journey against a separately started local in-memory API. Its screenshots and JSON results are evidence artifacts, not committed images; it never targets the shared development database.
+`tests/UnitTests/BrandPaletteTests.cs` checks the exact tokens and their use in application-owned rules. `tests/Browser/brand_palette.py` checks computed browser styles, contrast, keyboard/interaction states, responsive layouts, and the booking journey against a separately started local in-memory API. `tests/Browser/architecture_page.py` runs in the same browser-evidence job and checks the admin console routes, mocked live delivery status, accessibility, responsive layout, and reduced motion without calling any live service. Its screenshots and JSON results are evidence artifacts, not committed images; it never targets the shared development database.
 
 ## Public and administrative pages
 
