@@ -20,13 +20,13 @@ public sealed class DeliveryStatusService(
 {
     private static readonly TimeSpan AuthenticatedCacheLifetime = TimeSpan.FromSeconds(45);
     // Three GitHub requests per refresh must stay under the 60 requests/hour unauthenticated quota.
-    private static readonly TimeSpan AnonymousCacheLifetime = TimeSpan.FromMinutes(4);
+    private static readonly TimeSpan AnonymousCacheLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
     private const string RepositoryFullName = "cihanduruer/agentic-development";
     private const string BoardsOrganization = "ai-enabled-ado-org";
     private const string BoardsProject = "sample-project";
     private static readonly string[] TrustedAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
-    private const int MaximumUpstreamResponseBytes = 1_048_576;
+    private const int MaximumUpstreamResponseBytes = 4_194_304;
     private static readonly Regex WorkItemPattern = new(
         @"\bAB#([1-9][0-9]{0,9})\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -301,6 +301,14 @@ public sealed class DeliveryStatusService(
             cancellationToken);
         var runs = ParseRuns(runsDocument.RootElement);
 
+        using var mainRunsDocument = await FetchGitHubDocumentAsync(
+            "repos/cihanduruer/agentic-development/actions/runs?branch=main&per_page=100",
+            root => root.ValueKind == JsonValueKind.Object &&
+                    root.TryGetProperty("workflow_runs", out var workflowRuns) &&
+                    workflowRuns.ValueKind == JsonValueKind.Array,
+            cancellationToken);
+        var knownRunUrls = runs.Select(run => run.Url).ToHashSet(StringComparer.Ordinal);
+        runs.AddRange(ParseRuns(mainRunsDocument.RootElement).Where(run => knownRunUrls.Add(run.Url)));
         var deliveries = issues
             .Select(issue => issue with
             {
@@ -546,7 +554,7 @@ public sealed class DeliveryStatusService(
 
     private static bool IsUpstreamFailure(Exception exception) =>
         exception is HttpRequestException or JsonException or TaskCanceledException or OperationCanceledException or
-            InvalidOperationException or IOException or AuthenticationFailedException;
+            InvalidOperationException or IOException or InvalidDataException or AuthenticationFailedException;
 
     private static DeliveryStatusSnapshot Select(DeliveryStatusSnapshot snapshot, int? workItemId)
     {
@@ -678,9 +686,11 @@ public sealed class DeliveryStatusService(
                 sha.ValueKind == JsonValueKind.String
                     ? sha.GetString() ?? ""
                     : "";
+            var mergeSha = merged ? ReadOptionalString(element, "merge_commit_sha") : "";
             result.Add(new PullRequestData(number, workItemId, title, url, updated, merged)
             {
-                HeadSha = headSha.Length == 40 && headSha.All(Uri.IsHexDigit) ? headSha : ""
+                HeadSha = headSha.Length == 40 && headSha.All(Uri.IsHexDigit) ? headSha : "",
+                MergeCommitSha = mergeSha.Length == 40 && mergeSha.All(Uri.IsHexDigit) ? mergeSha : ""
             });
         }
 
@@ -834,7 +844,8 @@ public sealed class DeliveryStatusService(
     {
         var matched = runs.Where(run =>
             (pullRequest is not null && (run.PullRequestNumbers.Contains(pullRequest.Number) ||
-                (run.HeadSha.Length > 0 && run.HeadSha == pullRequest.HeadSha))) ||
+                (run.HeadSha.Length > 0 &&
+                    (run.HeadSha == pullRequest.HeadSha || run.HeadSha == pullRequest.MergeCommitSha)))) ||
             (run.Name == "Agentic intake" && run.WorkItemId == issue.WorkItemId))
             .GroupBy(run => run.Name, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(run => run.UpdatedAt).First(), StringComparer.Ordinal);
@@ -848,10 +859,12 @@ public sealed class DeliveryStatusService(
         {
             matched.TryGetValue("Agentic intake", out var intakeRun)
                 ? ToStage(StageNames[0], intakeRun)
-                : new(StageNames[0], "Not started", null, null, null, null),
+                : new(StageNames[0], "Passed", issue.UpdatedAt, null, issue.Url, null),
             matched.TryGetValue("Copilot cloud agent", out var agentRun)
                 ? ToStage(StageNames[1], agentRun)
-                : new(StageNames[1], "Not started", null, null, null, null),
+                : pullRequest is null
+                    ? new(StageNames[1], "Waiting", issue.UpdatedAt, null, issue.Url, null)
+                    : new(StageNames[1], "Passed", pullRequest.UpdatedAt, null, pullRequest.Url, pullRequest.HeadSha),
             new(StageNames[2], pullRequest is null ? "Not started" : pullRequest.Merged ? "Passed" : "Running",
                 pullRequest?.UpdatedAt, null, pullRequest?.Url, pullRequest?.HeadSha),
             RunStage(StageNames[3], "PR validation"),
@@ -1016,6 +1029,8 @@ public sealed class DeliveryStatusService(
         bool Merged)
     {
         public string HeadSha { get; init; } = "";
+
+        public string MergeCommitSha { get; init; } = "";
     }
 
     private sealed record RunData(
