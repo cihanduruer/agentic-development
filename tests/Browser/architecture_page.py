@@ -1,9 +1,11 @@
-"""Focused responsive/accessibility smoke for the Hotel Architecture page.
+"""Responsive/accessibility smoke for the admin architecture and delivery overview.
 
 Start the Web project on loopback, then run:
 python tests/Browser/architecture_page.py --web-url http://127.0.0.1:5167
 
-The page is static and makes no API calls. The script targets only the supplied loopback URL.
+The architecture and overview pages are static and make no API calls. The public home page may make
+a read-only hotel-list request, but the script never submits a booking. It targets only the supplied
+loopback URL and does not inspect or mutate a shared deployment.
 """
 
 import argparse
@@ -35,57 +37,112 @@ def main():
                 page.emulate_media(reduced_motion="reduce")
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
-                response = page.goto(f"{base}/architecture", wait_until="networkidle")
-                assert response is not None and response.status == 200, name
 
-                expect(page.get_by_role("heading", name="How Hotel works", level=1)).to_be_visible()
+                page.goto(f"{base}/", wait_until="networkidle")
+                expect(page.get_by_role("heading", name="Find a room. Book with confidence.", level=1)).to_be_visible()
+                expect(page).to_have_title("Hotel Booking")
                 if name == "mobile":
                     page.get_by_role("button", name="Navigation menu").click()
-                expect(page.get_by_role("link", name="Architecture")).to_be_visible()
-                expect(page.get_by_role("list", name="Guest booking request flow")).to_be_visible()
-                expect(page.get_by_role("list", name="Runtime routing flow")).to_be_visible()
-                expect(page.get_by_role("list", name="Live operations event flow")).to_be_visible()
-                expect(page.get_by_role("list", name="Software delivery flow")).to_be_visible()
-                expect(page.get_by_text("This is a system overview, not a live traffic monitor.")).to_be_visible()
+                expect(page.locator(".sidebar nav").get_by_role("link", name="Home")).to_be_visible()
+                assert page.locator(".sidebar nav").get_by_role("link").count() == 1
+                public_copy = page.locator("body").inner_text().lower()
+                for forbidden_copy in ("agentic", "agent operations", "architecture", "delivery", "demo", "agents", "sample hotel"):
+                    assert forbidden_copy not in public_copy, (name, forbidden_copy)
 
-                flow_links = page.locator(".flow-link")
-                assert flow_links.count() > 0
-                for index in range(flow_links.count()):
-                    expect(flow_links.nth(index)).to_have_attribute("aria-hidden", "true")
-                    animation = flow_links.nth(index).evaluate(
-                        "element => getComputedStyle(element, '::before').animationName"
+                response = page.goto(f"{base}/admin/architecture", wait_until="networkidle")
+                assert response is not None and response.status == 200, name
+                expect(page.get_by_role("heading", name="Hotel services and delivery path", level=1)).to_be_visible()
+                expect(page.get_by_role("navigation", name="Administration")).to_be_visible()
+                expect(page.get_by_text("no sign-in or authorization configured", exact=False)).to_be_visible()
+                if name == "mobile":
+                    page.get_by_role("button", name="Navigation menu").click()
+                expect(page.get_by_role("list", name="Guest booking service path")).to_be_visible()
+                telemetry_path = page.get_by_role("list", name="API telemetry configuration path")
+                expect(telemetry_path).to_be_visible()
+                expect(telemetry_path.get_by_role("listitem")).to_have_count(3)
+                for node in ("App Service API", "Application Insights", "Log Analytics workspace"):
+                    expect(telemetry_path.get_by_role("heading", name=node)).to_be_visible()
+                expect(page.get_by_role("list", name="Runtime routing service path")).to_be_visible()
+                delivery_path = page.get_by_role("list", name="Azure Boards and GitHub delivery path")
+                expect(delivery_path).to_be_visible()
+                expect(delivery_path.get_by_role("listitem")).to_have_count(5)
+                for node in (
+                    "Azure Boards", "GitHub Actions intake", "GitHub issue + cloud agent",
+                    "Pull request + evidence gates", "Development deployment"
+                ):
+                    expect(delivery_path.get_by_role("heading", name=node)).to_be_visible()
+                service_cards = page.get_by_role("list", name="Repository-declared service tiers and responsibilities")
+                expect(service_cards).to_be_visible()
+                expect(service_cards.get_by_role("listitem")).to_have_count(7)
+                expect(page.get_by_text("Numbered flow explanations")).to_be_visible()
+                expect(page.get_by_text("End-to-end delivery flow")).to_be_visible()
+
+                public_nav = page.locator(".sidebar nav")
+                expect(public_nav.get_by_role("link", name="Home")).to_be_visible()
+                assert public_nav.get_by_role("link").count() == 1, "public navigation must remain booking-only"
+
+                connectors = page.locator(".service-connector")
+                assert connectors.count() > 0
+                for index in range(connectors.count()):
+                    label_element = connectors.nth(index).locator(".connector-label")
+                    expect(label_element).to_be_visible()
+                    label = label_element.inner_text().strip()
+                    assert " · " in label and label.split(" · ", maxsplit=1)[0].isdigit(), label
+                    animation = connectors.nth(index).evaluate(
+                        "element => getComputedStyle(element, '::after').animationName"
                     )
                     assert animation == "none", (name, animation)
 
-                if name == "desktop":
-                    cards = page.locator(".flow-track").first.locator(".node-card")
-                    first = cards.nth(0).bounding_box()
-                    second = cards.nth(1).bounding_box()
-                    assert first and second and second["x"] > first["x"], (first, second)
-                else:
-                    cards = page.locator(".flow-track").first.locator(".node-card")
-                    first = cards.nth(0).bounding_box()
-                    second = cards.nth(1).bounding_box()
-                    assert first and second and second["y"] > first["y"], (first, second)
+                page.get_by_role("link", name="Delivery overview").focus()
+                page.keyboard.press("Tab")
+                focus_outline = page.get_by_role("link", name="Hotel architecture").evaluate(
+                    "element => getComputedStyle(element).outlineStyle"
+                )
+                assert focus_outline != "none", (name, focus_outline)
+
+                overview = page.goto(f"{base}/admin", wait_until="networkidle")
+                assert overview is not None and overview.status == 200, name
+                expect(page.get_by_role("heading", name="Delivery overview", level=1)).to_be_visible()
+                expect(page.get_by_role("heading", name="Live delivery data unavailable")).to_be_visible()
+                expect(page.locator(".delivery-stage")).to_have_count(11)
+                expect(page.get_by_text("source contract, not run evidence", exact=False).first).to_be_visible()
+                for stage in page.locator(".delivery-stage").all():
+                    expect(stage.get_by_text("Unavailable", exact=True)).to_be_visible()
+                    expect(stage.get_by_text("Live state unavailable.", exact=False)).to_be_visible()
+                    expect(stage.get_by_text("no stage event timestamp is connected", exact=False)).to_be_visible()
+                    expect(stage.locator("time")).to_have_count(0)
+                    expect(stage.get_by_role("link")).to_have_count(1)
+                    expect(stage.locator("code")).to_have_count(1)
 
                 no_horizontal_scroll = page.evaluate(
                     "document.documentElement.scrollWidth <= window.innerWidth"
                 )
                 assert no_horizontal_scroll, name
                 assert not errors, errors
-                print(f"{name}: architecture headings, named flows, reduced motion, and layout passed")
+                print(f"{name}: route, stage model, accessibility, responsive layout, and reduced motion passed")
                 page.close()
+
+            redirect_page = browser.new_page(viewport={"width": 1280, "height": 900})
+            redirect_page.goto(f"{base}/architecture", wait_until="networkidle")
+            expect(redirect_page).to_have_url(f"{base}/admin/architecture")
+            print("redirect: /architecture resolves to /admin/architecture")
+
+            not_found_page = browser.new_page(viewport={"width": 1280, "height": 900})
+            not_found_page.goto(f"{base}/an-unknown-route", wait_until="networkidle")
+            expect(not_found_page.get_by_role("heading", name="Not Found")).to_be_visible()
+            print("routing: unknown paths continue to show Not Found")
 
             motion_page = browser.new_page(viewport={"width": 1440, "height": 1000})
             motion_page.emulate_media(reduced_motion="no-preference")
-            motion_page.goto(f"{base}/architecture", wait_until="networkidle")
-            animation = motion_page.locator(".flow-link").first.evaluate(
-                "element => getComputedStyle(element, '::before').animationName"
+            motion_page.goto(f"{base}/admin/architecture", wait_until="networkidle")
+            animation = motion_page.locator(".service-connector").first.evaluate(
+                "element => getComputedStyle(element, '::after').animationName"
             )
-            assert animation.startswith("flow-dot"), animation
-            print("motion: decorative flow dot animation is available when motion is allowed")
-            motion_page.close()
+            assert animation.startswith("service-dot"), animation
+            print("motion: decorative service connector animation is available when motion is allowed")
         finally:
             browser.close()
+
+
 if __name__ == "__main__":
     main()

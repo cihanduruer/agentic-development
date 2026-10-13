@@ -2,6 +2,17 @@
 
 A sample hotel-booking application for browsing hotels, checking room availability, and creating reservations.
 
+The public navigation is guest-booking only. `/admin`, `/admin/architecture`, and
+`/admin/operations` are directly addressable administrative views; `/architecture` and
+`/operations` redirect to their corresponding `/admin/` routes. These pages currently have no
+sign-in or authorization and may be publicly reachable. The delivery overview is a static,
+repository-sourced model and does not report live delivery state.
+
+The durable delivery coordinator, per-stage evidence envelopes, and deterministic readiness policy
+are proposals, not implemented automation. Microsoft-Decision-1 recovery classification is proposed
+for shadow mode only. See the [delivery contract](docs/knowledge/agentic-delivery.md) and
+[pipeline diagrams](docs/development-pipeline/).
+
 ## Hotel booking features
 
 - Browse hotels with location and property descriptions.

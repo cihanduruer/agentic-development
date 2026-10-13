@@ -1,6 +1,6 @@
 ---
 owner: Engineering owner
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-13
 ---
 # Agentic delivery
 
@@ -17,6 +17,21 @@ Production remains a separate path:
 `Verified main revision -> Release proposal -> Human approval -> Manual production promotion`
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.
+
+The web route map is `/` for public guest booking, `/admin` for a repository-sourced delivery overview, `/admin/architecture` for the Hotel service map, and `/admin/operations` for API-ingested operations events. `/architecture` and `/operations` redirect to their admin routes. There is no sign-in or authorization for these admin pages; the UI warning and removal of public navigation links do not protect them.
+
+The delivery overview's stages are a **static source model**, not connected state. The supported UI status vocabulary is `passed`, `running`, `failed`, `waiting`, and `not started`, but stage status and last-update time render `Unavailable` until a trustworthy live source supplies them; the page must not invent a stage state. Its separate page-model render timestamp is not a delivery update. Each link points to a repository workflow or contract, not a successful execution artifact.
+
+## Delivery coordinator proposal (not implemented)
+
+This is a proposal for a future product capability, not an approved architecture decision or a change to current workflow automation:
+
+- A durable coordinator would persist requirement identity, coordinator/run identity, current stage, attempts, and terminal/blocked outcome so an interrupted coordinator could resume without replacing the existing workflow sources of truth.
+- Each stage would emit an immutable evidence envelope containing the canonical work/PR/deployment identity, exact source revision, stage outcome, event/update time, source system, evidence links or artifact identifiers, and validation/provenance metadata. Missing, stale, contradictory, or unverifiable envelopes would remain unavailable/blocked rather than passing.
+- Deterministic readiness policy would decide whether a stage may advance, wait, fail, or require a human. Models would not authorize transitions, weaken evidence requirements, merge, or approve production.
+- Microsoft-Decision-1 recovery classification is proposed in **shadow mode only**: it may record a bounded classification for comparison, but must not affect retries, state transitions, permissions, gate results, merge, deployment, or release approval. No live model behavior or Microsoft service integration is claimed by this proposal.
+
+The existing workflows remain authoritative and unchanged by this proposal. No ADR records this as a decision because it is intentionally only a proposal; an accepted design decision requires a separately reviewed ADR and explicit scope.
 
 ## Azure Boards intake
 

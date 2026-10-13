@@ -1,0 +1,121 @@
+@page "/admin"
+
+<PageTitle>Delivery overview</PageTitle>
+
+<section class="delivery-overview" aria-labelledby="delivery-overview-title">
+    <AdminNav />
+    <header class="overview-heading">
+        <p class="eyebrow">Delivery stages · repository-sourced view</p>
+        <h1 id="delivery-overview-title">Delivery overview</h1>
+        <p>
+            A map of the documented delivery stages, not a live workflow monitor. No Azure Boards,
+            GitHub, Actions, deployment, or release-status feed is connected to this page.
+        </p>
+    </header>
+
+    <section class="live-data-warning" aria-labelledby="live-data-title">
+        <h2 id="live-data-title">Live delivery data unavailable</h2>
+        <p>
+            No delivery-stage status or stage-update timestamp is connected. Each stage therefore
+            displays <strong>Unavailable</strong>, not an inferred workflow state. Links identify
+            source contracts and are not run artifacts or proof of execution.
+        </p>
+        <p><strong>Supported sourced statuses:</strong> Passed, Running, Failed, Waiting, Not started.</p>
+        <p><strong>Page model rendered (UTC; not a stage update):</strong> <time datetime="@snapshotUtc.ToString("O")">@snapshotUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</time></p>
+    </section>
+
+    <section aria-labelledby="stages-title">
+        <h2 id="stages-title">End-to-end delivery stages</h2>
+        <ol class="delivery-stages">
+            @foreach (var stage in Stages)
+            {
+                <li class="delivery-stage">
+                    <div class="stage-heading">
+                        <span class="stage-number" aria-hidden="true">@stage.Number</span>
+                        <h3>@stage.Name</h3>
+                        <span class="stage-state" aria-label="Status unavailable">@FormatStatus(stage.Status)</span>
+                    </div>
+                    <p class="stage-availability"><strong>Live state unavailable.</strong> No connected live source; do not infer progress.</p>
+                    <dl class="stage-details">
+                        <div>
+                            <dt>Last update</dt>
+                            <dd>Unavailable — no stage event timestamp is connected.</dd>
+                        </div>
+                        <div>
+                            <dt>Evidence link</dt>
+                            <dd><a href="@stage.SourceUrl" target="_blank" rel="noopener noreferrer">@stage.SourceLabel</a> <span>(source contract, not run evidence)</span></dd>
+                        </div>
+                        <div>
+                            <dt>Sourced model</dt>
+                            <dd><code>@stage.SourcePath</code></dd>
+                        </div>
+                    </dl>
+                </li>
+            }
+        </ol>
+    </section>
+
+    <p class="coordinator-note">
+        The durable delivery-coordinator, evidence-envelope, readiness-policy, and recovery-classification
+        material is a proposal only; this page and the current workflows do not implement that coordinator.
+        See <a href="https://github.com/cihanduruer/agentic-development/blob/main/docs/knowledge/agentic-delivery.md"
+              target="_blank" rel="noopener noreferrer">the delivery proposal and source contract</a>.
+    </p>
+</section>
+
+@code {
+    private readonly DateTimeOffset snapshotUtc = DateTimeOffset.UtcNow;
+
+    private static readonly IReadOnlyList<DeliveryStage> Stages =
+    [
+        new(1, "Boards intake", null, "Azure Boards intake workflow",
+            ".github/workflows/agentic-intake.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/agentic-intake.yml"),
+        new(2, "GitHub issue and cloud agent", null, "Intake implementation and developer-agent profile",
+            "scripts/Start-AgenticWork.ps1 · .github/agents/hotel-developer.agent.md",
+            "https://github.com/cihanduruer/agentic-development/blob/main/scripts/Start-AgenticWork.ps1"),
+        new(3, "Pull request", null, "Developer agent contract",
+            ".github/agents/hotel-developer.agent.md",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/agents/hotel-developer.agent.md"),
+        new(4, "PR validation", null, "Trusted pull-request validation workflow",
+            ".github/workflows/pr-validation.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/pr-validation.yml"),
+        new(5, "Copilot review gate", null, "Copilot code-review workflow",
+            ".github/workflows/hotel-code-review.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/hotel-code-review.yml"),
+        new(6, "QA evidence", null, "Independent QA evidence workflow",
+            ".github/workflows/qa-evidence.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/qa-evidence.yml"),
+        new(7, "Merge", null, "Delivery authorization and merge contract",
+            "docs/knowledge/agentic-delivery.md",
+            "https://github.com/cihanduruer/agentic-development/blob/main/docs/knowledge/agentic-delivery.md"),
+        new(8, "Development deployment", null, "Development deployment workflow",
+            ".github/workflows/deploy-development.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/deploy-development.yml"),
+        new(9, "Lifecycle sync and delivery evidence", null, "Development lifecycle synchronization workflow",
+            ".github/workflows/sync-development-lifecycle.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/sync-development-lifecycle.yml"),
+        new(10, "Release proposal", null, "Release proposal workflow",
+            ".github/workflows/release-proposal.yml",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/release-proposal.yml"),
+        new(11, "Human production approval", null, "Manual production promotion workflow and security contract",
+            ".github/workflows/deploy-production.yml · docs/knowledge/security.md",
+            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/deploy-production.yml")
+    ];
+
+    private static string FormatStatus(DeliveryStageStatus? status) => status switch
+    {
+        DeliveryStageStatus.NotStarted => "Not started",
+        DeliveryStageStatus.Passed => "Passed",
+        DeliveryStageStatus.Running => "Running",
+        DeliveryStageStatus.Failed => "Failed",
+        DeliveryStageStatus.Waiting => "Waiting",
+        null => "Unavailable",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown delivery stage status.")
+    };
+
+    private enum DeliveryStageStatus { Passed, Running, Failed, Waiting, NotStarted }
+
+    private sealed record DeliveryStage(
+        int Number, string Name, DeliveryStageStatus? Status, string SourceLabel, string SourcePath, string SourceUrl);
+}

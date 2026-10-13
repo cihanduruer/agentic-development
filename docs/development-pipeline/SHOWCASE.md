@@ -216,6 +216,13 @@ Optionally open the Hotel's **Agent operations** page:
 3. Make clear that Desktop discussions, new Boards stories, and every GitHub Actions run do not automatically appear here.
 4. Do not invoke ingestion or routing just to populate the screen; an empty view is an honest result.
 
+The operations page is now `/admin/operations`; `/operations` redirects there. The delivery overview
+is `/admin`, and the Hotel service map is `/admin/architecture`; `/architecture` redirects to the map.
+The public navigation remains booking-only. **Admin access gap:** these routes have no sign-in or
+authorization. Do not claim they are protected. The overview is a static source model: its default
+states and render timestamp are not live delivery evidence, and its links identify source contracts
+rather than workflow runs.
+
 **Close:** "We can follow the requirement to code, independent evidence, and the development result. Boards tracks product work; GitHub tracks delivery; Agent Operations shows the runtime events we explicitly ingest."
 
 ## 10. Optional: prove Azure Search MCP, then developer use
