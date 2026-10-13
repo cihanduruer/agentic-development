@@ -225,6 +225,37 @@ public sealed class DeliveryStatusServiceTests
     }
 
     [Fact]
+    public async Task MergeCommitRunsOfPrScopedWorkflowsDoNotReplaceThePullRequestEvidence()
+    {
+        const string mergeSha = "fedcba9876543210fedcba9876543210fedcba98";
+        const string prHeadSha = "abcdef0123456789abcdef0123456789abcdef01";
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name": "PR validation", "status": "completed", "conclusion": "success",
+                      "head_sha": "{{prHeadSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/901",
+                      "created_at": "2026-10-13T10:10:00Z", "updated_at": "2026-10-13T10:12:00Z",
+                      "pull_requests": [{ "number": 44 }]
+                    }, {
+                      "name": "PR validation", "status": "completed", "conclusion": "failure",
+                      "head_sha": "{{mergeSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/902",
+                      "created_at": "2026-10-13T10:20:00Z", "updated_at": "2026-10-13T10:25:00Z",
+                      "pull_requests": []
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == 966);
+        Assert.Equal("Passed", delivery.Stages.Single(stage => stage.Name == "PR validation").Status);
+    }
+
+    [Fact]
     public async Task OversizedUpstreamResponseDegradesToUnavailableInsteadOfThrowing()
     {
         var oversized = new string('x', 5 * 1024 * 1024);

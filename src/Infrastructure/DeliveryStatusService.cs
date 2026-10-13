@@ -842,10 +842,12 @@ public sealed class DeliveryStatusService(
         PullRequestData? pullRequest,
         IReadOnlyList<RunData> runs)
     {
+        var postMergeWorkflows = new[] { "Deploy development", "Sync development lifecycle", "Release proposal" };
         var matched = runs.Where(run =>
             (pullRequest is not null && (run.PullRequestNumbers.Contains(pullRequest.Number) ||
                 (run.HeadSha.Length > 0 &&
-                    (run.HeadSha == pullRequest.HeadSha || run.HeadSha == pullRequest.MergeCommitSha)))) ||
+                    (run.HeadSha == pullRequest.HeadSha ||
+                        (run.HeadSha == pullRequest.MergeCommitSha && postMergeWorkflows.Contains(run.Name, StringComparer.Ordinal)))))) ||
             (run.Name == "Agentic intake" && run.WorkItemId == issue.WorkItemId))
             .GroupBy(run => run.Name, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(run => run.UpdatedAt).First(), StringComparer.Ordinal);

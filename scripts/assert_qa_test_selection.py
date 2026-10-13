@@ -81,7 +81,7 @@ expected_steps = [
     },
     {
         "uses": "actions/setup-dotnet@v4",
-        "with": {"dotnet-version": "10.0.x"},
+        "with": {"dotnet-version": "10.0.401"},
     },
     {
         "name": "Restore",
