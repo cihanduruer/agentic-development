@@ -121,6 +121,8 @@ $untrustedMatch = Select-WorkItemIssue `
 Assert-True -Condition ($null -eq $untrustedMatch) -Message "An AB#959 issue from an untrusted author must not be selected."
 
 $script:requestedIssueUri = $null
+$script:requestedIssueMethod = $null
+$script:requestedIssueBody = $null
 function Invoke-GitHubRest {
     param(
         [string]$Method,
@@ -128,7 +130,15 @@ function Invoke-GitHubRest {
         [object]$Body
     )
 
+    $script:requestedIssueMethod = $Method
     $script:requestedIssueUri = $Uri
+    if ($Method -eq "Patch") {
+        $script:requestedIssueBody = $Body.body
+        $updatedIssue = $linkedIssue.PSObject.Copy()
+        $updatedIssue.body = $Body.body
+        return $updatedIssue
+    }
+
     return @($linkedIssue)
 }
 
@@ -158,5 +168,50 @@ Assert-Throws `
 Assert-Throws `
     -Action { Assert-WorkItemState -State "Closed" -Id 959 } `
     -ExpectedMessage "only New or Active items can be started or recovered"
+
+$bodyWithCriteria = New-WorkItemIssueBody `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959 `
+    -Description "<p>Guests can filter available rooms.</p>" `
+    -AcceptanceCriteria "<ul><li>Only rooms matching selected amenities appear.</li></ul>"
+Assert-True `
+    -Condition ($bodyWithCriteria -match "(?s)## Product requirement\s+Guests can filter available rooms\.\s+## Acceptance criteria\s+Only rooms matching selected amenities appear\.") `
+    -Message "Description and acceptance criteria should be rendered as separate readable sections."
+
+$bodyWithoutCriteria = New-WorkItemIssueBody `
+    -Organization "ai-enabled-ado-org" `
+    -Project "sample-project" `
+    -Id 959 `
+    -Description "<p>Guests can browse rooms.</p>" `
+    -AcceptanceCriteria $null
+Assert-True `
+    -Condition ($bodyWithoutCriteria -match "(?s)## Product requirement\s+Guests can browse rooms\.\s+## Acceptance criteria\s+Not provided\.") `
+    -Message "Missing acceptance criteria should be represented clearly without losing the description."
+
+$staleIssue = $linkedIssue.PSObject.Copy()
+$staleIssue.body = "Previous intake body"
+$refreshedIssue = Sync-WorkItemIssueBody `
+    -Repository "cihanduruer/agentic-development" `
+    -Issue $staleIssue `
+    -Body $bodyWithCriteria
+Assert-True `
+    -Condition ($script:requestedIssueMethod -eq "Patch") `
+    -Message "Recovery should patch the existing canonical issue rather than create another issue."
+Assert-True `
+    -Condition ($script:requestedIssueUri -eq "https://api.github.com/repos/cihanduruer/agentic-development/issues/5") `
+    -Message "Recovery should refresh the selected canonical issue."
+Assert-True `
+    -Condition ($script:requestedIssueBody -eq $bodyWithCriteria -and $refreshedIssue.number -eq 5) `
+    -Message "The canonical issue body should be refreshed in place."
+
+$script:requestedIssueMethod = $null
+$unchangedIssue = Sync-WorkItemIssueBody `
+    -Repository "cihanduruer/agentic-development" `
+    -Issue $refreshedIssue `
+    -Body $bodyWithCriteria
+Assert-True `
+    -Condition ($null -eq $script:requestedIssueMethod -and $unchangedIssue.number -eq 5) `
+    -Message "An already-current canonical issue body should not require another update."
 
 Write-Output "Start-AgenticWork tests passed."

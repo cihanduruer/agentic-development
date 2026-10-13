@@ -222,6 +222,62 @@ $mutations = @(
     }
 )
 
+function Invoke-DotNetTest {
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory)]
+        [string]$Filter
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'dotnet'
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Unable to start dotnet test for filter '$Filter'."
+        }
+
+        $standardOutput = $process.StandardOutput.ReadToEndAsync()
+        $standardError = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit(5 * 60 * 1000)
+        if (-not $completed) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill($true)
+                }
+            }
+            catch {
+                throw "dotnet test timed out after 5 minutes for filter '$Filter'; failed to terminate the process tree: $($_.Exception.Message)"
+            }
+
+            $process.WaitForExit()
+            $null = $standardOutput.GetAwaiter().GetResult()
+            $null = $standardError.GetAwaiter().GetResult()
+            throw "dotnet test timed out after 5 minutes for filter '$Filter'; the process tree was terminated."
+        }
+
+        $process.WaitForExit()
+        $output = $standardOutput.GetAwaiter().GetResult()
+        $errorOutput = $standardError.GetAwaiter().GetResult()
+        [Console]::Out.Write($output)
+        [Console]::Error.Write($errorOutput)
+        return $process.ExitCode
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 try {
     foreach ($baselineProject in @($unitTestProject, $integrationTestProject)) {
         $baselineFilter = if ($baselineProject -eq $unitTestProject) {
@@ -230,10 +286,21 @@ try {
         else {
             'FullyQualifiedName~SqlManagedIdentityBootstrapperSqlServerTests'
         }
-        & dotnet test $baselineProject --configuration Release --no-restore `
-            --filter $baselineFilter --verbosity quiet
-        if ($LASTEXITCODE -ne 0) {
-            throw 'The unmutated bootstrapper baseline failed.'
+        $baselineExitCode = Invoke-DotNetTest `
+            -Arguments @(
+                'test',
+                $baselineProject,
+                '--configuration',
+                'Release',
+                '--no-restore',
+                '--filter',
+                $baselineFilter,
+                '--verbosity',
+                'quiet'
+            ) `
+            -Filter $baselineFilter
+        if ($baselineExitCode -ne 0) {
+            throw "The unmutated bootstrapper baseline failed for filter '$baselineFilter'."
         }
     }
 
@@ -265,12 +332,19 @@ try {
         else {
             'FullyQualifiedName~SqlManagedIdentityBootstrapperTests'
         }
-        & dotnet test $testProject `
-            --configuration Release `
-            --no-restore `
-            --filter $filter `
-            --verbosity quiet
-        $testExitCode = $LASTEXITCODE
+        $testExitCode = Invoke-DotNetTest `
+            -Arguments @(
+                'test',
+                $testProject,
+                '--configuration',
+                'Release',
+                '--no-restore',
+                '--filter',
+                $filter,
+                '--verbosity',
+                'quiet'
+            ) `
+            -Filter $filter
         [System.IO.File]::WriteAllBytes($sourcePath, $originalBytes)
 
         if ($testExitCode -eq 0) {
