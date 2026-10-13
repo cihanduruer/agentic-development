@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "13205211550956542724"
+      "templateHash": "6326066438496557797"
     }
   },
   "parameters": {
@@ -120,7 +120,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "8087506652776844560"
+              "templateHash": "9916513604226330943"
             }
           },
           "parameters": {
@@ -418,6 +418,18 @@
                     {
                       "name": "OperationsEvents__MaxQueryLimit",
                       "value": "500"
+                    },
+                    {
+                      "name": "BoardsStatus__Organization",
+                      "value": "ai-enabled-ado-org"
+                    },
+                    {
+                      "name": "BoardsStatus__Project",
+                      "value": "sample-project"
+                    },
+                    {
+                      "name": "BoardsStatus__AuthMode",
+                      "value": "ManagedIdentity"
                     }
                   ]
                 }

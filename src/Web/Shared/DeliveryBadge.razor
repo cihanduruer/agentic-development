@@ -1,0 +1,19 @@
+<span class="delivery-status-badge @CssClass" aria-label="Status: @Label">@Label</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Status { get; set; } = "";
+
+    private string Label => Status switch
+    {
+        "Passed" => "Passed",
+        "Running" => "Running",
+        "Failed" => "Failed",
+        "Waiting" => "Waiting",
+        "Skipped" => "Skipped",
+        "Not started" => "Not started",
+        _ => "Not started"
+    };
+
+    private string CssClass => Label.ToLowerInvariant().Replace(' ', '-');
+}

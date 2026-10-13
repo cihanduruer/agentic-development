@@ -5,8 +5,11 @@ A sample hotel-booking application for browsing hotels, checking room availabili
 The public navigation is guest-booking only. `/admin`, `/admin/architecture`, and
 `/admin/operations` are directly addressable administrative views; `/architecture` and
 `/operations` redirect to their corresponding `/admin/` routes. These pages currently have no
-sign-in or authorization and may be publicly reachable. The delivery overview is a static,
-repository-sourced model and does not report live delivery state.
+sign-in or authorization and may be publicly reachable. The delivery overview calls the API's
+read-only `GET /api/delivery/status` endpoint for GitHub delivery evidence and an allowlisted
+Azure Boards projection; it never calls those services from the browser. Azure Boards identity
+provisioning is a required human deployment step and the connector remains unverified until
+completed. See [the connector runbook](docs/runbooks/boards-status-connector.md).
 
 The durable delivery coordinator, per-stage evidence envelopes, and deterministic readiness policy
 are proposals, not implemented automation. Microsoft-Decision-1 recovery classification is proposed

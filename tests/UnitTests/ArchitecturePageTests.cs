@@ -21,6 +21,12 @@ public sealed class ArchitecturePageTests
         Assert.Contains("GitHub Actions intake", page);
         Assert.Contains("GitHub issue + cloud agent", page);
         Assert.Contains("Pull request + evidence gates", page);
+        Assert.Contains("Live delivery-status read path", page);
+        Assert.Contains("GET /api/delivery/status", page);
+        Assert.Contains("Fixed public GETs", page);
+        Assert.Contains("Selected AB# GET · human provisioned", page);
+        Assert.Contains("Azure Boards REST v7.1", page);
+        Assert.Contains("not proven by this diagram", page);
         Assert.Contains("service-connector", page);
         Assert.Contains("connector-label", page);
         Assert.Contains("1 · HTTPS/API", page);
@@ -66,9 +72,11 @@ public sealed class ArchitecturePageTests
     }
 
     [Fact]
-    public void AdminOverviewEnumeratesAllStagesAndNeverRepresentsPlaceholderAsLiveEvidence()
+    public void AdminOverviewUsesLiveDeliveryApiAndAccessibleOrderedStageEvidence()
     {
         var page = ReadSource("src/Web/Pages/Admin.razor");
+        var deliveryService = ReadSource("src/Infrastructure/DeliveryStatusService.cs");
+        var badge = ReadSource("src/Web/Shared/DeliveryBadge.razor");
         var expectedStages = new[]
         {
             "Boards intake", "GitHub issue and cloud agent", "Pull request", "PR validation",
@@ -77,26 +85,35 @@ public sealed class ArchitecturePageTests
         };
 
         Assert.Contains("@page \"/admin\"", page);
-        Assert.Equal(expectedStages.Length, Count(page, "new("));
+        Assert.Contains("api/delivery/status", page);
+        Assert.Contains("Select a recent delivery", page);
+        Assert.Contains("Recent deliveries", page);
+        Assert.Contains("refreshed every 20 seconds", page);
+        Assert.Contains("deliveryStatus.isVisible", page);
+        Assert.Contains("End-to-end status flow", page);
+        Assert.Contains("<ol class=\"delivery-flow\"", page);
+        Assert.Contains("aria-describedby=\"delivery-flow-help\"", page);
+        Assert.Contains("Open evidence", page);
+        Assert.Contains("Not connected (reason)", deliveryService);
+        Assert.Contains("BoardsStatus:Organization", deliveryService);
+        Assert.Contains("GitHubStatus:Token", deliveryService);
+        Assert.Contains("\"Skipped\"", badge);
         foreach (var stage in expectedStages)
         {
-            Assert.Contains($"\"{stage}\"", page);
+            Assert.Contains($"\"{stage}\"", deliveryService);
         }
 
-        Assert.Contains("DeliveryStageStatus.Passed", page);
-        Assert.Contains("DeliveryStageStatus.Running", page);
-        Assert.Contains("DeliveryStageStatus.Failed", page);
-        Assert.Contains("DeliveryStageStatus.Waiting", page);
-        Assert.Contains("DeliveryStageStatus.NotStarted", page);
-        Assert.Contains("null => \"Unavailable\"", page);
-        Assert.Contains("Live delivery data unavailable", page);
-        Assert.Contains("not an inferred workflow state", page);
-        Assert.Contains("no stage event timestamp is connected", page);
-        Assert.Contains("not a stage update", page);
-        Assert.Contains("source contract, not run evidence", page);
+        Assert.Contains("\"Passed\"", deliveryService);
+        Assert.Contains("\"Running\"", deliveryService);
+        Assert.Contains("\"Failed\"", deliveryService);
+        Assert.Contains("\"Waiting\"", deliveryService);
+        Assert.Contains("\"Not started\"", deliveryService);
         Assert.Contains("Last update", page);
-        Assert.Contains("Sourced model", page);
-        Assert.Contains("Evidence link", page);
+        Assert.Contains("Duration:", page);
+        Assert.Contains("GitHub issue #", page);
+        Assert.Contains("Pull request #", page);
+        Assert.Contains("@media (prefers-reduced-motion: reduce)", ReadSource("src/Web/Pages/Admin.razor.css"));
+        Assert.Contains("delivery-status-badge.running { animation: none; }", ReadSource("src/Web/wwwroot/css/app.css"));
     }
 
     [Fact]
@@ -136,8 +153,24 @@ public sealed class ArchitecturePageTests
         Assert.Contains("@page \"/not-found\"", ReadSource("src/Web/Pages/NotFound.razor"));
     }
 
-    private static int Count(string text, string value) =>
-        (text.Length - text.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
+    [Fact]
+    public void BoardsConnectorProvisioningIsManualAndNoCredentialIsDeclaredInBicep()
+    {
+        var platform = ReadSource("infra/modules/platform.bicep");
+        var runbook = ReadSource("docs/runbooks/boards-status-connector.md");
+
+        Assert.Contains("BoardsStatus__Organization", platform);
+        Assert.Contains("ai-enabled-ado-org", platform);
+        Assert.Contains("BoardsStatus__Project", platform);
+        Assert.Contains("sample-project", platform);
+        Assert.Contains("BoardsStatus__AuthMode", platform);
+        Assert.Contains("ManagedIdentity", platform);
+        Assert.DoesNotContain("BoardsStatus__Pat", platform);
+        Assert.DoesNotContain("GitHubStatus__Token", platform);
+        Assert.Contains("Basic", runbook);
+        Assert.Contains("Readers", runbook);
+        Assert.Contains("unverified", runbook, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void AssertOrdered(string text, params string[] values)
     {

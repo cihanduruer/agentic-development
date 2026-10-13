@@ -1,16 +1,18 @@
-"""Responsive/accessibility smoke for the admin architecture and delivery overview.
+"""Responsive/accessibility smoke for admin pages, with a fully mocked delivery API.
 
 Start the Web project on loopback, then run:
 python tests/Browser/architecture_page.py --web-url http://127.0.0.1:5167
 
-The architecture and overview pages are static and make no API calls. The public home page may make
-a read-only hotel-list request, but the script never submits a booking. It targets only the supplied
-loopback URL and does not inspect or mutate a shared deployment.
+Delivery API calls are intercepted and answered from an in-memory fixture; no GitHub, Azure Boards,
+or other live service is accessed. The public home page may call the isolated test API, but the
+script never submits a booking. It targets only the supplied loopback URL and does not inspect or
+mutate a shared deployment.
 """
 
 import argparse
+import json
 import shutil
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -37,6 +39,54 @@ def main():
                 page.emulate_media(reduced_motion="reduce")
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
+
+                def mock_delivery_status(route):
+                    status_names = [
+                        "Passed", "Not started", "Running", "Passed", "Waiting", "Failed",
+                        "Waiting", "Not started", "Skipped", "Not started", "Waiting",
+                    ]
+                    stage_names = [
+                        "Boards intake", "GitHub issue and cloud agent", "Pull request", "PR validation",
+                        "Copilot review gate", "QA evidence", "Merge", "Development deployment",
+                        "Lifecycle sync and delivery evidence", "Release proposal", "Human production approval",
+                    ]
+                    stages = [
+                        {
+                            "name": stage,
+                            "status": status,
+                            "updatedAtUtc": "2026-10-13T10:00:00Z" if index < 7 else None,
+                            "durationMilliseconds": 30000 if index == 3 else None,
+                            "url": "https://github.com/cihanduruer/agentic-development/actions/runs/123" if index == 3 else None,
+                            "headSha": "0123456789abcdef0123456789abcdef01234567" if index == 3 else None,
+                            "relatedEvidence": [],
+                        }
+                        for index, (stage, status) in enumerate(zip(stage_names, status_names))
+                    ]
+                    delivery = {
+                        "workItemId": 965,
+                        "title": "AB#965: delivery status",
+                        "gitHubIssueTitle": "AB#965: delivery status",
+                        "gitHubIssueUrl": "https://github.com/cihanduruer/agentic-development/issues/42",
+                        "gitHubIssueNumber": 42,
+                        "updatedAtUtc": "2026-10-13T10:00:00Z",
+                        "overallStatus": "Running",
+                        "pullRequestTitle": "AB#965: delivery status",
+                        "pullRequestNumber": 43,
+                        "pullRequestUrl": "https://github.com/cihanduruer/agentic-development/pull/43",
+                        "stages": stages,
+                        "boardsWorkItem": None,
+                    }
+                    query = parse_qs(urlsplit(route.request.url).query)
+                    selected = delivery if query.get("workItemId") == ["965"] else None
+                    payload = {
+                        "refreshedAtUtc": "2026-10-13T10:20:00Z",
+                        "isStale": False,
+                        "unreachableMessage": None,
+                        "boardsConnection": "Not connected (reason)",
+                        "deliveries": [delivery],
+                        "selectedDelivery": selected,
+                    }
+                    route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
 
                 page.goto(f"{base}/", wait_until="networkidle")
                 expect(page.get_by_role("heading", name="Find a room. Book with confidence.", level=1)).to_be_visible()
@@ -100,26 +150,33 @@ def main():
                 )
                 assert focus_outline != "none", (name, focus_outline)
 
+                page.route("**/api/delivery/status*", mock_delivery_status)
                 overview = page.goto(f"{base}/admin", wait_until="networkidle")
                 assert overview is not None and overview.status == 200, name
                 expect(page.get_by_role("heading", name="Delivery overview", level=1)).to_be_visible()
-                expect(page.get_by_role("heading", name="Live delivery data unavailable")).to_be_visible()
+                expect(page.get_by_label("Select a recent delivery")).to_be_visible()
                 expect(page.locator(".delivery-stage")).to_have_count(11)
-                expect(page.get_by_text("source contract, not run evidence", exact=False).first).to_be_visible()
-                for stage in page.locator(".delivery-stage").all():
-                    expect(stage.get_by_text("Unavailable", exact=True)).to_be_visible()
-                    expect(stage.get_by_text("Live state unavailable.", exact=False)).to_be_visible()
-                    expect(stage.get_by_text("no stage event timestamp is connected", exact=False)).to_be_visible()
-                    expect(stage.locator("time")).to_have_count(0)
-                    expect(stage.get_by_role("link")).to_have_count(1)
-                    expect(stage.locator("code")).to_have_count(1)
+                expect(page.locator(".delivery-message").get_by_text("Not connected (reason)", exact=False)).to_be_visible()
+                flow = page.get_by_role("list", name="End-to-end status flow")
+                expect(flow.get_by_role("listitem")).to_have_count(11)
+                expect(flow.get_by_text("Running", exact=True)).to_be_visible()
+                expect(flow.get_by_text("Failed", exact=True)).to_be_visible()
+                expect(flow.get_by_text("Skipped", exact=True)).to_be_visible()
+                running_animation = flow.locator(".delivery-status-badge.running").evaluate(
+                    "element => getComputedStyle(element).animationName"
+                )
+                assert running_animation == "none", (name, running_animation)
+                expect(flow.get_by_role("link", name="Open evidence")).to_be_visible()
+                expect(page.get_by_role("link", name="GitHub issue #42")).to_be_visible()
+                expect(page.get_by_role("link", name="Pull request #43 · AB#965: delivery status")).to_be_visible()
+                expect(flow.locator("time").first).to_have_attribute("datetime", "2026-10-13T10:00:00.0000000+00:00")
 
                 no_horizontal_scroll = page.evaluate(
                     "document.documentElement.scrollWidth <= window.innerWidth"
                 )
                 assert no_horizontal_scroll, name
                 assert not errors, errors
-                print(f"{name}: route, stage model, accessibility, responsive layout, and reduced motion passed")
+                print(f"{name}: route, mocked live status, accessibility, responsive layout, and reduced motion passed")
                 page.close()
 
             redirect_page = browser.new_page(viewport={"width": 1280, "height": 900})

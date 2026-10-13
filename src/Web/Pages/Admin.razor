@@ -1,121 +1,318 @@
 @page "/admin"
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+@using System.Text.Json
 
 <PageTitle>Delivery overview</PageTitle>
 
 <section class="delivery-overview" aria-labelledby="delivery-overview-title">
     <AdminNav />
     <header class="overview-heading">
-        <p class="eyebrow">Delivery stages · repository-sourced view</p>
+        <p class="eyebrow">Live delivery evidence · refreshed every 20 seconds</p>
         <h1 id="delivery-overview-title">Delivery overview</h1>
-        <p>
-            A map of the documented delivery stages, not a live workflow monitor. No Azure Boards,
-            GitHub, Actions, deployment, or release-status feed is connected to this page.
-        </p>
+        <p>Follow recent Azure Boards requirements through GitHub evidence and the human production approval gate.</p>
     </header>
 
-    <section class="live-data-warning" aria-labelledby="live-data-title">
-        <h2 id="live-data-title">Live delivery data unavailable</h2>
-        <p>
-            No delivery-stage status or stage-update timestamp is connected. Each stage therefore
-            displays <strong>Unavailable</strong>, not an inferred workflow state. Links identify
-            source contracts and are not run artifacts or proof of execution.
-        </p>
-        <p><strong>Supported sourced statuses:</strong> Passed, Running, Failed, Waiting, Not started.</p>
-        <p><strong>Page model rendered (UTC; not a stage update):</strong> <time datetime="@snapshotUtc.ToString("O")">@snapshotUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</time></p>
-    </section>
-
-    <section aria-labelledby="stages-title">
-        <h2 id="stages-title">End-to-end delivery stages</h2>
-        <ol class="delivery-stages">
-            @foreach (var stage in Stages)
+    <section class="delivery-controls" aria-label="Delivery selection and refresh status">
+        <label for="delivery-selector">Select a recent delivery</label>
+        <select id="delivery-selector" value="@selectedWorkItemId" @onchange="SelectDeliveryAsync" disabled="@(snapshot?.Deliveries.Count is null or 0)">
+            @if (snapshot is not null)
             {
-                <li class="delivery-stage">
-                    <div class="stage-heading">
-                        <span class="stage-number" aria-hidden="true">@stage.Number</span>
-                        <h3>@stage.Name</h3>
-                        <span class="stage-state" aria-label="Status unavailable">@FormatStatus(stage.Status)</span>
-                    </div>
-                    <p class="stage-availability"><strong>Live state unavailable.</strong> No connected live source; do not infer progress.</p>
-                    <dl class="stage-details">
-                        <div>
-                            <dt>Last update</dt>
-                            <dd>Unavailable — no stage event timestamp is connected.</dd>
-                        </div>
-                        <div>
-                            <dt>Evidence link</dt>
-                            <dd><a href="@stage.SourceUrl" target="_blank" rel="noopener noreferrer">@stage.SourceLabel</a> <span>(source contract, not run evidence)</span></dd>
-                        </div>
-                        <div>
-                            <dt>Sourced model</dt>
-                            <dd><code>@stage.SourcePath</code></dd>
-                        </div>
-                    </dl>
-                </li>
+                @foreach (var item in snapshot.Deliveries.Where(delivery => delivery.WorkItemId.HasValue))
+                {
+                    <option value="@item.WorkItemId">AB#@item.WorkItemId · @item.GitHubIssueTitle</option>
+                }
             }
-        </ol>
+        </select>
+        @if (snapshot is not null)
+        {
+            <p class="refresh-information">
+                Refreshed <time datetime="@snapshot.RefreshedAtUtc.ToString("O")">@RelativeTime(snapshot.RefreshedAtUtc)</time>
+                (<time datetime="@snapshot.RefreshedAtUtc.ToString("O")">@snapshot.RefreshedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</time>).
+            </p>
+        }
     </section>
 
-    <p class="coordinator-note">
-        The durable delivery-coordinator, evidence-envelope, readiness-policy, and recovery-classification
-        material is a proposal only; this page and the current workflows do not implement that coordinator.
-        See <a href="https://github.com/cihanduruer/agentic-development/blob/main/docs/knowledge/agentic-delivery.md"
-              target="_blank" rel="noopener noreferrer">the delivery proposal and source contract</a>.
-    </p>
+    @if (snapshot is null)
+    {
+        <p class="delivery-message" role="status">@connectionMessage</p>
+    }
+    else if (snapshot.Deliveries.Count == 0)
+    {
+        <p class="delivery-message" role="status">
+            @(snapshot.IsStale
+                ? snapshot.UnreachableMessage ?? "Delivery status is unreachable; no last-good snapshot is available."
+                : "No recent unambiguous GitHub issue with a valid AB# work-item reference was returned.")
+        </p>
+    }
+    else
+    {
+        @if (snapshot.IsStale || !string.IsNullOrWhiteSpace(connectionMessage) ||
+             (Selected is not null && snapshot.BoardsConnection is not "Connected" and not "Unverified"))
+        {
+            <div class="delivery-message" role="status">
+                <strong>@(snapshot.IsStale ? "Delivery status is stale or unreachable." : "Some delivery status is unreachable.")</strong>
+                <p>@(connectionMessage ?? snapshot.UnreachableMessage ?? $"Azure Boards: {snapshot.BoardsConnection}.")</p>
+            </div>
+        }
+
+        <section class="delivery-summary" aria-labelledby="recent-deliveries-title">
+            <h2 id="recent-deliveries-title">Recent deliveries</h2>
+            <ol class="recent-deliveries">
+                @foreach (var item in snapshot.Deliveries.Where(delivery => delivery.WorkItemId.HasValue))
+                {
+                    <li>
+                        <button type="button" class="delivery-choice @(item.WorkItemId == Selected?.WorkItemId ? "selected" : "")"
+                                aria-pressed="@(item.WorkItemId == Selected?.WorkItemId)"
+                                @onclick="() => SelectWorkItemAsync(item.WorkItemId!.Value)">
+                            <span>AB#@item.WorkItemId · @item.GitHubIssueTitle</span>
+                            <DeliveryBadge Status="@item.OverallStatus" />
+                        </button>
+                    </li>
+                }
+            </ol>
+        </section>
+
+        @if (Selected is not null)
+        {
+            <section class="delivery-detail" aria-labelledby="selected-delivery-title">
+                <header class="selected-delivery-heading">
+                    <div>
+                        <p class="eyebrow">Selected delivery · AB#@Selected.WorkItemId</p>
+                        <h2 id="selected-delivery-title">@Selected.GitHubIssueTitle</h2>
+                        <p>
+                            GitHub issue updated <time datetime="@Selected.UpdatedAtUtc.ToString("O")">@RelativeTime(Selected.UpdatedAtUtc)</time>
+                            (@Selected.UpdatedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")).
+                        </p>
+                    </div>
+                    <DeliveryBadge Status="@Selected.OverallStatus" />
+                </header>
+
+                @if (snapshot.BoardsConnection != "Connected")
+                {
+                    <p class="boards-connection" role="status">
+                        <strong>Azure Boards:</strong> @snapshot.BoardsConnection
+                        @(Selected.BoardsWorkItem is null ? "" : "Showing the last successful Boards projection.")
+                    </p>
+                }
+                @if (Selected.BoardsWorkItem is not null)
+                {
+                    <section class="boards-card" aria-labelledby="boards-item-title">
+                        <h3 id="boards-item-title">Azure Boards · @Selected.BoardsWorkItem.Type</h3>
+                        <p><a href="@Selected.BoardsWorkItem.Url" target="_blank" rel="noopener noreferrer">AB#@Selected.BoardsWorkItem.Id · @Selected.BoardsWorkItem.Title</a></p>
+                        <p>State: <strong>@Selected.BoardsWorkItem.State</strong></p>
+                        <p>Tags: @(Selected.BoardsWorkItem.Tags.Count == 0 ? "None" : string.Join(", ", Selected.BoardsWorkItem.Tags))</p>
+                        @if (Selected.BoardsWorkItem.ChangedAtUtc is DateTimeOffset changed)
+                        {
+                            <p>Changed <time datetime="@changed.ToString("O")">@RelativeTime(changed)</time> (@changed.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")).</p>
+                        }
+                        @if (Selected.BoardsWorkItem.Links.Count > 0)
+                        {
+                            <ul>
+                                @foreach (var link in Selected.BoardsWorkItem.Links)
+                                {
+                                    <li><a href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Label</a></li>
+                                }
+                            </ul>
+                        }
+                    </section>
+                }
+
+                <h3 id="delivery-flow-title">End-to-end status flow</h3>
+                <p class="sr-only" id="delivery-flow-help">Ordered list of delivery stages and their current evidence status. Arrows in the diagram show the same sequence.</p>
+                <ol class="delivery-flow" aria-labelledby="delivery-flow-title" aria-describedby="delivery-flow-help" aria-live="polite" tabindex="0">
+                    @foreach (var stage in Selected.Stages)
+                    {
+                        <li class="delivery-stage @(stage.Status == "Running" ? "running" : "")">
+                            <article class="stage-card">
+                                <h4>@stage.Name</h4>
+                                <DeliveryBadge Status="@stage.Status" />
+                                @if (stage.UpdatedAtUtc is DateTimeOffset updated)
+                                {
+                                    <p class="stage-update">
+                                        Last update <time datetime="@updated.ToString("O")">@RelativeTime(updated)</time>
+                                        (<time datetime="@updated.ToString("O")">@updated.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</time>)
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p class="stage-update">Last update: Not available.</p>
+                                }
+                                @if (stage.DurationMilliseconds is long duration)
+                                {
+                                    <p>Duration: @FormatDuration(duration)</p>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(stage.HeadSha))
+                                {
+                                    <p>Revision: <code>@stage.HeadSha</code></p>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(stage.Url))
+                                {
+                                    <p><a href="@stage.Url" target="_blank" rel="noopener noreferrer">Open evidence</a></p>
+                                }
+                                @if (stage.RelatedEvidence.Count > 0)
+                                {
+                                    <ul aria-label="@($"{stage.Name} related evidence")">
+                                        @foreach (var evidence in stage.RelatedEvidence)
+                                        {
+                                            <li><a href="@evidence.Url" target="_blank" rel="noopener noreferrer">@evidence.Label</a></li>
+                                        }
+                                    </ul>
+                                }
+                            </article>
+                        </li>
+                    }
+                </ol>
+
+                <section class="delivery-evidence-links" aria-label="Selected GitHub delivery links">
+                    <h3>Delivery links</h3>
+                    <ul>
+                        <li><a href="@Selected.GitHubIssueUrl" target="_blank" rel="noopener noreferrer">GitHub issue #@Selected.GitHubIssueNumber</a></li>
+                        @if (!string.IsNullOrWhiteSpace(Selected.PullRequestUrl))
+                        {
+                            <li><a href="@Selected.PullRequestUrl" target="_blank" rel="noopener noreferrer">Pull request #@Selected.PullRequestNumber · @Selected.PullRequestTitle</a></li>
+                        }
+                    </ul>
+                </section>
+            </section>
+        }
+    }
 </section>
 
 @code {
-    private readonly DateTimeOffset snapshotUtc = DateTimeOffset.UtcNow;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+    private readonly CancellationTokenSource lifetime = new();
+    private DeliveryStatusSnapshot? snapshot;
+    private string? selectedWorkItemId;
+    private string? connectionMessage;
+    private Task? pollTask;
 
-    private static readonly IReadOnlyList<DeliveryStage> Stages =
-    [
-        new(1, "Boards intake", null, "Azure Boards intake workflow",
-            ".github/workflows/agentic-intake.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/agentic-intake.yml"),
-        new(2, "GitHub issue and cloud agent", null, "Intake implementation and developer-agent profile",
-            "scripts/Start-AgenticWork.ps1 · .github/agents/hotel-developer.agent.md",
-            "https://github.com/cihanduruer/agentic-development/blob/main/scripts/Start-AgenticWork.ps1"),
-        new(3, "Pull request", null, "Developer agent contract",
-            ".github/agents/hotel-developer.agent.md",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/agents/hotel-developer.agent.md"),
-        new(4, "PR validation", null, "Trusted pull-request validation workflow",
-            ".github/workflows/pr-validation.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/pr-validation.yml"),
-        new(5, "Copilot review gate", null, "Copilot code-review workflow",
-            ".github/workflows/hotel-code-review.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/hotel-code-review.yml"),
-        new(6, "QA evidence", null, "Independent QA evidence workflow",
-            ".github/workflows/qa-evidence.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/qa-evidence.yml"),
-        new(7, "Merge", null, "Delivery authorization and merge contract",
-            "docs/knowledge/agentic-delivery.md",
-            "https://github.com/cihanduruer/agentic-development/blob/main/docs/knowledge/agentic-delivery.md"),
-        new(8, "Development deployment", null, "Development deployment workflow",
-            ".github/workflows/deploy-development.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/deploy-development.yml"),
-        new(9, "Lifecycle sync and delivery evidence", null, "Development lifecycle synchronization workflow",
-            ".github/workflows/sync-development-lifecycle.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/sync-development-lifecycle.yml"),
-        new(10, "Release proposal", null, "Release proposal workflow",
-            ".github/workflows/release-proposal.yml",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/release-proposal.yml"),
-        new(11, "Human production approval", null, "Manual production promotion workflow and security contract",
-            ".github/workflows/deploy-production.yml · docs/knowledge/security.md",
-            "https://github.com/cihanduruer/agentic-development/blob/main/.github/workflows/deploy-production.yml")
-    ];
+    private DeliverySummary? Selected => snapshot?.SelectedDelivery ??
+        snapshot?.Deliveries.FirstOrDefault(item => item.WorkItemId?.ToString() == selectedWorkItemId);
 
-    private static string FormatStatus(DeliveryStageStatus? status) => status switch
+    protected override async Task OnInitializedAsync()
     {
-        DeliveryStageStatus.NotStarted => "Not started",
-        DeliveryStageStatus.Passed => "Passed",
-        DeliveryStageStatus.Running => "Running",
-        DeliveryStageStatus.Failed => "Failed",
-        DeliveryStageStatus.Waiting => "Waiting",
-        null => "Unavailable",
-        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown delivery stage status.")
-    };
+        await RefreshAsync(lifetime.Token);
+        pollTask = PollAsync(lifetime.Token);
+    }
 
-    private enum DeliveryStageStatus { Passed, Running, Failed, Waiting, NotStarted }
+    private async Task SelectDeliveryAsync(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var workItemId) && workItemId > 0)
+        {
+            await SelectWorkItemAsync(workItemId);
+        }
+    }
 
-    private sealed record DeliveryStage(
-        int Number, string Name, DeliveryStageStatus? Status, string SourceLabel, string SourcePath, string SourceUrl);
+    private async Task SelectWorkItemAsync(int workItemId)
+    {
+        selectedWorkItemId = workItemId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await FetchSelectedAsync(workItemId, lifetime.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(PollInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var visible = await JS.InvokeAsync<bool>("deliveryStatus.isVisible", cancellationToken);
+                if (visible)
+                {
+                    await InvokeAsync(() => RefreshAsync(cancellationToken));
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (JSException) { }
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            snapshot = await Http.GetFromJsonAsync<DeliveryStatusSnapshot>("api/delivery/status", cancellationToken);
+            connectionMessage = null;
+            if (snapshot is not null)
+            {
+                if (selectedWorkItemId is null)
+                {
+                    selectedWorkItemId = snapshot.Deliveries.FirstOrDefault(item => item.WorkItemId.HasValue)
+                        ?.WorkItemId?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+
+                if (int.TryParse(selectedWorkItemId, out var selectedId))
+                {
+                    await FetchSelectedAsync(selectedId, cancellationToken, render: false);
+                }
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                          exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            connectionMessage = snapshot is null
+                ? "Delivery status is unreachable; no last-good snapshot is available."
+                : $"Showing last successful delivery data. The API is unreachable as of {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss} UTC.";
+            if (snapshot is not null)
+            {
+                snapshot = snapshot with { IsStale = true, UnreachableMessage = connectionMessage };
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task FetchSelectedAsync(int workItemId, CancellationToken cancellationToken, bool render = true)
+    {
+        try
+        {
+            snapshot = await Http.GetFromJsonAsync<DeliveryStatusSnapshot>(
+                $"api/delivery/status?workItemId={workItemId.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+                cancellationToken);
+            connectionMessage = null;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                          exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            connectionMessage = $"Selected delivery status could not be refreshed. Showing prior data as of {snapshot?.RefreshedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "unknown UTC time"}.";
+        }
+
+        if (render)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private static string RelativeTime(DateTimeOffset value)
+    {
+        var elapsed = DateTimeOffset.UtcNow - value.ToUniversalTime();
+        if (elapsed < TimeSpan.FromMinutes(1)) return "just now";
+        if (elapsed < TimeSpan.FromHours(1)) return $"{(int)elapsed.TotalMinutes} minutes ago";
+        if (elapsed < TimeSpan.FromDays(1)) return $"{(int)elapsed.TotalHours} hours ago";
+        return $"{(int)elapsed.TotalDays} days ago";
+    }
+
+    private static string FormatDuration(long milliseconds)
+    {
+        var duration = TimeSpan.FromMilliseconds(milliseconds);
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
+            : duration.TotalMinutes >= 1
+                ? $"{duration.Minutes}m {duration.Seconds}s"
+                : $"{duration.Seconds}s";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        if (pollTask is not null)
+        {
+            try { await pollTask; }
+            catch (OperationCanceledException) { }
+        }
+
+        lifetime.Dispose();
+    }
 }

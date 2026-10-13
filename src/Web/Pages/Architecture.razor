@@ -171,6 +171,52 @@
                     </li>
                 </ol>
             </section>
+
+            <section aria-labelledby="delivery-status-path-title">
+                <h3 id="delivery-status-path-title">Live delivery-status read path</h3>
+                <p class="section-intro">
+                    The browser calls only the API. The API reads fixed public GitHub metadata and
+                    optionally one selected Azure Boards item; Boards identity provisioning requires
+                    a human and is not proven by this diagram.
+                </p>
+                <ol class="service-flow delivery-service-flow" aria-label="GitHub delivery status API path" tabindex="0">
+                    <li>
+                        <article class="service-card">
+                            <span class="service-number">1</span>
+                            <h4>Delivery overview</h4>
+                            <p>Accessible delivery selector and ordered stage status.</p>
+                        </article>
+                        <span class="service-connector"><span class="connector-label">1 · GET /api/delivery/status</span></span>
+                    </li>
+                    <li>
+                        <article class="service-card">
+                            <span class="service-number">2</span>
+                            <h4>App Service delivery API</h4>
+                            <p>Validates AB# IDs, applies 45-second cache, and projects allowlisted fields.</p>
+                        </article>
+                        <span class="service-connector"><span class="connector-label">2 · Fixed public GETs</span></span>
+                    </li>
+                    <li>
+                        <article class="service-card">
+                            <span class="service-number">3</span>
+                            <h4>GitHub API</h4>
+                            <p>Recent AB issues, open/merged PRs, and named workflow runs.</p>
+                        </article>
+                        <span class="service-connector"><span class="connector-label">3 · Selected AB# GET · human provisioned</span></span>
+                    </li>
+                    <li>
+                        <article class="service-card">
+                            <span class="service-number">4</span>
+                            <h4>Azure Boards REST v7.1</h4>
+                            <p>System identity, organization Basic, project Reader; minimal read-only projection.</p>
+                        </article>
+                    </li>
+                </ol>
+                <p class="flow-note">
+                    Browser access to upstream services is never used. Stale last-good data is labelled;
+                    an unprovisioned Boards connection remains unverified or not connected.
+                </p>
+            </section>
         </div>
     </section>
 
@@ -181,6 +227,7 @@
             <li><strong>Telemetry 1–2:</strong> the API is configured to send telemetry to Application Insights; the Log Analytics workspace backs the component. This configuration is not proof of live telemetry.</li>
             <li><strong>Routing 1–3:</strong> the API calls Prompt Shields, then performs exact-revision Search after safety passes; Microsoft Agent Framework may make a conditional Azure OpenAI call only when multiple safe workers remain.</li>
             <li><strong>Delivery 1–4:</strong> Boards is queried by scheduled intake; Actions links an issue and assigns the cloud agent; the agent opens a PR; evidence-gated merge precedes development deployment.</li>
+            <li><strong>Status read 1–3:</strong> `/admin` calls `GET /api/delivery/status`; the API reads public GitHub issues, PRs, and allowlisted workflow runs, then reads only a selected recent AB# item from Azure Boards. Managed-identity organization provisioning is a separate human deployment step.</li>
         </ol>
     </section>
 

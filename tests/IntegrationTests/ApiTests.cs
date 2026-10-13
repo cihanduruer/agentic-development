@@ -28,6 +28,14 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(expected, Program.ShouldApplyDatabaseMigrations(isDevelopment, configured));
     }
 
+    [Theory]
+    [InlineData("ManagedIdentity", "ManagedIdentity")]
+    [InlineData("Pat", "Pat")]
+    [InlineData("not-a-valid-mode-secret-value", "Unconfigured")]
+    [InlineData(null, "Unconfigured")]
+    public void BoardsStartupLogModeIsRestrictedToKnownNonSecretValues(string? configuredMode, string expected) =>
+        Assert.Equal(expected, Program.GetBoardsAuthModeForLog(configuredMode));
+
     [Fact]
     public async Task HealthReturnsHealthy()
     {
@@ -35,6 +43,15 @@ public sealed class ApiTests : IClassFixture<WebApplicationFactory<Program>>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task DeliveryStatusRejectsNonPositiveWorkItemIdsBeforeUpstreamCalls()
+    {
+        var response = await client.GetAsync("/api/delivery/status?workItemId=0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("workItemId must be a positive integer.", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
