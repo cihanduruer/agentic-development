@@ -204,7 +204,11 @@ jobs:
                 const badge = line.match(/\balt=["']?(high|medium|low)\s+severity["']?/i);
                 const links = [...line.matchAll(/\]\((https:\/\/github\.com\/[^)\s]+#discussion_r\d+)\)/gi)];
                 if (badge && links.length === 1) {
-                  severities.set(links[0][1], badge[1].toLowerCase());
+                  const url = links[0][1];
+                  const level = badge[1].toLowerCase();
+                  severities.set(url, severities.has(url) && severities.get(url) !== level
+                    ? 'unknown'
+                    : level);
                 }
               }
               return severities;
@@ -229,9 +233,12 @@ jobs:
             }
             const findingSeverityRegressions = findingSeveritiesByUrl([
               '- <img alt="Medium severity"> [first finding](https://github.com/owner/repo/pull/1#discussion_r123)',
-              '- <img alt="Low severity"> [second finding](https://github.com/owner/repo/pull/1#discussion_r456)'
+              '- <img alt="Low severity"> [second finding](https://github.com/owner/repo/pull/1#discussion_r456)',
+              '- <img alt="High severity"> [conflicting finding](https://github.com/owner/repo/pull/1#discussion_r321)',
+              '- <img alt="Low severity"> [conflicting finding](https://github.com/owner/repo/pull/1#discussion_r321)'
             ].join('\n'));
             const commentSeverityRegressions = [
+              [{ body: 'Conflicting summary entries', url: 'https://github.com/owner/repo/pull/1#discussion_r321' }, 'unknown'],
               [{ body: 'Finding without an inline severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'medium'],
               [{ body: 'High severity', url: 'https://github.com/owner/repo/pull/1#discussion_r123' }, 'high'],
               [{ body: 'Finding without a matching summary badge', url: 'https://github.com/owner/repo/pull/1#discussion_r789' }, 'unknown']
