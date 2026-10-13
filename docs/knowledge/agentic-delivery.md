@@ -64,6 +64,8 @@ Application implementation and testing run in GitHub-hosted cloud agents and Git
 
 Use the [short team demo](../../demo/TEAM-DEMO-GUIDE.md) for the presenter sequence. Preview availability and price without submitting a new shared-development booking. Do not reset existing reservations or restart shared services for a demonstration.
 
+The .NET SDK is pinned: `global.json` sets an exact version with `rollForward: disable`, and every workflow installs that same version (enforced by `DotnetSdkPinContractTests`). A floating `10.0.x` SDK silently changed the implicit `Microsoft.NET.ILLink.Tasks` version and broke `dotnet restore --locked-mode` for every pipeline. Upgrade the SDK deliberately: change `global.json` and all workflows together and regenerate the lock files.
+
 The Hotel Agent Operations screen shows events ingested through the operations API. Desktop conversations, Azure Boards intake, and GitHub Actions are not automatically mirrored there. Show Boards and Actions for delivery progress; an empty operations view is not proof of inactivity or success.
 
 ## Azure Boards delivery synchronization
