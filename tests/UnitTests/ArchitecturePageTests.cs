@@ -94,7 +94,7 @@ public sealed class ArchitecturePageTests
         Assert.Contains("<ol class=\"delivery-flow\"", page);
         Assert.Contains("aria-describedby=\"delivery-flow-help\"", page);
         Assert.Contains("Open evidence", page);
-        Assert.Contains("Not connected (reason)", deliveryService);
+        Assert.Contains("Not connected (reason:", deliveryService);
         Assert.Contains("BoardsStatus:Organization", deliveryService);
         Assert.Contains("GitHubStatus:Token", deliveryService);
         Assert.Contains("\"Skipped\"", badge);
