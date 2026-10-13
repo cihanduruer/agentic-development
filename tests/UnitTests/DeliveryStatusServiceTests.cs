@@ -302,6 +302,34 @@ public sealed class DeliveryStatusServiceTests
     }
 
     [Fact]
+    public async Task DynamicCopilotCloudAgentRunIsCanonicalizedByWorkflowPath()
+    {
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name": "Running Copilot cloud agent",
+                      "path": "dynamic/copilot-swe-agent/copilot",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "head_sha": "{{HeadSha}}",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/777",
+                      "created_at": "2026-10-13T10:00:00Z",
+                      "run_started_at": "2026-10-13T10:00:00Z",
+                      "updated_at": "2026-10-13T10:02:00Z",
+                      "pull_requests": [{ "number": 43 }]
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(WorkItemId, CancellationToken.None);
+
+        var stage = snapshot.SelectedDelivery!.Stages.Single(item => item.Name == "GitHub issue and cloud agent");
+        Assert.Equal("Passed", stage.Status);
+    }
+
+    [Fact]
     public async Task UnknownWorkItemMustNotBeQueriedFromBoards()
     {
         var handler = new DeliveryHandler();

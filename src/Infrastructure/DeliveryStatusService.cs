@@ -651,7 +651,11 @@ public sealed class DeliveryStatusService(
         foreach (var element in runs.EnumerateArray())
         {
             var name = ReadOptionalString(element, "name");
-            if (!WorkflowNames.Contains(name, StringComparer.Ordinal))
+            if (ReadOptionalString(element, "path") == "dynamic/copilot-swe-agent/copilot")
+            {
+                name = "Copilot cloud agent";
+            }
+            else if (!WorkflowNames.Contains(name, StringComparer.Ordinal))
             {
                 name = ReadOptionalString(element, "workflow_name");
             }
