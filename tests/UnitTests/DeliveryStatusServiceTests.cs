@@ -196,7 +196,8 @@ public sealed class DeliveryStatusServiceTests
         const string mergeSha = "fedcba9876543210fedcba9876543210fedcba98";
         var handler = new DeliveryHandler(githubResponse: request =>
             request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
-                ? JsonResponse(HttpStatusCode.OK, $$"""
+                ? request.RequestUri.Query.Contains("branch=main", StringComparison.Ordinal)
+                    ? JsonResponse(HttpStatusCode.OK, $$"""
                     {"workflow_runs":[{
                       "name": "Deploy development",
                       "status": "completed",
@@ -209,6 +210,7 @@ public sealed class DeliveryStatusServiceTests
                       "pull_requests": []
                     }]}
                     """)
+                    : JsonResponse(HttpStatusCode.OK, """{"workflow_runs":[]}""")
                 : DeliveryHandler.StandardGitHubResponse(request));
         using var service = CreateService(handler);
 

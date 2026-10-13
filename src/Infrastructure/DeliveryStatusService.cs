@@ -19,7 +19,7 @@ public sealed class DeliveryStatusService(
     TimeProvider timeProvider) : IDeliveryStatusService, IDisposable
 {
     private static readonly TimeSpan AuthenticatedCacheLifetime = TimeSpan.FromSeconds(45);
-    // Three GitHub requests per refresh must stay under the 60 requests/hour unauthenticated quota.
+    // Four GitHub requests per refresh, refreshed at most every 5 minutes anonymously (48/hour), stay under the 60 requests/hour unauthenticated quota.
     private static readonly TimeSpan AnonymousCacheLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
     private const string RepositoryFullName = "cihanduruer/agentic-development";
