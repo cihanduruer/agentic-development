@@ -7,7 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
-  </ItemGroup>
+        <!-- Overrides the vulnerable 9.0.4 pulled in transitively by Microsoft.Data.SqlClient (GHSA-846f-f764-76mx). -->
+        <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />  </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AgenticHotelBooking.UnitTests" />
   </ItemGroup>
