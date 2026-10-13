@@ -18,8 +18,14 @@ public sealed class DeliveryStatusService(
     TokenCredential credential,
     TimeProvider timeProvider) : IDeliveryStatusService, IDisposable
 {
-    private static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan AuthenticatedCacheLifetime = TimeSpan.FromSeconds(45);
+    // Three GitHub requests per refresh must stay under the 60 requests/hour unauthenticated quota.
+    private static readonly TimeSpan AnonymousCacheLifetime = TimeSpan.FromMinutes(4);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(8);
+    private const string RepositoryFullName = "cihanduruer/agentic-development";
+    private const string BoardsOrganization = "ai-enabled-ado-org";
+    private const string BoardsProject = "sample-project";
+    private static readonly string[] TrustedAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
     private const int MaximumUpstreamResponseBytes = 1_048_576;
     private static readonly Regex WorkItemPattern = new(
         @"\bAB#([1-9][0-9]{0,9})\b",
@@ -62,6 +68,9 @@ public sealed class DeliveryStatusService(
     private DateTimeOffset lastFetchedAt;
     private DateTimeOffset lastSuccessAt;
     private DateTimeOffset noDataFailureAt;
+
+    private TimeSpan CacheLifetime =>
+        string.IsNullOrWhiteSpace(configuration["GitHubStatus:Token"]) ? AnonymousCacheLifetime : AuthenticatedCacheLifetime;
 
     public async Task<DeliveryStatusSnapshot> GetStatusAsync(
         int? workItemId,
@@ -353,7 +362,7 @@ public sealed class DeliveryStatusService(
         var api = boardsClient;
         var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{Uri.EscapeDataString(project)}/_apis/wit/workitems/{id}?fields=System.Id,System.Title,System.State,System.WorkItemType,System.Tags,System.ChangedDate&$expand=relations&api-version=7.1");
+            $"{Uri.EscapeDataString(project)}/_apis/wit/workitems/{id}?$expand=relations&api-version=7.1");
         if (authMode == "Pat")
         {
             var pat = configuration["BoardsStatus:Pat"];
@@ -569,13 +578,13 @@ public sealed class DeliveryStatusService(
                 !ReadString(element, "title", out var title) ||
                 !ReadString(element, "html_url", out var url) ||
                 !IsRepositoryUrl(url) ||
+                !TrustedAuthorAssociations.Contains(ReadOptionalString(element, "author_association"), StringComparer.Ordinal) ||
                 !ReadDate(element, "updated_at", out var updated))
             {
                 continue;
             }
 
-            var text = title + " " + ReadOptionalString(element, "body");
-            var workItemId = FindWorkItemId(text);
+            var workItemId = CanonicalIssueWorkItemId(title, ReadOptionalString(element, "body"));
             if (workItemId is null)
             {
                 continue;
@@ -591,6 +600,45 @@ public sealed class DeliveryStatusService(
             .ToList();
     }
 
+    private static int? CanonicalIssueWorkItemId(string title, string body)
+    {
+        var titleMatch = Regex.Match(title, @"^\[AB#([1-9][0-9]{0,9})\](?:\s|$)", RegexOptions.CultureInvariant);
+        var bodyMatch = Regex.Match(
+            body,
+            @"(?m)^\s*Azure Boards work item:\s*\[AB#([1-9][0-9]{0,9})\]\(https://dev\.azure\.com/" +
+                Regex.Escape(BoardsOrganization) + "/" + Regex.Escape(BoardsProject) +
+                @"/_workitems/edit/([1-9][0-9]{0,9})\)\s*$",
+            RegexOptions.CultureInvariant);
+        var ids = new List<string>();
+        if (titleMatch.Success)
+        {
+            ids.Add(titleMatch.Groups[1].Value);
+        }
+
+        if (bodyMatch.Success && bodyMatch.Groups[1].Value == bodyMatch.Groups[2].Value)
+        {
+            ids.Add(bodyMatch.Groups[1].Value);
+        }
+
+        var distinct = ids.Distinct(StringComparer.Ordinal).ToArray();
+        return distinct.Length == 1 &&
+            int.TryParse(distinct[0], NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+                ? id
+                : null;
+    }
+
+    private static bool IsSameRepositoryMainPullRequest(JsonElement element) =>
+        element.TryGetProperty("base", out var baseElement) &&
+        baseElement.TryGetProperty("ref", out var baseRef) &&
+        baseRef.ValueKind == JsonValueKind.String &&
+        baseRef.GetString() == "main" &&
+        element.TryGetProperty("head", out var headElement) &&
+        headElement.TryGetProperty("repo", out var headRepo) &&
+        headRepo.ValueKind == JsonValueKind.Object &&
+        headRepo.TryGetProperty("full_name", out var fullName) &&
+        fullName.ValueKind == JsonValueKind.String &&
+        string.Equals(fullName.GetString(), RepositoryFullName, StringComparison.Ordinal);
+
     private static List<PullRequestData> ParsePullRequests(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Array)
@@ -605,6 +653,7 @@ public sealed class DeliveryStatusService(
                 !ReadString(element, "title", out var title) ||
                 !ReadString(element, "html_url", out var url) ||
                 !IsRepositoryUrl(url) ||
+                !IsSameRepositoryMainPullRequest(element) ||
                 !ReadDate(element, "updated_at", out var updated))
             {
                 continue;
@@ -786,7 +835,7 @@ public sealed class DeliveryStatusService(
         var matched = runs.Where(run =>
             (pullRequest is not null && (run.PullRequestNumbers.Contains(pullRequest.Number) ||
                 (run.HeadSha.Length > 0 && run.HeadSha == pullRequest.HeadSha))) ||
-            run.WorkItemId == issue.WorkItemId)
+            (run.Name == "Agentic intake" && run.WorkItemId == issue.WorkItemId))
             .GroupBy(run => run.Name, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(run => run.UpdatedAt).First(), StringComparer.Ordinal);
 

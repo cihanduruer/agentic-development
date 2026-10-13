@@ -204,7 +204,7 @@ public sealed class DeliveryStatusServiceTests
 
             return DeliveryHandler.StandardGitHubResponse(request);
         });
-        using var service = CreateService(handler, timeProvider: time);
+        using var service = CreateService(handler, timeProvider: time, githubToken: FakeGitHubToken);
         var original = await service.GetStatusAsync(null, CancellationToken.None);
         time.Advance(TimeSpan.FromSeconds(46));
 
@@ -235,7 +235,7 @@ public sealed class DeliveryStatusServiceTests
             response.Headers.ETag = new EntityTagHeaderValue("\"fixture-v1\"");
             return response;
         });
-        using var service = CreateService(handler, configuredBoards: false, timeProvider: time);
+        using var service = CreateService(handler, configuredBoards: false, timeProvider: time, githubToken: FakeGitHubToken);
 
         var first = await service.GetStatusAsync(null, CancellationToken.None);
         time.Advance(TimeSpan.FromSeconds(46));
@@ -290,7 +290,7 @@ public sealed class DeliveryStatusServiceTests
 
             return DeliveryHandler.StandardGitHubResponse(request);
         });
-        using var service = CreateService(handler, timeProvider: time);
+        using var service = CreateService(handler, timeProvider: time, githubToken: FakeGitHubToken);
         await service.GetStatusAsync(null, CancellationToken.None);
         time.Advance(TimeSpan.FromSeconds(46));
         await service.GetStatusAsync(null, CancellationToken.None);
@@ -327,6 +327,105 @@ public sealed class DeliveryStatusServiceTests
 
         var stage = snapshot.SelectedDelivery!.Stages.Single(item => item.Name == "GitHub issue and cloud agent");
         Assert.Equal("Passed", stage.Status);
+    }
+
+    [Fact]
+    public async Task UntrustedIssuesAndForkOrNonMainPullRequestsAreNotDeliveries()
+    {
+        var handler = new DeliveryHandler(githubResponse: request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/issues", StringComparison.Ordinal))
+            {
+                return JsonResponse(HttpStatusCode.OK, $$"""
+                    [{
+                      "number": 70, "title": "[AB#{{WorkItemId}}] spoof", "body": "x", "author_association": "NONE",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/issues/70", "updated_at": "2026-10-13T10:00:00Z"
+                    }, {
+                      "number": 71, "title": "mentions AB#{{WorkItemId}} loosely", "body": "AB#{{WorkItemId}}", "author_association": "OWNER",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/issues/71", "updated_at": "2026-10-13T10:00:00Z"
+                    }]
+                    """);
+            }
+
+            if (path.EndsWith("/pulls", StringComparison.Ordinal))
+            {
+                return JsonResponse(HttpStatusCode.OK, $$"""
+                    [{
+                      "number": 72, "title": "AB#{{WorkItemId}} fork", "body": "AB#{{WorkItemId}}", "state": "open",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/pull/72", "updated_at": "2026-10-13T10:00:00Z",
+                      "base": { "ref": "main" }, "head": { "sha": "{{HeadSha}}", "repo": { "full_name": "attacker/agentic-development" } }
+                    }, {
+                      "number": 73, "title": "AB#{{WorkItemId}} other base", "body": "AB#{{WorkItemId}}", "state": "open",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/pull/73", "updated_at": "2026-10-13T10:00:00Z",
+                      "base": { "ref": "release" }, "head": { "sha": "{{HeadSha}}", "repo": { "full_name": "cihanduruer/agentic-development" } }
+                    }]
+                    """);
+            }
+
+            return DeliveryHandler.StandardGitHubResponse(request);
+        });
+        using var service = CreateService(handler);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        Assert.Empty(snapshot.Deliveries);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetStatusAsync(WorkItemId, CancellationToken.None));
+        Assert.Equal(0, handler.BoardsRequestCount);
+    }
+
+    [Fact]
+    public async Task WorkflowRunsForADifferentPullRequestWithTheSameWorkItemTitleAreNotAttributed()
+    {
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name": "PR validation", "status": "completed", "conclusion": "success",
+                      "display_title": "AB#{{WorkItemId}} other pull request",
+                      "head_sha": "fedcba9876543210fedcba9876543210fedcba98",
+                      "html_url": "https://github.com/cihanduruer/agentic-development/actions/runs/900",
+                      "created_at": "2026-10-13T10:00:00Z", "updated_at": "2026-10-13T10:01:00Z",
+                      "pull_requests": [{ "number": 99 }]
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler, configuredBoards: false);
+
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == WorkItemId);
+        Assert.Equal("Not started", delivery.Stages.Single(stage => stage.Name == "PR validation").Status);
+    }
+
+    [Fact]
+    public async Task AnonymousGitHubModeRefreshesNoMoreOftenThanItsRateBudgetAllows()
+    {
+        var time = new ManualTimeProvider();
+        var handler = new DeliveryHandler();
+        using var service = CreateService(handler, configuredBoards: false, timeProvider: time);
+
+        await service.GetStatusAsync(null, CancellationToken.None);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await service.GetStatusAsync(null, CancellationToken.None);
+        Assert.Equal(3, handler.GitHubRequestCount);
+
+        time.Advance(TimeSpan.FromMinutes(2));
+        await service.GetStatusAsync(null, CancellationToken.None);
+        Assert.Equal(6, handler.GitHubRequestCount);
+    }
+
+    [Fact]
+    public async Task BoardsRequestUsesOnlyExpandRelationsWithoutFieldsParameter()
+    {
+        var handler = new DeliveryHandler();
+        using var service = CreateService(handler);
+
+        await service.GetStatusAsync(WorkItemId, CancellationToken.None);
+
+        var boardsRequest = Assert.Single(handler.BoardsQueries);
+        Assert.Contains("$expand=relations", boardsRequest, StringComparison.Ordinal);
+        Assert.DoesNotContain("fields=", boardsRequest, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -409,6 +508,7 @@ public sealed class DeliveryStatusServiceTests
         public string? LastBoardsAuthorization { get; private set; }
         public string? LastGitHubAuthorization { get; private set; }
         public List<(HttpMethod Method, string Path)> Requests { get; } = [];
+        public List<string> BoardsQueries { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -417,6 +517,7 @@ public sealed class DeliveryStatusServiceTests
             if (request.RequestUri.Host == "dev.azure.com")
             {
                 BoardsRequestCount++;
+                BoardsQueries.Add(request.RequestUri.Query);
                 LastBoardsAuthorization = request.Headers.Authorization?.ToString();
                 return Task.FromResult(boardsResponse?.Invoke(request) ?? BoardsItemResponse());
             }
@@ -439,14 +540,16 @@ public sealed class DeliveryStatusServiceTests
                 return JsonResponse(HttpStatusCode.OK, $$"""
                     [{
                       "number": 42,
-                      "title": "AB#{{WorkItemId}}: show delivery progress",
-                      "body": "AB#{{WorkItemId}}",
+                      "title": "[AB#{{WorkItemId}}] show delivery progress",
+                      "body": "Azure Boards work item: [AB#{{WorkItemId}}](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/{{WorkItemId}})",
+                      "author_association": "OWNER",
                       "html_url": "https://github.com/cihanduruer/agentic-development/issues/42",
                       "updated_at": "2026-10-13T10:00:00Z"
                     }, {
                       "number": 45,
-                      "title": "AB#966: another delivery",
-                      "body": "AB#966",
+                      "title": "[AB#966] another delivery",
+                      "body": "Azure Boards work item: [AB#966](https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/966)",
+                      "author_association": "OWNER",
                       "html_url": "https://github.com/cihanduruer/agentic-development/issues/45",
                       "updated_at": "2026-10-13T10:05:00Z"
                     }]
@@ -464,7 +567,8 @@ public sealed class DeliveryStatusServiceTests
                       "updated_at": "2026-10-13T10:10:00Z",
                       "state": "open",
                       "merged_at": null,
-                      "head": { "sha": "{{HeadSha}}" }
+                      "base": { "ref": "main" },
+                      "head": { "sha": "{{HeadSha}}", "repo": { "full_name": "cihanduruer/agentic-development" } }
                     }, {
                       "number": 44,
                       "title": "AB#966: completed delivery",
@@ -473,7 +577,8 @@ public sealed class DeliveryStatusServiceTests
                       "updated_at": "2026-10-13T10:15:00Z",
                       "state": "closed",
                       "merged_at": "2026-10-13T10:14:00Z",
-                      "head": { "sha": "abcdef0123456789abcdef0123456789abcdef01" }
+                      "base": { "ref": "main" },
+                      "head": { "sha": "abcdef0123456789abcdef0123456789abcdef01", "repo": { "full_name": "cihanduruer/agentic-development" } }
                     }]
                     """);
             }

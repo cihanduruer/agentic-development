@@ -215,7 +215,7 @@ Open the Hotel's **Delivery overview** at `/admin`:
 2. Open the issue, PR, and workflow evidence links; read status text and timestamps rather than relying on badge color.
 3. Point out the refreshed UTC time, relative/absolute event times, and any known run duration.
 4. If the Azure Boards connector displays `Not connected (reason)` or an unavailable reason, state that the API identity has not been verified. Do not infer a Boards state from GitHub.
-5. Explain that the API caches for 45 seconds, the visible page polls every 20 seconds, and errors retain clearly marked stale last-good data.
+5. Explain that the API caches for 45 seconds (4 minutes without a GitHub token), the visible page polls every 20 seconds, and errors retain clearly marked stale last-good data.
 
 The page reads delivery metadata through `GET /api/delivery/status`; the browser never calls GitHub or Boards directly. It is public read-only metadata, not an authenticated admin page. Azure Boards identity setup is a separate human deployment step in [the connector runbook](../runbooks/boards-status-connector.md).
 

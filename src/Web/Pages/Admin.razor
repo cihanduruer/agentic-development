@@ -237,6 +237,12 @@
             connectionMessage = null;
             if (snapshot is not null)
             {
+                if (selectedWorkItemId is not null &&
+                    !snapshot.Deliveries.Any(item => item.WorkItemId?.ToString(System.Globalization.CultureInfo.InvariantCulture) == selectedWorkItemId))
+                {
+                    selectedWorkItemId = null;
+                }
+
                 if (selectedWorkItemId is null)
                 {
                     selectedWorkItemId = snapshot.Deliveries.FirstOrDefault(item => item.WorkItemId.HasValue)
