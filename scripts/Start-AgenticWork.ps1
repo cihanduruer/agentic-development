@@ -105,6 +105,99 @@ function Assert-WorkItemState {
     }
 }
 
+function ConvertTo-ReadableWorkItemText {
+    param([AllowNull()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+
+    $readableText = $Text
+    $readableText = $readableText -replace '(?i)<br\s*/?\s*>', "`n"
+    $readableText = $readableText -replace '(?i)<li(?:\s[^>]*)?>', "`n- "
+    $readableText = $readableText -replace '(?i)</li\s*>', "`n"
+    $readableText = $readableText -replace '(?i)</?(?:p|div|h[1-6]|ul|ol)\b[^>]*>', "`n"
+    $readableText = $readableText -replace '<[^>]*>', ' '
+    $readableText = [System.Net.WebUtility]::HtmlDecode($readableText)
+    $readableText = $readableText -replace '\r\n?', "`n"
+    $readableText = $readableText -replace '[^\S\n]+', ' '
+    $readableText = $readableText -replace '[ \t]*\n[ \t]*', "`n"
+    $readableText = $readableText -replace '\n{2,}', "`n"
+
+    return $readableText.Trim()
+}
+
+function New-WorkItemIssueBody {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Organization,
+
+        [Parameter(Mandatory)]
+        [string]$Project,
+
+        [Parameter(Mandatory)]
+        [int]$Id,
+
+        [AllowNull()]
+        [string]$Description,
+
+        [AllowNull()]
+        [string]$AcceptanceCriteria
+    )
+
+    $workItemUrl = "https://dev.azure.com/$Organization/$Project/_workitems/edit/$Id"
+    $descriptionText = ConvertTo-ReadableWorkItemText -Text $Description
+    $acceptanceCriteriaText = ConvertTo-ReadableWorkItemText -Text $AcceptanceCriteria
+    if ([string]::IsNullOrWhiteSpace($acceptanceCriteriaText)) {
+        $acceptanceCriteriaText = "Not provided."
+    }
+
+    return @"
+Azure Boards work item: [AB#$Id]($workItemUrl)
+
+## Product requirement
+
+$descriptionText
+
+## Acceptance criteria
+
+$acceptanceCriteriaText
+
+## Agent operating contract
+
+- Read `AGENTS.md` and the relevant files under `docs/knowledge/` before changing code.
+- Record the knowledge revision used.
+- Implement only this hotel-booking requirement.
+- Add or update automated tests for acceptance criteria and edge cases.
+- Run formatting, build, tests, and Bicep validation when relevant.
+- Update canonical knowledge when behavior changes.
+- Do not change platform automation unless this requirement explicitly needs it.
+- Open a pull request containing `AB#$Id` in its title or body.
+"@
+}
+
+function Sync-WorkItemIssueBody {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Repository,
+
+        [Parameter(Mandatory)]
+        [object]$Issue,
+
+        [Parameter(Mandatory)]
+        [string]$Body
+    )
+
+    if ([string]$Issue.body -ceq $Body) {
+        return $Issue
+    }
+
+    return Invoke-GitHubRest `
+        -Method Patch `
+        -Uri "https://api.github.com/repos/$Repository/issues/$($Issue.number)" `
+        -Body @{ body = $Body }
+}
+
 function Invoke-GitHubRest {
     param(
         [Parameter(Mandatory)]
@@ -240,12 +333,10 @@ function Invoke-AgenticIntake {
         $itemUri = "https://dev.azure.com/$Organization/$Project/_apis/wit/workitems/${id}?`$expand=relations&api-version=7.1"
         $item = Invoke-RestMethod -Uri $itemUri -Headers $adoHeaders
         $title = $item.fields."System.Title"
-        $description = $item.fields."System.Description" -replace "<[^>]+>", " " -replace "\s+", " "
         $tags = @([string]$item.fields."System.Tags" -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         $state = [string]$item.fields."System.State"
         $type = [string]$item.fields."System.WorkItemType"
         $teamProject = [string]$item.fields."System.TeamProject"
-        $workItemUrl = "https://dev.azure.com/$Organization/$Project/_workitems/edit/$id"
 
         if ($teamProject -ne $Project -or $type -notin @("User Story", "Bug")) {
             throw "AB#$id is not an eligible User Story or Bug in project '$Project'."
@@ -253,24 +344,12 @@ function Invoke-AgenticIntake {
 
         Assert-WorkItemState -State $state -Id $id
 
-        $issueBody = @"
-Azure Boards work item: [AB#$id]($workItemUrl)
-
-## Product requirement
-
-$description
-
-## Agent operating contract
-
-- Read `AGENTS.md` and the relevant files under `docs/knowledge/` before changing code.
-- Record the knowledge revision used.
-- Implement only this hotel-booking requirement.
-- Add or update automated tests for acceptance criteria and edge cases.
-- Run formatting, build, tests, and Bicep validation when relevant.
-- Update canonical knowledge when behavior changes.
-- Do not change platform automation unless this requirement explicitly needs it.
-- Open a pull request containing `AB#$id` in its title or body.
-"@
+        $issueBody = New-WorkItemIssueBody `
+            -Organization $Organization `
+            -Project $Project `
+            -Id $id `
+            -Description $item.fields."System.Description" `
+            -AcceptanceCriteria $item.fields."Microsoft.VSTS.Common.AcceptanceCriteria"
 
         if ($DryRun) {
             [PSCustomObject]@{ WorkItemId = $id; Title = $title; Action = "Would start Copilot" }
@@ -303,14 +382,21 @@ $description
                 }
             $repositoryIssues += $issue
         }
-        elseif (-not (Test-CopilotAssignee -Assignees $issue.assignees)) {
-            $issue = Invoke-GitHubRest `
-                -Method Post `
-                -Uri "https://api.github.com/repos/$Repository/issues/$($issue.number)/assignees" `
-                -Body @{
-                    assignees = @("copilot-swe-agent[bot]")
-                    agent_assignment = $assignment
-                }
+        else {
+            $issue = Sync-WorkItemIssueBody `
+                -Repository $Repository `
+                -Issue $issue `
+                -Body $issueBody
+
+            if (-not (Test-CopilotAssignee -Assignees $issue.assignees)) {
+                $issue = Invoke-GitHubRest `
+                    -Method Post `
+                    -Uri "https://api.github.com/repos/$Repository/issues/$($issue.number)/assignees" `
+                    -Body @{
+                        assignees = @("copilot-swe-agent[bot]")
+                        agent_assignment = $assignment
+                    }
+            }
         }
 
         if (-not (Test-CopilotAssignee -Assignees $issue.assignees)) {
