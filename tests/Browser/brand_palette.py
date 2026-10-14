@@ -15,6 +15,7 @@ import re
 import socket
 import subprocess
 import time
+import traceback
 from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -161,24 +162,29 @@ def run(args, api, output):
                 assert page.get_by_role("button", name="Check availability").evaluate(
                     "e => e.getBoundingClientRect().bottom <= innerHeight")
                 capture(page, size + "-catalog")
-                hotel_id = page.get_by_label("Hotel or destination", exact=True).input_value()
-                harbor_id = page.get_by_label("Hotel or destination", exact=True).locator("option").nth(1).get_attribute("value")
+                card_context = context(width, height)
+                card_page = card_context.new_page()
+                card_page.goto(args.web_url)
+                expect(card_page.locator(".hotel-card")).to_have_count(2)
+                expect(card_page.locator(".booking-panel")).to_have_count(0)
+                hotel_id = card_page.get_by_label("Hotel or destination", exact=True).input_value()
+                harbor_id = card_page.get_by_label("Hotel or destination", exact=True).locator("option").nth(1).get_attribute("value")
                 card_check_in = (date.today() + timedelta(days=days + 2)).isoformat()
                 card_check_out = (date.today() + timedelta(days=days + 5)).isoformat()
-                page.get_by_label("Check-in", exact=True).fill(card_check_in)
-                page.get_by_label("Check-out", exact=True).fill(card_check_out)
-                page.get_by_label("Guests", exact=True).fill("3")
+                card_page.get_by_label("Check-in", exact=True).fill(card_check_in)
+                card_page.get_by_label("Check-out", exact=True).fill(card_check_out)
+                card_page.get_by_label("Guests", exact=True).fill("3")
                 held_availability = []
-                page.route(
+                card_page.route(
                     f"**/api/hotels/{harbor_id}/availability**",
                     lambda route: held_availability.append(route))
-                with page.expect_request(
+                with card_page.expect_request(
                     lambda request: f"/api/hotels/{harbor_id}/availability?" in request.url
                 ):
-                    page.get_by_role("button", name="View rooms at Harbor Light").click()
+                    card_page.get_by_role("button", name="View rooms at Harbor Light").click()
                 assert len(held_availability) == 1
-                expect(page.locator(".booking-panel")).to_have_count(0)
-                with page.expect_response(
+                expect(card_page.locator(".booking-panel")).to_have_count(0)
+                with card_page.expect_response(
                     lambda response: f"/api/hotels/{harbor_id}/availability?" in response.url
                 ) as card_availability:
                     held_availability.pop().continue_()
@@ -189,9 +195,9 @@ def run(args, api, output):
                     "checkOut": [card_check_out],
                     "guests": ["3"],
                 }
-                expect(page.get_by_label("Hotel or destination", exact=True)).to_have_value(harbor_id)
-                expect(page.locator(".booking-panel h2")).to_have_text("Available rooms at Harbor Light")
-                expect(page.locator(".room-option")).to_have_count(1)
+                expect(card_page.get_by_label("Hotel or destination", exact=True)).to_have_value(harbor_id)
+                expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Harbor Light")
+                expect(card_page.locator(".room-option")).to_have_count(1)
                 evidence["checks"].append({
                     "hotelCardAvailability": {
                         "hotel": "Harbor Light",
@@ -202,36 +208,38 @@ def run(args, api, output):
                     },
                     "availabilityPanelHiddenBeforeSearch": True,
                 })
-                with page.expect_request(
+                with card_page.expect_request(
                     lambda request: f"/api/hotels/{harbor_id}/availability?" in request.url
                 ):
-                    page.get_by_role("button", name="View rooms at Harbor Light").click()
+                    card_page.get_by_role("button", name="View rooms at Harbor Light").click()
                 assert len(held_availability) == 1
-                expect(page.locator(".booking-panel")).to_have_count(0)
-                page.get_by_label("Hotel or destination", exact=True).select_option(hotel_id)
-                page.get_by_label("Guests", exact=True).fill("2")
-                expect(page.locator(".booking-panel")).to_have_count(0)
-                with page.expect_response(
+                expect(card_page.locator(".booking-panel")).to_have_count(0)
+                card_page.get_by_label("Hotel or destination", exact=True).select_option(hotel_id)
+                card_page.get_by_label("Guests", exact=True).fill("2")
+                expect(card_page.locator(".booking-panel")).to_have_count(0)
+                with card_page.expect_response(
                     lambda response: f"/api/hotels/{hotel_id}/availability?" in response.url
                 ) as current_availability:
-                    page.get_by_role("button", name="Check availability").click()
+                    card_page.get_by_role("button", name="Check availability").click()
                 assert current_availability.value.status == 200
-                expect(page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
-                expect(page.locator(".room-option")).to_have_count(2)
-                with page.expect_response(
+                expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
+                expect(card_page.locator(".room-option")).to_have_count(2)
+                with card_page.expect_response(
                     lambda response: f"/api/hotels/{harbor_id}/availability?" in response.url
                 ) as stale_availability:
                     held_availability.pop().continue_()
                 assert stale_availability.value.status == 200
-                page.wait_for_timeout(100)
-                expect(page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
-                expect(page.locator(".room-option")).to_have_count(2)
+                card_page.wait_for_timeout(100)
+                expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
+                expect(card_page.locator(".room-option")).to_have_count(2)
                 evidence["checks"].append({
                     "outOfOrderAvailability": {
                         "newerHotel": "Canal House",
                         "lateOlderResponseDiscarded": True,
                     }
                 })
+                capture(card_page, size + "-hotel-card-results")
+                card_context.close()
                 if size == "mobile":
                     toggle = page.get_by_role("button", name="Navigation menu")
                     toggle.focus()
@@ -527,7 +535,9 @@ def run(args, api, output):
             evidence["status"] = "passed"
         except Exception as error:
             evidence["status"] = "failed"
-            evidence["error"] = str(error)
+            evidence["error"] = repr(error)
+            evidence["errorMessage"] = str(error)
+            evidence["traceback"] = traceback.format_exc()
             for index, ctx in enumerate(browser.contexts):
                 for page_index, open_page in enumerate(ctx.pages):
                     open_page.screenshot(path=str(output / f"failure-{index}-{page_index}.png"), full_page=True)
