@@ -271,18 +271,18 @@ def run(args, api, output):
                 expect(check_in_input).to_be_focused()
                 check_in_input.fill(check_in)
                 check_out_input = page.get_by_label("Check-out", exact=True)
-                check_out_input.focus()
+                page.keyboard.press("Tab")
                 expect(check_out_input).to_be_focused()
                 check_out_input.fill(check_out)
                 guest_input = page.get_by_label("Guests", exact=True)
-                guest_input.focus()
+                page.keyboard.press("Tab")
                 expect(guest_input).to_be_focused()
                 state = styles(guest_input)
                 assert state["outlineColor"] == COLORS["blue"] and state["outlineWidth"] == "3px"
                 evidence["checks"].append(check_focus(guest_input))
                 evidence["checks"].append(check_pair(guest_input, "borderTopColor", "backgroundColor", 3))
                 search = page.get_by_role("button", name="Check availability")
-                search.focus()
+                page.keyboard.press("Tab")
                 expect(search).to_be_focused()
                 evidence["checks"].append(check_focus(search))
                 capture(page, size + "-form-focus")
@@ -490,15 +490,37 @@ def run(args, api, output):
             narrow_context = context(320, 780)
             narrow_page = narrow_context.new_page()
             narrow_page.goto(args.web_url)
-            expect(narrow_page.get_by_label("Hotel or destination", exact=True)).to_be_visible()
-            expect(narrow_page.get_by_role("button", name="Check availability")).to_be_visible()
+            narrow_fields = [
+                narrow_page.get_by_label(field, exact=True)
+                for field in ["Hotel or destination", "Check-in", "Check-out", "Guests"]
+            ]
+            narrow_fields.append(narrow_page.get_by_role("button", name="Check availability"))
+            for field in narrow_fields:
+                expect(field).to_be_visible()
             assert narrow_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-            for field in ["Hotel or destination", "Check-in", "Check-out", "Guests"]:
-                bounds = narrow_page.get_by_label(field, exact=True).bounding_box()
-                assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 320, (field, bounds)
+            bounds = [field.bounding_box() for field in narrow_fields]
+            assert all(
+                box and box["x"] >= 0 and box["x"] + box["width"] <= 320 and
+                box["y"] >= 0 and box["y"] + box["height"] <= 780
+                for box in bounds
+            ), bounds
+            assert all(
+                first["y"] + first["height"] <= second["y"]
+                for first, second in zip(bounds, bounds[1:])
+            ), bounds
+            assert all(
+                first["y"] + first["height"] <= second["y"] or
+                second["y"] + second["height"] <= first["y"] or
+                first["x"] + first["width"] <= second["x"] or
+                second["x"] + second["width"] <= first["x"]
+                for index, first in enumerate(bounds)
+                for second in bounds[index + 1:]
+            ), bounds
             evidence["checks"].append({
                 "viewport": "narrow-320px",
-                "searchFieldsWithinViewport": True,
+                "fiveSearchControlsWithinViewport": True,
+                "searchControlsInVerticalOrder": True,
+                "searchControlsDoNotOverlap": True,
                 "documentHorizontalOverflow": False,
             })
             capture(narrow_page, "narrow-search-first-viewport")
