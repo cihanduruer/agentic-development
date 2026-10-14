@@ -97,6 +97,9 @@
 .pm-toggle::after { content: ""; width: .45rem; height: .45rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-.1rem) rotate(45deg); transition: transform .15s ease; }
 .pm-toggle[aria-expanded="true"]::after { transform: translateY(.1rem) rotate(-135deg); }
 .pm-toggle:hover { background: var(--brand-crimson); color: var(--brand-cream); }
+.pm-source-tags { list-style: none; margin: .15rem 0 .6rem; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem; }
+.pm-source-tag { font-size: .72rem; font-weight: 600; line-height: 1.5; padding: .05rem .6rem; border: 1px solid transparent; border-radius: 999px; background: var(--brand-taupe); color: var(--brand-ink); }
+.pm-source-tag.pending { background: #fff4d6; border-color: #8a5a00; color: #6b4500; }
 .pm-knowledge-heading:has(+ [hidden]) { margin-bottom: 0; }
 .pm-knowledge-note { margin: 0 0 .7rem; font-size: .9rem; }
 

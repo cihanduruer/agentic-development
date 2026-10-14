@@ -33,6 +33,17 @@
             </div>
         </div>
 
+        @if (blocks.Count > 0)
+        {
+            <ul class="pm-source-tags" aria-label="Indexed files">
+                @foreach (var group in blocks.GroupBy(block => block.Path))
+                {
+                    var pendingSource = group.Any(block => block.Pending);
+                    <li class="pm-source-tag @(pendingSource ? "pending" : null)" title="@group.Key">@FileName(group.Key)@(pendingSource ? " (pending)" : string.Empty)</li>
+                }
+            </ul>
+        }
+
         <div id="knowledge-body" hidden="@(!knowledgeOpen)">
         <div class="pm-add" aria-labelledby="add-knowledge-title" role="group">
             <p id="add-knowledge-title" class="pm-add-title">Add your own knowledge</p>
