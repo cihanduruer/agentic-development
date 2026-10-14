@@ -479,6 +479,11 @@ public sealed class KnowledgeUploadService(
                 $"The content would create {chunks.Count} blocks; the limit is {KnowledgeUploadLimits.MaxBlocks}. Split it into smaller files.");
         }
 
+        // Fail closed: before any slow or fallible work, nothing from the previous version stays retrievable.
+        var existingIds = await FindIdsAsync(path, cancellationToken);
+        await KnowledgeIndexOperations.SetOwnerAsync(
+            searchClient.Value, existingIds, KnowledgeApproval.PendingOwner, cancellationToken);
+
         var vectors = await embedder.Value.EmbedAsync(
             chunks.Select(chunk => $"{chunk.Title}\n\n{chunk.Content}").ToArray(),
             cancellationToken);
@@ -497,11 +502,6 @@ public sealed class KnowledgeUploadService(
             ChunkIndex = chunk.ChunkIndex,
             ContentVector = vectors[position].ToArray()
         }).ToArray();
-
-        // Fail closed: until the replacement is complete, nothing from the previous version stays retrievable.
-        var existingIds = await FindIdsAsync(path, cancellationToken);
-        await KnowledgeIndexOperations.SetOwnerAsync(
-            searchClient.Value, existingIds, KnowledgeApproval.PendingOwner, cancellationToken);
 
         var response = await searchClient.Value.MergeOrUploadDocumentsAsync(documents, cancellationToken: cancellationToken);
         var failures = response.Value.Results.Where(result => !result.Succeeded).ToArray();

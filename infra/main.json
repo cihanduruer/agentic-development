@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "12889100729183565693"
+      "templateHash": "11409480651632891190"
     }
   },
   "parameters": {
@@ -120,7 +120,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "16795733354694841108"
+              "templateHash": "9087013661473952079"
             }
           },
           "parameters": {
@@ -156,13 +156,6 @@
             "existingSqlServerName": {
               "type": "string",
               "defaultValue": ""
-            },
-            "knowledgeUploadsEnabled": {
-              "type": "bool",
-              "defaultValue": false,
-              "metadata": {
-                "description": "Enable knowledge uploads, approval, and removal. Also grants the API identity Search Index Data Contributor; leave false until the admin page has sign-in."
-              }
             },
             "tags": {
               "type": "object"
@@ -457,7 +450,7 @@
                     },
                     {
                       "name": "WorkItemChat__UploadEnabled",
-                      "value": "[if(parameters('knowledgeUploadsEnabled'), 'true', 'false')]"
+                      "value": "false"
                     },
                     {
                       "name": "OperationsAuth__Authority",
@@ -564,22 +557,6 @@
                 "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-api', variables('baseName'))), '2023-12-01', 'full').identity.principalId]",
                 "principalType": "ServicePrincipal",
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '1407120a-92aa-4202-b7e9-c0e197c71c8f')]"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', format('{0}-api', variables('baseName')))]",
-                "[resourceId('Microsoft.Search/searchServices', format('{0}-search', variables('baseName')))]"
-              ]
-            },
-            {
-              "condition": "[and(parameters('configureApi'), parameters('knowledgeUploadsEnabled'))]",
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[resourceId('Microsoft.Search/searchServices', format('{0}-search', variables('baseName')))]",
-              "name": "[guid(resourceId('Microsoft.Search/searchServices', format('{0}-search', variables('baseName'))), resourceId('Microsoft.Web/sites', format('{0}-api', variables('baseName'))), 'search-index-data-contributor')]",
-              "properties": {
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-api', variables('baseName'))), '2023-12-01', 'full').identity.principalId]",
-                "principalType": "ServicePrincipal",
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Web/sites', format('{0}-api', variables('baseName')))]",
