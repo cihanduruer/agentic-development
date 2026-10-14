@@ -69,6 +69,26 @@ def check_focus(locator):
     return {"state": "keyboard focus", "styles": state, "contrast": round(ratio, 3), "minimum": 3}
 
 
+def tab_to_next_control(page, current, target, max_tabs=6):
+    expect(current).to_be_focused()
+    for attempt in range(1, max_tabs + 1):
+        page.keyboard.press("Tab")
+        if target.evaluate("(element) => document.activeElement === element"):
+            return attempt
+        if current.evaluate("(element) => document.activeElement === element"):
+            continue
+        active = page.evaluate("""() => {
+            const element = document.activeElement;
+            return element ? `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}` : 'none';
+        }""")
+        raise AssertionError(
+            f"Tab traversal from {current} focused unexpected element {active}, not {target}"
+        )
+    raise AssertionError(
+        f"Tab traversal from {current} did not reach {target} within {max_tabs} presses"
+    )
+
+
 def audit_text(page):
     samples = page.evaluate("""() => [...document.querySelectorAll('body *')].filter(e =>
         e.getClientRects().length && getComputedStyle(e).visibility === 'visible' &&
@@ -272,19 +292,19 @@ def run(args, api, output):
                 check_in_input.fill(check_in)
                 expect(check_in_input).to_be_focused()
                 check_out_input = page.get_by_label("Check-out", exact=True)
-                check_in_input.press("Tab")
+                tab_to_next_control(page, check_in_input, check_out_input)
                 expect(check_out_input).to_be_focused()
                 check_out_input.fill(check_out)
                 expect(check_out_input).to_be_focused()
                 guest_input = page.get_by_label("Guests", exact=True)
-                check_out_input.press("Tab")
+                tab_to_next_control(page, check_out_input, guest_input)
                 expect(guest_input).to_be_focused()
                 state = styles(guest_input)
                 assert state["outlineColor"] == COLORS["blue"] and state["outlineWidth"] == "3px"
                 evidence["checks"].append(check_focus(guest_input))
                 evidence["checks"].append(check_pair(guest_input, "borderTopColor", "backgroundColor", 3))
                 search = page.get_by_role("button", name="Check availability")
-                guest_input.press("Tab")
+                page.keyboard.press("Tab")
                 expect(search).to_be_focused()
                 evidence["checks"].append(check_focus(search))
                 capture(page, size + "-form-focus")
