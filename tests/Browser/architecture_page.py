@@ -38,7 +38,7 @@ def main():
                 page.on("pageerror", lambda error: errors.append(str(error)))
 
                 page.goto(f"{base}/", wait_until="networkidle")
-                expect(page.get_by_role("heading", name="Find a room. Book with confidence.", level=1)).to_be_visible()
+                expect(page.get_by_role("heading", name="Your next stay starts here!", level=1)).to_be_visible()
                 expect(page).to_have_title("Hotel Booking")
                 if name == "mobile":
                     page.get_by_role("button", name="Navigation menu").click()
@@ -46,6 +46,7 @@ def main():
                 assert page.locator(".sidebar nav").get_by_role("link").count() == 2
                 expect(page.locator(".sidebar nav").get_by_role("link", name="AI Product Management")).to_be_visible()
                 public_copy = page.locator("body").inner_text().lower()
+                assert "find a room. book with confidence." not in public_copy
                 for forbidden_copy in ("agentic", "agent operations", "architecture", "delivery", "demo", "agents", "sample hotel"):
                     assert forbidden_copy not in public_copy, (name, forbidden_copy)
 

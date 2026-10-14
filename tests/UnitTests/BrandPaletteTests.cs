@@ -46,6 +46,15 @@ public sealed class BrandPaletteTests
     }
 
     [Fact]
+    public void HomePageDisplaysTheCurrentBrandSlogan()
+    {
+        var home = ReadSource("src/Web/Pages/Home.razor");
+
+        Assert.Contains("<h1>Your next stay starts here!</h1>", home);
+        Assert.DoesNotContain("Find a room. Book with confidence.", home);
+    }
+
+    [Fact]
     public void HotelLoadingStatusUsesAccessibleHotelBrandPresentation()
     {
         var home = ReadSource("src/Web/Pages/Home.razor");
