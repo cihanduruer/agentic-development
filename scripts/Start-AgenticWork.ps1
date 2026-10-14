@@ -112,12 +112,13 @@ function ConvertTo-ReadableWorkItemText {
         return ""
     }
 
-    $readableText = [System.Net.WebUtility]::HtmlDecode($Text)
+    $readableText = $Text
     $readableText = $readableText -replace '(?i)<br\s*/?\s*>', "`n"
     $readableText = $readableText -replace '(?i)<li(?:\s[^>]*)?>', "`n- "
     $readableText = $readableText -replace '(?i)</li\s*>', "`n"
     $readableText = $readableText -replace '(?i)</?(?:p|div|h[1-6]|ul|ol)\b[^>]*>', "`n"
     $readableText = $readableText -replace '<[^>]*>', ' '
+    $readableText = [System.Net.WebUtility]::HtmlDecode($readableText)
     $readableText = $readableText -replace '\r\n?', "`n"
     $readableText = $readableText -replace '[^\S\n]+', ' '
     $readableText = $readableText -replace '[ \t]*\n[ \t]*', "`n"
