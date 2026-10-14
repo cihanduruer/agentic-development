@@ -293,7 +293,7 @@ public sealed class KnowledgeCenterSearch(WorkItemChatOptions options, TokenCred
         return sources;
     }
 
-    public const int MaxListedBlocks = 200;
+    public const int MaxListedBlocks = 5_000;
     public const int BlockExcerptCharacters = 140;
 
     public async Task<IReadOnlyList<KnowledgeBlock>> ListAsync(CancellationToken cancellationToken)
@@ -304,7 +304,7 @@ public sealed class KnowledgeCenterSearch(WorkItemChatOptions options, TokenCred
                 "WorkItemChat:Endpoint and WorkItemChat:SearchEndpoint are required for the knowledge center.");
         }
 
-        var listing = new SearchOptions { Size = MaxListedBlocks };
+        var listing = new SearchOptions();
         foreach (var field in new[]
                  {
                      nameof(KnowledgeCenterDocument.Id), nameof(KnowledgeCenterDocument.Title),
@@ -321,6 +321,12 @@ public sealed class KnowledgeCenterSearch(WorkItemChatOptions options, TokenCred
         var blocks = new List<KnowledgeBlock>();
         await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
         {
+            if (blocks.Count >= MaxListedBlocks)
+            {
+                throw new InvalidOperationException(
+                    $"The knowledge center has more than {MaxListedBlocks:N0} blocks; the inventory cannot list them all.");
+            }
+
             var document = result.Document;
             var content = document.GetString(nameof(KnowledgeCenterDocument.Content)) ?? string.Empty;
             blocks.Add(new KnowledgeBlock(

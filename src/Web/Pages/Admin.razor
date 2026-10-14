@@ -141,6 +141,10 @@
                         </li>
                     }
                 </ol>
+                @if (messages.Count > MaxSentMessages)
+                {
+                    <p class="pm-hint" role="note">Only the latest @MaxSentMessages messages and the current draft are sent to the assistant.</p>
+                }
             }
 
             @if (thinking)
@@ -245,6 +249,9 @@
     ];
 
     private readonly List<Turn> messages = [];
+
+    // The API accepts at most 24 messages and requires the last to be from the user.
+    private const int MaxSentMessages = 23;
     private List<Source> sources = [];
     private List<Block> blocks = [];
     private HashSet<string> usedKeys = [];
@@ -504,7 +511,7 @@
         {
             var response = await Http.PostAsJsonAsync("api/work-item-chat", new
             {
-                messages,
+                messages = messages.TakeLast(MaxSentMessages).ToList(),
                 draft = new Draft(draftTitle, draftDescription, Criteria)
             });
             if (!response.IsSuccessStatusCode)
@@ -564,7 +571,7 @@
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException)
         {
-            createError = "Azure Boards could not be reached. Nothing was created.";
+            createError = "The result is unknown: the request did not finish. Check Azure Boards for a new story before trying again, so you don't create a duplicate.";
             confirming = false;
         }
         finally

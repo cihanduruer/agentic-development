@@ -129,6 +129,15 @@
     box-shadow: 0 0 0 3px var(--brand-ink);
 }
 
+/* NavLink adds .active on /admin; keep the cream text on the dark fill and mark the page with an underline. */
+.nav-item ::deep a.ai-aura.active {
+    background-color: transparent;
+    color: var(--brand-cream);
+    text-decoration: underline;
+    text-underline-offset: .25em;
+    box-shadow: 0 0 22px rgb(255 0 15 / 75%);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .nav-item ::deep a.ai-aura::before {
         animation: none;

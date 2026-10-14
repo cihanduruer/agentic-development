@@ -16,7 +16,7 @@ Product managers can upload PDF, Word, Excel, text, Markdown or CSV files, or pa
 
 ## Safety controls
 
-- `WorkItemChat__CreateEnabled` and `WorkItemChat__UploadEnabled` default to false. When false, work-item creation, uploads, approval, and removal return HTTP 403. They are not set in deployed infrastructure.
+- `WorkItemChat__CreateEnabled` and `WorkItemChat__UploadEnabled` default to false. When false, work-item creation, uploads, approval, and removal return HTTP 403. Infrastructure sets the upload setting from the `knowledgeUploadsEnabled` Bicep parameter (false by default) and grants the API identity Search Index Data Contributor only when it is true. Creation is not set in infrastructure.
 - Uploads are limited to 5 MB and verified by file signature, package contents, ZIP entry and expansion limits, page and row limits, and extracted-text limits. Executables and unsupported types are rejected.
 - The prompt tells the model to treat retrieved text as reference data, ignore instructions in it, and prefer repository documentation over uploaded content.
 - The API reaches Azure OpenAI and Azure AI Search only through its managed identity.

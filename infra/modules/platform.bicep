@@ -8,6 +8,8 @@ param operationsApiAudience string
 param configureApi bool = true
 param configureSql bool = true
 param existingSqlServerName string = ''
+@description('Enable knowledge uploads, approval, and removal. Also grants the API identity Search Index Data Contributor; leave false until the admin page has sign-in.')
+param knowledgeUploadsEnabled bool = false
 param tags object
 
 var suffix = uniqueString(subscription().id, resourceGroup().id, environment)
@@ -265,6 +267,10 @@ resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
           value: 'https://${search.name}.search.windows.net/'
         }
         {
+          name: 'WorkItemChat__UploadEnabled'
+          value: knowledgeUploadsEnabled ? 'true' : 'false'
+        }
+        {
           name: 'OperationsAuth__Authority'
           value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
         }
@@ -353,6 +359,19 @@ resource apiSearchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
       '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+    )
+  }
+}
+
+resource apiSearchWriterRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi && knowledgeUploadsEnabled) {
+  name: guid(search.id, api.id, 'search-index-data-contributor')
+  scope: search
+  properties: {
+    principalId: api!.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
     )
   }
 }

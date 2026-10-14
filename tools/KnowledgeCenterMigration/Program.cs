@@ -2,7 +2,9 @@ using AgenticHotelBooking.Infrastructure;
 using Azure.Identity;
 
 // One-time migration of repository knowledge into the Azure AI Search knowledge center.
-// Source files stay in the repository; nothing is deleted or modified.
+// Source files stay in the repository and are never modified. Re-running prunes chunks of shortened or
+// removed files within the migrated area; the admin page's uploads area is never touched.
+// By default the hotel-site files (product, domain, architecture) are migrated; use --include to override.
 var dryRun = args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
 var arguments = args
     .Where(argument => !string.Equals(argument, "--dry-run", StringComparison.OrdinalIgnoreCase))
@@ -50,4 +52,4 @@ var migrated = await new KnowledgeCenterIndexer(
         credential,
         new AzureOpenAiEmbedder(new Uri(openAiEndpoint), embeddingDeployment, credential))
     .MigrateAsync(chunks, CancellationToken.None);
-Console.WriteLine($"Migrated {migrated} chunks into index '{index}' (area '{area}', revision {revision}).");
+Console.WriteLine($"Migrated {migrated.Migrated} chunks into index '{index}' (area '{area}', revision {revision}); removed {migrated.Pruned} stale chunks.");

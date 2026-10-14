@@ -184,13 +184,91 @@ public sealed class KnowledgeUploadTests
     [Theory]
     [InlineData("Guest notes.pdf", "uploads/Guest notes.pdf")]
     [InlineData("../../etc/passwd", "uploads/passwd")]
-    [InlineData("C:\\temp\\evil'name.txt", "uploads/evil_name.txt")]
     [InlineData("", "uploads/untitled")]
     public void BuildsASafeUploadPathFromAnyFileName(string name, string expected)
     {
         var path = KnowledgeUploadService.SourcePathFor(name);
 
         Assert.Equal(expected, path);
+    }
+
+    [Fact]
+    public void AlteredNamesGetAStableHashSoDifferentFilesCannotCollide()
+    {
+        var apostrophe = KnowledgeUploadService.SourcePathFor("C:\\temp\\a'b.txt");
+        var underscore = KnowledgeUploadService.SourcePathFor("a_b.txt");
+
+        Assert.Matches(@"^uploads/a_b-[0-9a-f]{8}\.txt$", apostrophe);
+        Assert.Equal("uploads/a_b.txt", underscore);
+        Assert.NotEqual(apostrophe, underscore);
+        Assert.Equal(apostrophe, KnowledgeUploadService.SourcePathFor("a'b.txt"));
+        Assert.NotEqual(KnowledgeUploadService.SourcePathFor("a'b.txt"), KnowledgeUploadService.SourcePathFor("a\"b.txt"));
+    }
+
+    [Fact]
+    public void LongNamesAreShortenedWithAHashAndStayValidUploadPaths()
+    {
+        var first = KnowledgeUploadService.SourcePathFor(new string('x', 150) + "1.pdf");
+        var second = KnowledgeUploadService.SourcePathFor(new string('x', 150) + "2.pdf");
+
+        Assert.NotEqual(first, second);
+        Assert.All([first, second], path =>
+        {
+            Assert.True(KnowledgeUploadService.IsUploadPath(path), path);
+            Assert.EndsWith(".pdf", path, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void RejectsAWorkbookWithMoreRowsThanTheLimitInsteadOfTruncatingIt()
+    {
+        using var stream = new MemoryStream();
+        using (var excel = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook))
+        {
+            var workbook = excel.AddWorkbookPart();
+            workbook.Workbook = new Xl.Workbook(new Xl.Sheets());
+            var part = workbook.AddNewPart<WorksheetPart>();
+            var data = new Xl.SheetData();
+            for (var row = 0; row <= KnowledgeUploadLimits.MaxSpreadsheetRows; row++)
+            {
+                data.Append(new Xl.Row(new Xl.Cell { CellValue = new Xl.CellValue(row.ToString(System.Globalization.CultureInfo.InvariantCulture)) }));
+            }
+
+            part.Worksheet = new Xl.Worksheet(data);
+            workbook.Workbook.GetFirstChild<Xl.Sheets>()!.Append(new Xl.Sheet
+            {
+                Id = workbook.GetIdOfPart(part),
+                SheetId = 1,
+                Name = "Big"
+            });
+            workbook.Workbook.Save();
+        }
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            UploadedDocumentExtractor.Extract("big.xlsx", stream.ToArray()));
+
+        Assert.Contains("more than", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EqualsFilterEscapesQuotesAndNamesTheField()
+    {
+        Assert.Equal("SourcePath eq 'uploads/it''s.txt'", KnowledgeIndexOperations.EqualsFilter("SourcePath", "uploads/it's.txt"));
+    }
+
+    [Fact]
+    public async Task MigrationNeverTargetsTheUploadsAreaAndEmptyMigrationsDoNothing()
+    {
+        var indexer = new KnowledgeCenterIndexer(
+            new Uri("https://search.example/"),
+            "index",
+            new ThrowingCredential(),
+            new AzureOpenAiEmbedder(new Uri("https://openai.example/"), "embed", new ThrowingCredential()));
+        var uploads = KnowledgeCenterChunker.FromSections(
+            "uploads", "uploads/a.txt", "txt", "owner", "2026-10-14", "rev", [new ExtractedSection("T", "Body")]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => indexer.MigrateAsync(uploads, CancellationToken.None));
+        Assert.Equal(new KnowledgeMigrationResult(0, 0), await indexer.MigrateAsync([], CancellationToken.None));
     }
 
     [Theory]

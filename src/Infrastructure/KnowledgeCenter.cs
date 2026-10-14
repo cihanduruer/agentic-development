@@ -6,6 +6,7 @@ using Azure.Core;
 using Azure.Search.Documents;
 using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Indexes.Models;
+using Azure.Search.Documents.Models;
 using OpenAI;
 using OpenAI.Embeddings;
 
@@ -248,19 +249,99 @@ public sealed class AzureOpenAiEmbedder(Uri openAiEndpoint, string deployment, T
             : new UriBuilder(endpoint) { Path = $"{endpoint.AbsolutePath.TrimEnd('/')}/openai/v1/" }.Uri;
 }
 
+public sealed record KnowledgeMigrationResult(int Migrated, int Pruned);
+
+public static class KnowledgeIndexOperations
+{
+    // Azure AI Search accepts at most 1,000 actions per request.
+    private const int BatchSize = 500;
+
+    public static string EqualsFilter(string field, string value) =>
+        $"{field} eq '{value.Replace("'", "''", StringComparison.Ordinal)}'";
+
+    public static async Task<List<string>> FindIdsAsync(
+        SearchClient client,
+        string filter,
+        CancellationToken cancellationToken)
+    {
+        var options = new SearchOptions { Filter = filter };
+        options.Select.Add(nameof(KnowledgeCenterDocument.Id));
+        var response = await client.SearchAsync<SearchDocument>("*", options, cancellationToken);
+        var ids = new List<string>();
+        await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
+        {
+            if (result.Document.GetString(nameof(KnowledgeCenterDocument.Id)) is { Length: > 0 } id)
+            {
+                ids.Add(id);
+            }
+        }
+
+        return ids;
+    }
+
+    public static async Task DeleteIdsAsync(
+        SearchClient client,
+        IReadOnlyCollection<string> ids,
+        CancellationToken cancellationToken)
+    {
+        foreach (var batch in ids.Chunk(BatchSize))
+        {
+            var response = await client.DeleteDocumentsAsync(
+                nameof(KnowledgeCenterDocument.Id), batch, cancellationToken: cancellationToken);
+            var failures = response.Value.Results.Where(result => !result.Succeeded).ToArray();
+            if (failures.Length > 0)
+            {
+                throw new RequestFailedException(
+                    $"Azure AI Search failed to delete {failures.Length} knowledge center blocks: " +
+                    string.Join(", ", failures.Select(result => $"{result.Key}: {result.ErrorMessage}")));
+            }
+        }
+    }
+
+    public static async Task SetOwnerAsync(
+        SearchClient client,
+        IReadOnlyCollection<string> ids,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        foreach (var batch in ids.Chunk(BatchSize))
+        {
+            var updates = batch.Select(id => new SearchDocument
+            {
+                [nameof(KnowledgeCenterDocument.Id)] = id,
+                [nameof(KnowledgeCenterDocument.Owner)] = owner
+            }).ToArray();
+            var response = await client.MergeDocumentsAsync(updates, cancellationToken: cancellationToken);
+            var failures = response.Value.Results.Where(result => !result.Succeeded).ToArray();
+            if (failures.Length > 0)
+            {
+                throw new RequestFailedException(
+                    $"Azure AI Search rejected {failures.Length} knowledge center updates: " +
+                    string.Join(", ", failures.Select(result => $"{result.Key}: {result.ErrorMessage}")));
+            }
+        }
+    }
+}
+
 public sealed class KnowledgeCenterIndexer(
     Uri searchEndpoint,
     string indexName,
     TokenCredential credential,
     AzureOpenAiEmbedder embedder)
 {
-    public async Task<int> MigrateAsync(
+    public async Task<KnowledgeMigrationResult> MigrateAsync(
         IReadOnlyList<KnowledgeCenterChunk> chunks,
         CancellationToken cancellationToken)
     {
         if (chunks.Count == 0)
         {
-            return 0;
+            return new KnowledgeMigrationResult(0, 0);
+        }
+
+        // Pruning is scoped to the migrated areas, so a migration must never target the uploads area.
+        if (chunks.Any(chunk => string.Equals(chunk.Area, "uploads", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("The uploads area is managed by the admin page and cannot be migrated.");
         }
 
         var vectors = await embedder.EmbedAsync(
@@ -294,7 +375,8 @@ public sealed class KnowledgeCenterIndexer(
             ContentVector = vectors[position].ToArray()
         }).ToArray();
 
-        var response = await indexClient.GetSearchClient(indexName)
+        var searchClient = indexClient.GetSearchClient(indexName);
+        var response = await searchClient
             .MergeOrUploadDocumentsAsync(documents, cancellationToken: cancellationToken);
         var failures = response.Value.Results.Where(result => !result.Succeeded).ToArray();
         if (failures.Length > 0)
@@ -304,6 +386,20 @@ public sealed class KnowledgeCenterIndexer(
                 string.Join(", ", failures.Select(result => $"{result.Key}: {result.ErrorMessage}")));
         }
 
-        return documents.Length;
+        // Remove chunks of shortened or removed source files from the migrated areas.
+        var keep = documents.Select(document => document.Id).ToHashSet(StringComparer.Ordinal);
+        var pruned = 0;
+        foreach (var area in chunks.Select(chunk => chunk.Area).Distinct(StringComparer.Ordinal))
+        {
+            var existing = await KnowledgeIndexOperations.FindIdsAsync(
+                searchClient,
+                KnowledgeIndexOperations.EqualsFilter(nameof(KnowledgeCenterDocument.Area), area),
+                cancellationToken);
+            var stale = existing.Where(id => !keep.Contains(id)).ToArray();
+            await KnowledgeIndexOperations.DeleteIdsAsync(searchClient, stale, cancellationToken);
+            pruned += stale.Length;
+        }
+
+        return new KnowledgeMigrationResult(documents.Length, pruned);
     }
 }

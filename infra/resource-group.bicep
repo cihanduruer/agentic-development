@@ -30,6 +30,9 @@ param configureSql bool = true
 @description('Existing SQL server name adopted during a staged upgrade; empty for an initial deployment.')
 param existingSqlServerName string = ''
 
+@description('Enable knowledge uploads, approval, and removal and grant the API Search Index Data Contributor. Leave false until the admin page has sign-in.')
+param knowledgeUploadsEnabled bool = false
+
 var tags = {
   application: 'agentic-hotelbooking'
   environment: environment
@@ -49,6 +52,7 @@ module platform 'modules/platform.bicep' = {
     configureApi: configureApi
     configureSql: configureSql
     existingSqlServerName: existingSqlServerName
+    knowledgeUploadsEnabled: knowledgeUploadsEnabled
     tags: tags
   }
 }

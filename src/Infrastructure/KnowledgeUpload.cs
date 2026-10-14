@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using Azure;
 using Azure.Core;
@@ -320,7 +321,15 @@ public static class UploadedDocumentExtractor
             }
 
             var lines = new List<string>();
-            foreach (var row in worksheet.Worksheet?.Descendants<Xl.Row>().Take(KnowledgeUploadLimits.MaxSpreadsheetRows) ?? [])
+            var rows = worksheet.Worksheet?.Descendants<Xl.Row>()
+                .Take(KnowledgeUploadLimits.MaxSpreadsheetRows + 1).ToArray() ?? [];
+            if (rows.Length > KnowledgeUploadLimits.MaxSpreadsheetRows)
+            {
+                throw new InvalidDataException(
+                    $"Sheet '{sheet.Name?.Value}' has more than {KnowledgeUploadLimits.MaxSpreadsheetRows:N0} rows. Split the workbook so no knowledge is silently dropped.");
+            }
+
+            foreach (var row in rows)
             {
                 var values = row.Elements<Xl.Cell>()
                     .Select(cell => CellText(cell, shared))
@@ -406,12 +415,31 @@ public sealed class KnowledgeUploadService(
         var cleaned = new string(name
             .Select(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or ' ' ? character : '_')
             .ToArray()).Trim();
-        if (cleaned.Length > 100)
+        if (cleaned.Length == 0)
         {
-            cleaned = cleaned[..100];
+            return KnowledgeUploadLimits.UploadsPrefix + "untitled";
         }
 
-        return KnowledgeUploadLimits.UploadsPrefix + (cleaned.Length == 0 ? "untitled" : cleaned);
+        // Names that had to be altered or shortened get a hash of the original so different files cannot collide.
+        if (!string.Equals(cleaned, name, StringComparison.Ordinal) || cleaned.Length > 100)
+        {
+            var extension = Path.GetExtension(cleaned);
+            if (extension.Length > 10)
+            {
+                extension = extension[..10];
+            }
+
+            var stem = cleaned[..^Path.GetExtension(cleaned).Length];
+            if (stem.Length > 80)
+            {
+                stem = stem[..80];
+            }
+
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(name))).ToLowerInvariant()[..8];
+            cleaned = $"{stem}-{hash}{extension}";
+        }
+
+        return KnowledgeUploadLimits.UploadsPrefix + cleaned;
     }
 
     public static bool IsUploadPath(string? path) =>
@@ -470,6 +498,11 @@ public sealed class KnowledgeUploadService(
             ContentVector = vectors[position].ToArray()
         }).ToArray();
 
+        // Fail closed: until the replacement is complete, nothing from the previous version stays retrievable.
+        var existingIds = await FindIdsAsync(path, cancellationToken);
+        await KnowledgeIndexOperations.SetOwnerAsync(
+            searchClient.Value, existingIds, KnowledgeApproval.PendingOwner, cancellationToken);
+
         var response = await searchClient.Value.MergeOrUploadDocumentsAsync(documents, cancellationToken: cancellationToken);
         var failures = response.Value.Results.Where(result => !result.Succeeded).ToArray();
         if (failures.Length > 0)
@@ -480,7 +513,7 @@ public sealed class KnowledgeUploadService(
         }
 
         var keep = documents.Select(document => document.Id).ToHashSet(StringComparer.Ordinal);
-        var stale = (await FindIdsAsync(path, cancellationToken)).Where(id => !keep.Contains(id)).ToArray();
+        var stale = existingIds.Where(id => !keep.Contains(id)).ToArray();
         await DeleteIdsAsync(stale, cancellationToken);
         return new UploadResult(path, documents.Length, chunks.Sum(chunk => chunk.Content.Length), stale.Length);
     }
@@ -520,47 +553,17 @@ public sealed class KnowledgeUploadService(
             return 0;
         }
 
-        var updates = ids.Select(id => new SearchDocument
-        {
-            [nameof(KnowledgeCenterDocument.Id)] = id,
-            [nameof(KnowledgeCenterDocument.Owner)] = KnowledgeApproval.ApprovedOwner
-        }).ToArray();
-        var response = await searchClient.Value.MergeDocumentsAsync(updates, cancellationToken: cancellationToken);
-        if (response.Value.Results.Any(result => !result.Succeeded))
-        {
-            throw new RequestFailedException("Azure AI Search rejected the approval.");
-        }
-
+        await KnowledgeIndexOperations.SetOwnerAsync(
+            searchClient.Value, ids, KnowledgeApproval.ApprovedOwner, cancellationToken);
         return ids.Count;
     }
 
-    private async Task<List<string>> FindIdsAsync(string path, CancellationToken cancellationToken)
-    {
-        var options = new SearchOptions
-        {
-            Filter = $"SourcePath eq '{path.Replace("'", "''", StringComparison.Ordinal)}'",
-            Size = KnowledgeUploadLimits.MaxBlocks * 2
-        };
-        options.Select.Add(nameof(KnowledgeCenterDocument.Id));
-        var response = await searchClient.Value.SearchAsync<SearchDocument>("*", options, cancellationToken);
-        var ids = new List<string>();
-        await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
-        {
-            if (result.Document.GetString(nameof(KnowledgeCenterDocument.Id)) is { Length: > 0 } id)
-            {
-                ids.Add(id);
-            }
-        }
+    private Task<List<string>> FindIdsAsync(string path, CancellationToken cancellationToken) =>
+        KnowledgeIndexOperations.FindIdsAsync(
+            searchClient.Value,
+            KnowledgeIndexOperations.EqualsFilter(nameof(KnowledgeCenterDocument.SourcePath), path),
+            cancellationToken);
 
-        return ids;
-    }
-
-    private async Task DeleteIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken)
-    {
-        if (ids.Count > 0)
-        {
-            await searchClient.Value.DeleteDocumentsAsync(
-                nameof(KnowledgeCenterDocument.Id), ids, cancellationToken: cancellationToken);
-        }
-    }
+    private Task DeleteIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken) =>
+        KnowledgeIndexOperations.DeleteIdsAsync(searchClient.Value, ids, cancellationToken);
 }
