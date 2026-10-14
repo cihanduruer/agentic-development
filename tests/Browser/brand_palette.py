@@ -209,6 +209,7 @@ def run(args, api, output):
                 assert len(held_availability) == 1
                 expect(page.locator(".booking-panel")).to_have_count(0)
                 page.get_by_label("Hotel or destination", exact=True).select_option(hotel_id)
+                page.get_by_label("Guests", exact=True).fill("2")
                 expect(page.locator(".booking-panel")).to_have_count(0)
                 with page.expect_response(
                     lambda response: f"/api/hotels/{hotel_id}/availability?" in response.url
@@ -231,7 +232,6 @@ def run(args, api, output):
                         "lateOlderResponseDiscarded": True,
                     }
                 })
-                page.get_by_label("Guests", exact=True).fill("2")
                 if size == "mobile":
                     toggle = page.get_by_role("button", name="Navigation menu")
                     toggle.focus()
