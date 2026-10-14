@@ -78,7 +78,8 @@ def main():
 
                 public_nav = page.locator(".sidebar nav")
                 expect(public_nav.get_by_role("link", name="Home")).to_be_visible()
-                assert public_nav.get_by_role("link").count() == 1, "public navigation must remain booking-only"
+                expect(public_nav.get_by_role("link", name="AI Product Management")).to_be_visible()
+                assert public_nav.get_by_role("link").count() == 2, "top bar must contain only Home and AI Product Management"
 
                 connectors = page.locator(".service-connector")
                 assert connectors.count() > 0
