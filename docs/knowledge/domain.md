@@ -1,6 +1,6 @@
 ---
 owner: Domain owner
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-13
 ---
 # Domain rules
 
@@ -11,6 +11,7 @@ last_reviewed: 2026-09-30
 - **Stay:** half-open interval from check-in (inclusive) to check-out (exclusive).
 - **Reservation:** confirmed allocation of one room for a stay and party.
 - **Availability:** absence of an overlapping reservation and sufficient room capacity.
+- **Amenity filter:** an optional guest-side refinement of available rooms using amenities recorded on the hotel's current room catalog.
 - **Stay price:** nightly rate multiplied by the number of nights in the stay, displayed in euros before confirmation and on the confirmed reservation.
 - **Vehicle preference:** an optional Economy, Compact, SUV, or Luxury category recorded with a new reservation; it is not a guaranteed rental.
 
@@ -27,3 +28,4 @@ last_reviewed: 2026-09-30
 9. Total stay price equals the selected room's nightly rate multiplied by `check-out.DayNumber - check-in.DayNumber`.
 10. A new reservation may omit its vehicle preference. When supplied, it must be exactly Economy, Compact, SUV, or Luxury.
 11. The confirmed vehicle preference is immutable: it cannot be added or changed on an existing reservation.
+12. Amenity options come from rooms in the selected hotel's current catalog. Selecting multiple amenities matches only rooms that include every selected amenity; selecting none preserves all rooms returned by the ordinary availability search. Amenity filters do not alter date, capacity, overlap, price, or reservation validation.

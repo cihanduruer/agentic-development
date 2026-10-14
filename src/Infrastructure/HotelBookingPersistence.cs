@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using AgenticHotelBooking.Application;
 using AgenticHotelBooking.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,7 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(160);
             entity.Property(item => item.NightlyRate).HasPrecision(10, 2);
+            entity.Property(item => item.AmenityData).IsRequired();
         });
 
         modelBuilder.Entity<ReservationEntity>(entity =>
@@ -81,7 +83,8 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
                 HotelId = Guid.Parse("3d41ab14-06c3-4c9a-bf29-61f4392f2227"),
                 Name = "Canal King",
                 Capacity = 2,
-                NightlyRate = 189m
+                NightlyRate = 189m,
+                AmenityData = """["Air conditioning","Coffee maker","Free Wi-Fi"]"""
             },
             new RoomEntity
             {
@@ -89,7 +92,8 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
                 HotelId = Guid.Parse("3d41ab14-06c3-4c9a-bf29-61f4392f2227"),
                 Name = "Family Loft",
                 Capacity = 4,
-                NightlyRate = 269m
+                NightlyRate = 269m,
+                AmenityData = """["Air conditioning","Free Wi-Fi","Kitchenette"]"""
             },
             new RoomEntity
             {
@@ -97,7 +101,8 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
                 HotelId = Guid.Parse("0e7b82cc-4ded-4707-82a4-1e80db408af9"),
                 Name = "Harbor Studio",
                 Capacity = 2,
-                NightlyRate = 149m
+                NightlyRate = 149m,
+                AmenityData = """["Air conditioning","Coffee maker","Free Wi-Fi"]"""
             },
             new RoomEntity
             {
@@ -105,7 +110,8 @@ public sealed class HotelBookingDbContext(DbContextOptions<HotelBookingDbContext
                 HotelId = Guid.Parse("0e7b82cc-4ded-4707-82a4-1e80db408af9"),
                 Name = "Panorama Suite",
                 Capacity = 3,
-                NightlyRate = 229m
+                NightlyRate = 229m,
+                AmenityData = """["Air conditioning","Balcony","Free Wi-Fi"]"""
             });
     }
 }
@@ -126,6 +132,7 @@ public sealed class RoomEntity
     public required string Name { get; set; }
     public int Capacity { get; set; }
     public decimal NightlyRate { get; set; }
+    public string AmenityData { get; set; } = "[]";
 }
 
 public sealed class ReservationEntity
@@ -314,21 +321,24 @@ public sealed class EntityFrameworkAgentEventStore(
 public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbContext)
     : IHotelBookingService
 {
-    public async Task<IReadOnlyList<Hotel>> GetHotelsAsync(CancellationToken cancellationToken) =>
-        await dbContext.Hotels
+    public async Task<IReadOnlyList<Hotel>> GetHotelsAsync(CancellationToken cancellationToken)
+    {
+        var hotels = await dbContext.Hotels
             .AsNoTracking()
             .Include(item => item.Rooms)
             .OrderBy(item => item.Name)
-            .Select(item => new Hotel(
+            .ToArrayAsync(cancellationToken);
+        return hotels.Select(item => new Hotel(
                 item.Id,
                 item.Name,
                 item.City,
                 item.Description,
                 item.Rooms
                     .OrderBy(room => room.NightlyRate)
-                    .Select(room => new Room(room.Id, room.Name, room.Capacity, room.NightlyRate))
+                    .Select(room => ToRoom(room.Id, room.Name, room.Capacity, room.NightlyRate, room.AmenityData))
                     .ToArray()))
-            .ToArrayAsync(cancellationToken);
+            .ToArray();
+    }
 
     public async Task<IReadOnlyList<Room>> SearchAvailabilityAsync(
         Guid hotelId,
@@ -343,7 +353,7 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
             throw new KeyNotFoundException("Hotel was not found.");
         }
 
-        return await dbContext.Rooms
+        var availableRooms = await dbContext.Rooms
             .AsNoTracking()
             .Where(room => room.HotelId == hotelId && room.Capacity >= guests)
             .Where(room => !dbContext.Reservations.Any(reservation =>
@@ -351,9 +361,25 @@ public sealed class EntityFrameworkHotelBookingService(HotelBookingDbContext dbC
                 checkOut > reservation.CheckIn &&
                 checkIn < reservation.CheckOut))
             .OrderBy(room => room.NightlyRate)
-            .Select(room => new Room(room.Id, room.Name, room.Capacity, room.NightlyRate))
+            .Select(room => new
+            {
+                room.Id,
+                room.Name,
+                room.Capacity,
+                room.NightlyRate,
+                room.AmenityData
+            })
             .ToArrayAsync(cancellationToken);
+        return availableRooms
+            .Select(room => ToRoom(room.Id, room.Name, room.Capacity, room.NightlyRate, room.AmenityData))
+            .ToArray();
     }
+
+    private static Room ToRoom(Guid id, string name, int capacity, decimal nightlyRate, string amenityData) =>
+        new(id, name, capacity, nightlyRate)
+        {
+            Amenities = JsonSerializer.Deserialize<string[]>(amenityData) ?? []
+        };
 
     public async Task<Reservation> CreateReservationAsync(
         BookingRequest request,

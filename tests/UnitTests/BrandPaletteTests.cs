@@ -111,6 +111,23 @@ public sealed class BrandPaletteTests
         Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "select:focus-visible", "outline"));
     }
 
+    [Fact]
+    public void AmenityFiltersAreCatalogDrivenLabeledAndClearable()
+    {
+        var home = ReadSource("src/Web/Pages/Home.razor");
+
+        Assert.Contains("selectedHotel?.Rooms", home);
+        Assert.Contains("Choose one or more amenities. Rooms must include every selected amenity.", home);
+        Assert.Contains("<fieldset class=\"amenity-filters\" aria-describedby=\"amenity-filter-help\">", home);
+        Assert.Contains("<legend>Filter available rooms by amenities</legend>", home);
+        Assert.Contains("type=\"checkbox\"", home);
+        Assert.Contains("for=\"@inputId\"", home);
+        Assert.Contains(">Clear all filters</button>", home);
+        Assert.Contains("Available rooms were found, but none match all selected amenities.", home);
+        Assert.Contains("No rooms are available for these dates and guest count.", home);
+        Assert.Contains("RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities)", home);
+    }
+
     private static string Declaration(string css, string selector, string property)
     {
         var values = Regex.Matches(css, @"(?<selectors>[^{}]+)\{(?<body>[^{}]*)\}")

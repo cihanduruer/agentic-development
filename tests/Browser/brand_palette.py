@@ -1,4 +1,4 @@
-"""AB#960 and AB#961 browser evidence. Build the solution and start only the Web dev server first.
+"""AB#960, AB#961, and AB#966 browser evidence. Build the solution and start only the Web dev server first.
 
 python -m pip install -r tests/Browser/requirements.txt
 python tests/Browser/brand_palette.py --web-url http://127.0.0.1:5167 --output <artifact-directory>
@@ -103,7 +103,7 @@ def audit_text(page):
 
 
 def run(args, api, output):
-    evidence = {"schemaVersion": 1, "workItem": "AB#960,AB#961",
+    evidence = {"schemaVersion": 1, "workItem": "AB#960,AB#961,AB#966",
                 "sourceSha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "workingTreeDiff": subprocess.check_output(["git", "-c", "core.safecrlf=false", "diff", "--stat"], cwd=ROOT, text=True),
                 "web": args.web_url, "api": api, "isolation": "Owned process; EF InMemory; SQL connection empty",
@@ -181,6 +181,29 @@ def run(args, api, output):
                 search = page.get_by_role("button", name="Check availability")
                 search.click()
                 expect(page.locator(".room-option")).to_have_count(2)
+                amenity_group = page.get_by_role("group", name="Filter available rooms by amenities")
+                coffee = amenity_group.get_by_label("Coffee maker", exact=True)
+                kitchenette = amenity_group.get_by_label("Kitchenette", exact=True)
+                coffee.focus()
+                page.keyboard.press("Space")
+                expect(coffee).to_be_checked()
+                expect(page.locator(".room-option")).to_have_count(1)
+                kitchenette.focus()
+                page.keyboard.press("Space")
+                expect(kitchenette).to_be_checked()
+                expect(page.locator(".room-option")).to_have_count(0)
+                no_amenity_match = page.locator(".empty-state").filter(
+                    has_text="Available rooms were found, but none match all selected amenities")
+                expect(no_amenity_match).to_be_visible()
+                clear_filters = page.get_by_role("button", name="Clear all filters")
+                clear_filters.focus()
+                page.keyboard.press("Enter")
+                expect(coffee).not_to_be_checked()
+                expect(kitchenette).not_to_be_checked()
+                expect(page.locator(".room-option")).to_have_count(2)
+                evidence["checks"].append({
+                    "amenityFilters": "catalog-labeled, keyboard-operable, match-all, clear-all restores both rooms",
+                    "noMatchMessageDistinctFromUnavailableDates": True})
                 page.mouse.move(0, 0)
                 room = page.locator(".room-option").first
                 evidence["checks"].append(check_pair(room, "borderTopColor", "backgroundColor", 3))

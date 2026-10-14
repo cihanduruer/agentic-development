@@ -43,7 +43,10 @@ public sealed class VehiclePreferenceJsonConverter : JsonConverter<VehiclePrefer
         });
 }
 
-public sealed record Room(Guid Id, string Name, int Capacity, decimal NightlyRate);
+public sealed record Room(Guid Id, string Name, int Capacity, decimal NightlyRate)
+{
+    public IReadOnlyList<string> Amenities { get; init; } = [];
+}
 
 public sealed record Hotel(
     Guid Id,
