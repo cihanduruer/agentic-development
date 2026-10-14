@@ -22,7 +22,10 @@
 {
     @if (error is null)
     {
-        <p role="status">Loading hotels...</p>
+        <div class="hotel-loading" role="status">
+            <span class="hotel-loading-spinner" aria-hidden="true"></span>
+            <span>Loading Hotels</span>
+        </div>
     }
 }
 else if (hotels.Count == 0)

@@ -45,6 +45,24 @@ public sealed class BrandPaletteTests
         Assert.True(contrast >= 4.5, $"Home page text has contrast {contrast:F2}:1.");
     }
 
+    [Fact]
+    public void HotelLoadingStatusUsesAccessibleHotelBrandPresentation()
+    {
+        var home = ReadSource("src/Web/Pages/Home.razor");
+        var css = ReadSource("src/Web/Pages/Home.razor.css");
+
+        Assert.Contains("<div class=\"hotel-loading\" role=\"status\">", home);
+        Assert.Contains("<span class=\"hotel-loading-spinner\" aria-hidden=\"true\"></span>", home);
+        Assert.Contains("<span>Loading Hotels</span>", home);
+        Assert.Equal("var(--brand-cream)", Declaration(css, ".hotel-loading", "background"));
+        Assert.Equal("var(--brand-ink)", Declaration(css, ".hotel-loading", "color"));
+        Assert.Equal("var(--brand-crimson)", Declaration(css, ".hotel-loading-spinner", "border-top-color"));
+        Assert.Equal(".65rem", Declaration(css, ".hotel-loading", "gap"));
+        Assert.Equal("center", Declaration(css, ".hotel-loading", "align-items"));
+        Assert.Contains("@media (prefers-reduced-motion: reduce)", css);
+        Assert.Contains(".hotel-loading-spinner {\n        animation: none;", css);
+    }
+
     [Theory]
     [InlineData("html", "color", "background", 4.5)]
     [InlineData(".room-option", "color", "background", 4.5)]

@@ -32,13 +32,13 @@ The Hotel web application uses these shared CSS design tokens:
 | Token | Hex | Use |
 |---|---|---|
 | `--brand-ink` | `#2B0A0D` | Body text, navigation, and high-contrast actions |
-| `--brand-crimson` | `#C4000C` | Primary actions, links, and selected-state borders |
+| `--brand-crimson` | `#C4000C` | Primary actions, links, selected-state borders, and the hotel-loading spinner |
 | `--brand-blush` | `#FFD6D9` | Accent and selected/active surfaces |
 | `--brand-cream` | `#F9F6EF` | Page, card, form, and table surfaces |
 | `--brand-taupe` | `#D4CDBF` | Secondary surfaces, borders, and disabled states |
 | `--brand-red` | `#FF000F` | Signature brand red: accent bars, indicators, decorative surfaces, and the primary search action |
 
-Ink and crimson are used for text, controls, and focus indicators on cream surfaces. Blush and taupe remain backgrounds or decorative borders, not low-contrast text or required control boundaries. Required room and input boundaries use crimson or ink. Disabled controls retain ink text on taupe without reduced opacity.
+Ink and crimson are used for text, controls, and focus indicators on cream surfaces. The hotel-loading status uses a cream surface and ink text, with a decorative crimson spinner; it remains visible without animation for reduced-motion preferences. Blush and taupe remain backgrounds or decorative borders, not low-contrast text or required control boundaries. Required room and input boundaries use crimson or ink. Disabled controls retain ink text on taupe without reduced opacity.
 
 The signature red `#FF000F` reaches only 3.99:1 against white and cream, so it never carries cream or white text. Where red is a text background (the home page search action) the text is ink, which reaches 4.5:1. Crimson is the darker red used wherever cream text or red text on cream is required.
 

@@ -463,7 +463,16 @@ def run(args, api, output):
                 held = []
                 fixtures.route("**/api/hotels", lambda route: held.append(route))
                 fp.goto(args.web_url)
-                expect(fp.get_by_text("Loading hotels...", exact=True)).to_be_visible()
+                loading_status = fp.get_by_role("status", name="Loading Hotels")
+                expect(loading_status).to_be_visible()
+                spinner = loading_status.locator(".hotel-loading-spinner")
+                assert spinner.get_attribute("aria-hidden") == "true"
+                assert spinner.evaluate("(element) => getComputedStyle(element).borderTopColor") == "rgb(196, 0, 12)"
+                assert loading_status.evaluate("(element) => getComputedStyle(element).backgroundColor") == "rgb(249, 246, 239)"
+                assert loading_status.evaluate("(element) => getComputedStyle(element).color") == "rgb(43, 10, 13)"
+                fp.emulate_media(reduced_motion="reduce")
+                assert spinner.evaluate("(element) => getComputedStyle(element).animationName") == "none"
+                fp.emulate_media(reduced_motion="no-preference")
                 capture(fp, size + "-loading-hotels", True)
                 assert len(held) == 1
                 held.pop().fulfill(json=[])
@@ -473,7 +482,7 @@ def run(args, api, output):
                 fixtures.route("**/api/hotels", lambda r: r.fulfill(status=503, body="Isolated failure"))
                 fp.reload()
                 expect(fp.get_by_role("alert")).to_contain_text("Hotels could not be loaded")
-                expect(fp.get_by_text("Loading hotels...", exact=True)).to_have_count(0)
+                expect(fp.get_by_role("status", name="Loading Hotels")).to_have_count(0)
                 capture(fp, size + "-catalog-error", True)
                 fixtures.route("**/api/operations/events?*", lambda r: r.fulfill(json=[]))
                 held_negotiate = []
