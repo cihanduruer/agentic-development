@@ -10,7 +10,8 @@ main {
 }
 
 .sidebar {
-    background: var(--brand-dark-blue);
+    background: var(--brand-ink);
+    border-bottom: 3px solid var(--brand-red);
 }
 
 .top-row {
@@ -49,14 +50,20 @@ main {
 
 @media (min-width: 641px) {
     .page {
-        flex-direction: row;
+        flex-direction: column;
     }
 
     .sidebar {
-        width: 250px;
-        height: 100vh;
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+        width: 100%;
+        height: auto;
+        padding-inline: 1.5rem;
         position: sticky;
         top: 0;
+        z-index: 20;
+        box-shadow: 0 4px 18px rgb(43 10 13 / 18%);
     }
 
     .top-row {

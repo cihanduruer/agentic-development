@@ -8,12 +8,12 @@ public sealed class BrandPaletteTests
     private static readonly double[] LuminanceWeights = [0.2126, 0.7152, 0.0722];
     private static readonly Dictionary<string, string> Palette = new()
     {
-        ["--brand-dark-blue"] = "#164A61",
-        ["--brand-blue"] = "#04668C",
-        ["--brand-light-blue"] = "#8DC4E6",
+        ["--brand-ink"] = "#2B0A0D",
+        ["--brand-crimson"] = "#C4000C",
+        ["--brand-blush"] = "#FFD6D9",
         ["--brand-cream"] = "#F9F6EF",
         ["--brand-taupe"] = "#D4CDBF",
-        ["--brand-orange"] = "#FFA500"
+        ["--brand-red"] = "#FF000F"
     };
 
     [Fact]
@@ -28,7 +28,7 @@ public sealed class BrandPaletteTests
     }
 
     [Fact]
-    public void HomePageUsesAccessibleOrangeBackground()
+    public void HomePageTextMeetsContrastOnItsBackground()
     {
         var css = ReadSource("src/Web/wwwroot/css/app.css");
         var homeCss = ReadSource("src/Web/Pages/Home.razor.css");
@@ -70,17 +70,36 @@ public sealed class BrandPaletteTests
     }
 
     [Fact]
+    public void BrandRedIsOnlyUsedWithInkTextBecauseCreamOnRedFailsContrast()
+    {
+        var css = ReadSource("src/Web/wwwroot/css/app.css");
+        var homeCss = ReadSource("src/Web/Pages/Home.razor.css");
+        var red = Hex(ResolveToken(css, "var(--brand-red)"));
+        var ink = Hex(ResolveToken(css, "var(--brand-ink)"));
+        var cream = Hex(ResolveToken(css, "var(--brand-cream)"));
+
+        Assert.True(Ratio(ink, red) >= 4.5, $"Ink on brand red has contrast {Ratio(ink, red):F2}:1.");
+        Assert.True(Ratio(cream, red) < 4.5, "Cream on brand red now passes; the ink restriction can be relaxed.");
+        foreach (var property in new[] { "--bs-btn-color", "--bs-btn-hover-color", "--bs-btn-active-color", "--bs-btn-disabled-color" })
+        {
+            Assert.Equal("var(--brand-ink)", Declaration(homeCss, ".search-fields .search-submit", property));
+        }
+
+        Assert.Equal("var(--brand-red)", Declaration(homeCss, ".search-fields .search-submit", "--bs-btn-bg"));
+    }
+
+    [Fact]
     public void InteractionRulesUseHighContrastTokensAndNonColorSelectionCues()
     {
         var css = ReadSource("src/Web/wwwroot/css/app.css");
-        Assert.Equal("1px solid var(--brand-blue)", Declaration(css, ".room-option", "border"));
-        Assert.Equal("1px solid var(--brand-dark-blue)", Declaration(css, ".booking-fields input", "border"));
-        Assert.Equal("1px solid var(--brand-dark-blue)", Declaration(css, ".booking-fields select", "border"));
-        Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "input:focus-visible", "outline"));
-        Assert.Equal("3px solid var(--brand-blue)", Declaration(css, ".btn:active:focus-visible", "outline"));
+        Assert.Equal("1px solid var(--brand-crimson)", Declaration(css, ".room-option", "border"));
+        Assert.Equal("1px solid var(--brand-ink)", Declaration(css, ".booking-fields input", "border"));
+        Assert.Equal("1px solid var(--brand-ink)", Declaration(css, ".booking-fields select", "border"));
+        Assert.Equal("3px solid var(--brand-crimson)", Declaration(css, "input:focus-visible", "outline"));
+        Assert.Equal("3px solid var(--brand-crimson)", Declaration(css, ".btn:active:focus-visible", "outline"));
         Assert.Equal("0 0 0 3px var(--brand-cream)", Declaration(css, "button:focus-visible", "box-shadow"));
         Assert.Equal("1", Declaration(css, ".btn-primary", "--bs-btn-disabled-opacity"));
-        Assert.Equal("var(--brand-light-blue)", Declaration(css, ".room-option.selected", "background"));
+        Assert.Equal("var(--brand-blush)", Declaration(css, ".room-option.selected", "background"));
         Assert.NotEqual(Declaration(css, ".room-option.selected", "background"),
             Declaration(css, ".room-option:hover", "background"));
         var home = ReadSource("src/Web/Pages/Home.razor");
@@ -107,9 +126,9 @@ public sealed class BrandPaletteTests
         Assert.Contains("cannot be added or changed after confirmation", home);
 
         var css = ReadSource("src/Web/wwwroot/css/app.css");
-        Assert.Equal("1px solid var(--brand-dark-blue)",
+        Assert.Equal("1px solid var(--brand-ink)",
             Declaration(css, ".vehicle-preference select", "border"));
-        Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "select:focus-visible", "outline"));
+        Assert.Equal("3px solid var(--brand-crimson)", Declaration(css, "select:focus-visible", "outline"));
     }
 
     [Fact]
@@ -203,4 +222,11 @@ public sealed class BrandPaletteTests
             })
             .Select((channel, index) => channel * LuminanceWeights[index])
             .Sum();
+
+    private static double Ratio((byte Red, byte Green, byte Blue) first, (byte Red, byte Green, byte Blue) second)
+    {
+        var a = Luminance(first) + 0.05;
+        var b = Luminance(second) + 0.05;
+        return Math.Max(a, b) / Math.Min(a, b);
+    }
 }

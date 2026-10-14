@@ -10,6 +10,7 @@
     <p class="eyebrow">Your stay starts here</p>
     <h1>Find a room. Book with confidence.</h1>
     <p>Choose a hotel and your dates to find the right room.</p>
+    <img class="hero-photo" src="images/hotel-room.jpg" alt="" />
 </section>
 
 @if (!string.IsNullOrWhiteSpace(error))
@@ -55,10 +56,30 @@ else
         </div>
     </section>
 
+    <ul class="value-props" aria-label="Booking benefits">
+        <li>
+            <strong>Live availability</strong>
+            <span>Rooms are checked for your exact dates and guests.</span>
+        </li>
+        <li>
+            <strong>Clear pricing</strong>
+            <span>See the nightly rate and total stay price before you confirm.</span>
+        </li>
+        <li>
+            <strong>Optional extras</strong>
+            <span>Add a vehicle preference. It is not a guaranteed rental.</span>
+        </li>
+    </ul>
+
+    <h2 class="section-title">Our hotels</h2>
     <div class="hotel-grid">
         @foreach (var hotel in hotels)
         {
-            <article class="hotel-card">
+            <article class="hotel-card @(HotelPhoto(hotel) is null ? null : "has-photo")">
+                @if (HotelPhoto(hotel) is { } photo)
+                {
+                    <img class="hotel-photo" src="@photo" alt="" loading="lazy" />
+                }
                 <span class="city">@hotel.City</span>
                 <h2>@hotel.Name</h2>
                 <p>@hotel.Description</p>
@@ -218,6 +239,13 @@ else
 
     private static string FormatEuro(decimal amount) =>
         amount.ToString("C", CultureInfo.GetCultureInfo("nl-NL"));
+
+    private static string? HotelPhoto(Hotel hotel) => hotel.City switch
+    {
+        "Amsterdam" => "images/canal-house.jpg",
+        "Rotterdam" => "images/harbor-light.jpg",
+        _ => null
+    };
 
     protected override async Task OnInitializedAsync()
     {

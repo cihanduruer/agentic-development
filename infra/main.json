@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.47.16.16243",
-      "templateHash": "6326066438496557797"
+      "version": "0.41.2.15936",
+      "templateHash": "16498513120974668546"
     }
   },
   "parameters": {
@@ -119,8 +119,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.47.16.16243",
-              "templateHash": "9916513604226330943"
+              "version": "0.41.2.15936",
+              "templateHash": "4848539763326367007"
             }
           },
           "parameters": {
@@ -165,6 +165,8 @@
             "suffix": "[uniqueString(subscription().id, resourceGroup().id, parameters('environment'))]",
             "baseName": "[format('ahb-{0}-{1}', parameters('environment'), variables('suffix'))]",
             "routingDeploymentName": "gpt-4.1-mini",
+            "chatDeploymentName": "gpt-6.1-sol",
+            "embeddingDeploymentName": "text-embedding-3-large",
             "sqlServerName": "[if(empty(parameters('existingSqlServerName')), format('{0}-sql', variables('baseName')), parameters('existingSqlServerName'))]"
           },
           "resources": [
@@ -228,6 +230,49 @@
               },
               "dependsOn": [
                 "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-ai', variables('baseName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.CognitiveServices/accounts/deployments",
+              "apiVersion": "2024-10-01",
+              "name": "[format('{0}/{1}', format('{0}-ai', variables('baseName')), variables('chatDeploymentName'))]",
+              "sku": {
+                "name": "GlobalStandard",
+                "capacity": 50
+              },
+              "properties": {
+                "model": {
+                  "format": "OpenAI",
+                  "name": "gpt-6.1-sol",
+                  "version": "2026-09-29"
+                },
+                "raiPolicyName": "Microsoft.DefaultV2",
+                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-ai', variables('baseName')))]",
+                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', format('{0}-ai', variables('baseName')), variables('routingDeploymentName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.CognitiveServices/accounts/deployments",
+              "apiVersion": "2024-10-01",
+              "name": "[format('{0}/{1}', format('{0}-ai', variables('baseName')), variables('embeddingDeploymentName'))]",
+              "sku": {
+                "name": "GlobalStandard",
+                "capacity": 50
+              },
+              "properties": {
+                "model": {
+                  "format": "OpenAI",
+                  "name": "text-embedding-3-large",
+                  "version": "1"
+                },
+                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-ai', variables('baseName')))]",
+                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', format('{0}-ai', variables('baseName')), variables('chatDeploymentName'))]"
               ]
             },
             {
@@ -394,6 +439,14 @@
                     {
                       "name": "RoutingEvaluation__SearchIndex",
                       "value": "knowledge"
+                    },
+                    {
+                      "name": "WorkItemChat__Endpoint",
+                      "value": "[format('https://{0}.openai.azure.com/', format('{0}-ai', variables('baseName')))]"
+                    },
+                    {
+                      "name": "WorkItemChat__SearchEndpoint",
+                      "value": "[format('https://{0}.search.windows.net/', format('{0}-search', variables('baseName')))]"
                     },
                     {
                       "name": "OperationsAuth__Authority",
@@ -563,6 +616,14 @@
             "routingDeploymentName": {
               "type": "string",
               "value": "[variables('routingDeploymentName')]"
+            },
+            "chatDeploymentName": {
+              "type": "string",
+              "value": "[variables('chatDeploymentName')]"
+            },
+            "embeddingDeploymentName": {
+              "type": "string",
+              "value": "[variables('embeddingDeploymentName')]"
             },
             "staticWebAppName": {
               "type": "string",

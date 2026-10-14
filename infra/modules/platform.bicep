@@ -13,6 +13,8 @@ param tags object
 var suffix = uniqueString(subscription().id, resourceGroup().id, environment)
 var baseName = 'ahb-${environment}-${suffix}'
 var routingDeploymentName = 'gpt-4.1-mini'
+var chatDeploymentName = 'gpt-6.1-sol'
+var embeddingDeploymentName = 'text-embedding-3-large'
 var sqlServerName = empty(existingSqlServerName) ? '${baseName}-sql' : existingSqlServerName
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -64,6 +66,43 @@ resource routingModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-
       version: '2025-04-14'
     }
     raiPolicyName: 'Microsoft.Default'
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+  }
+}
+
+resource chatModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: aiServices
+  name: chatDeploymentName
+  dependsOn: [routingModel]
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 50
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-6.1-sol'
+      version: '2026-09-29'
+    }
+    raiPolicyName: 'Microsoft.DefaultV2'
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+  }
+}
+
+resource embeddingModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: aiServices
+  name: embeddingDeploymentName
+  dependsOn: [chatModel]
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 50
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'text-embedding-3-large'
+      version: '1'
+    }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
 }
@@ -218,6 +257,14 @@ resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
           value: 'knowledge'
         }
         {
+          name: 'WorkItemChat__Endpoint'
+          value: 'https://${aiServices.name}.openai.azure.com/'
+        }
+        {
+          name: 'WorkItemChat__SearchEndpoint'
+          value: 'https://${search.name}.search.windows.net/'
+        }
+        {
           name: 'OperationsAuth__Authority'
           value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
         }
@@ -343,6 +390,8 @@ output apiPrincipalId string = configureApi ? api!.identity.principalId : ''
 output appServicePlanName string = plan.name
 output aiServicesEndpoint string = 'https://${aiServices.name}.openai.azure.com/'
 output routingDeploymentName string = routingModel.name
+output chatDeploymentName string = chatModel.name
+output embeddingDeploymentName string = embeddingModel.name
 output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
 output searchEndpoint string = 'https://${search.name}.search.windows.net/'

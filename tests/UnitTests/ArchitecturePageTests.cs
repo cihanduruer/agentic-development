@@ -72,7 +72,7 @@ public sealed class ArchitecturePageTests
     }
 
     [Fact]
-    public void AdminOverviewUsesLiveDeliveryApiAndAccessibleOrderedStageEvidence()
+    public void AdminPageIsAProductManagementShellAndDeliveryStatusServiceKeepsOrderedStageEvidence()
     {
         var page = ReadSource("src/Web/Pages/Admin.razor");
         var deliveryService = ReadSource("src/Infrastructure/DeliveryStatusService.cs");
@@ -85,15 +85,9 @@ public sealed class ArchitecturePageTests
         };
 
         Assert.Contains("@page \"/admin\"", page);
-        Assert.Contains("api/delivery/status", page);
-        Assert.Contains("Select a recent delivery", page);
-        Assert.Contains("Recent deliveries", page);
-        Assert.Contains("refreshed every 20 seconds", page);
-        Assert.Contains("deliveryStatus.isVisible", page);
-        Assert.Contains("End-to-end status flow", page);
-        Assert.Contains("<ol class=\"delivery-flow\"", page);
-        Assert.Contains("aria-describedby=\"delivery-flow-help\"", page);
-        Assert.Contains("Open evidence", page);
+        Assert.Contains("<PageTitle>AI Product Management</PageTitle>", page);
+        Assert.Contains("<h1 id=\"product-management-title\">AI Product Management</h1>", page);
+        Assert.DoesNotContain("api/delivery/status", page);
         Assert.Contains("Not connected (reason:", deliveryService);
         Assert.Contains("BoardsStatus:Organization", deliveryService);
         Assert.Contains("GitHubStatus:Token", deliveryService);
@@ -108,16 +102,11 @@ public sealed class ArchitecturePageTests
         Assert.Contains("\"Failed\"", deliveryService);
         Assert.Contains("\"Waiting\"", deliveryService);
         Assert.Contains("\"Not started\"", deliveryService);
-        Assert.Contains("Last update", page);
-        Assert.Contains("Duration:", page);
-        Assert.Contains("GitHub issue #", page);
-        Assert.Contains("Pull request #", page);
-        Assert.Contains("@media (prefers-reduced-motion: reduce)", ReadSource("src/Web/Pages/Admin.razor.css"));
         Assert.Contains("delivery-status-badge.running { animation: none; }", ReadSource("src/Web/wwwroot/css/app.css"));
     }
 
     [Fact]
-    public void PublicNavigationIsBookingOnlyAndAdminAccessGapIsDisclosed()
+    public void PublicNavigationExposesOnlyHomeAndTheProductManagementEntry()
     {
         var navigation = ReadSource("src/Web/Layout/NavMenu.razor");
         var adminNav = ReadSource("src/Web/Layout/AdminNav.razor");
@@ -128,9 +117,10 @@ public sealed class ArchitecturePageTests
         var architecture = ReadSource("src/Web/Pages/Architecture.razor");
 
         Assert.Contains("href=\"\"", navigation);
+        Assert.Contains("href=\"admin\"", navigation);
+        Assert.Contains("AI Product Management", navigation);
         Assert.DoesNotContain("operations", navigation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("architecture", navigation, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("admin", navigation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("admin", home, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("<PageTitle>Hotel Booking</PageTitle>", home);
         Assert.DoesNotContain("Agentic Hotel Booking", home, StringComparison.Ordinal);
@@ -138,10 +128,10 @@ public sealed class ArchitecturePageTests
         {
             Assert.DoesNotContain(publicDeliveryTerm, home, StringComparison.OrdinalIgnoreCase);
         }
-        Assert.Contains("no sign-in or authorization configured", adminNav);
+        Assert.DoesNotContain("access gap", adminNav, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("@page \"/admin/operations\"", operations);
         Assert.Contains("<main>", layout);
-        Assert.Contains("<section class=\"delivery-overview\" aria-labelledby=\"delivery-overview-title\">", admin);
+        Assert.Contains("<section class=\"product-management\" aria-labelledby=\"product-management-title\">", admin);
         Assert.Contains("<section class=\"architecture-page\" aria-labelledby=\"architecture-title\">", architecture);
         Assert.DoesNotContain("<main", admin, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("<main", architecture, StringComparison.OrdinalIgnoreCase);

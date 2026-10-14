@@ -1,6 +1,6 @@
 .architecture-page {
-    --architecture-ink: var(--brand-dark-blue);
-    --architecture-edge: var(--brand-blue);
+    --architecture-ink: var(--brand-ink);
+    --architecture-edge: var(--brand-crimson);
     max-width: 82rem;
     margin: 0 auto;
     padding-bottom: 2rem;
@@ -10,7 +10,7 @@
     padding: clamp(1.4rem, 4vw, 3rem);
     margin-bottom: 1.5rem;
     border-radius: 1.25rem;
-    background: var(--brand-dark-blue);
+    background: var(--brand-ink);
     color: var(--brand-cream);
 }
 
@@ -30,7 +30,7 @@
     display: inline-block;
     width: 2.2rem;
     margin-right: .35rem;
-    border-top: 3px solid var(--brand-light-blue);
+    border-top: 3px solid var(--brand-blush);
     vertical-align: middle;
 }
 
@@ -40,7 +40,7 @@
     height: .6rem;
     margin: 0 .45rem 0 .15rem;
     border-radius: 50%;
-    background: var(--brand-orange);
+    background: var(--brand-red);
     vertical-align: middle;
 }
 
@@ -76,8 +76,8 @@
 .service-card {
     width: 100%;
     padding: .9rem;
-    border: 1px solid var(--brand-blue);
-    border-top: 4px solid var(--brand-blue);
+    border: 1px solid var(--brand-crimson);
+    border-top: 4px solid var(--brand-crimson);
     border-radius: .7rem;
     background: var(--brand-cream);
 }
@@ -89,7 +89,7 @@
     height: 1.8rem;
     margin-bottom: .5rem;
     border-radius: 50%;
-    background: var(--brand-blue);
+    background: var(--brand-crimson);
     color: var(--brand-cream);
     font-weight: 800;
 }
@@ -109,7 +109,7 @@
 }
 
 .delivery-service-flow:focus-visible {
-    outline: 3px solid var(--brand-blue);
+    outline: 3px solid var(--brand-crimson);
     outline-offset: 3px;
     box-shadow: 0 0 0 3px var(--brand-cream);
 }
@@ -134,7 +134,7 @@
     border: 1px solid var(--brand-taupe);
     border-radius: .35rem;
     background: var(--brand-cream);
-    color: var(--brand-dark-blue);
+    color: var(--brand-ink);
     font-size: .7rem;
     font-weight: 700;
     line-height: 1.1;
@@ -148,7 +148,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--brand-orange);
+    background: var(--brand-red);
     content: "";
     animation: service-dot 1.7s ease-in-out infinite alternate;
 }
@@ -156,20 +156,20 @@
 .flow-note, .proposal-note {
     margin: .8rem 0 0;
     padding: .85rem 1rem;
-    border-left: 3px solid var(--brand-blue);
-    background: var(--brand-light-blue);
-    color: var(--brand-dark-blue);
+    border-left: 3px solid var(--brand-crimson);
+    background: var(--brand-blush);
+    color: var(--brand-ink);
 }
 
 .flow-explanations { display: grid; gap: .65rem; padding-left: 1.5rem; }
 .flow-explanations li { padding-left: .2rem; }
 .sku-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: .85rem; padding: 0; margin: 0; list-style: none; }
-.sku-card { min-width: 0; padding: 1rem; border: 1px solid var(--brand-blue); border-top: 4px solid var(--brand-blue); border-radius: .7rem; background: var(--brand-cream); }
+.sku-card { min-width: 0; padding: 1rem; border: 1px solid var(--brand-crimson); border-top: 4px solid var(--brand-crimson); border-radius: .7rem; background: var(--brand-cream); }
 .sku-card h3 { margin: 0 0 .8rem; font-size: 1.1rem; }
 .sku-card dl { display: grid; grid-template-columns: minmax(7rem, .35fr) minmax(0, 1fr); gap: .35rem .6rem; margin: 0; }
 .sku-card dt { font-weight: 700; }
 .sku-card dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
-.sku-card code { overflow-wrap: anywhere; color: var(--brand-dark-blue); }
+.sku-card code { overflow-wrap: anywhere; color: var(--brand-ink); }
 
 .end-to-end-flow {
     display: flex;
@@ -182,7 +182,7 @@
 }
 
 .end-to-end-flow:focus-visible {
-    outline: 3px solid var(--brand-blue);
+    outline: 3px solid var(--brand-crimson);
     outline-offset: 3px;
     box-shadow: 0 0 0 3px var(--brand-cream);
 }
@@ -194,7 +194,7 @@
     display: grid;
     place-items: center;
     padding: .65rem;
-    border: 1px solid var(--brand-blue);
+    border: 1px solid var(--brand-crimson);
     border-radius: .65rem;
     background: var(--brand-cream);
     font-weight: 700;
@@ -207,7 +207,7 @@
     position: absolute;
     right: -.55rem;
     z-index: 1;
-    color: var(--brand-dark-blue);
+    color: var(--brand-ink);
     background: var(--brand-cream);
 }
 

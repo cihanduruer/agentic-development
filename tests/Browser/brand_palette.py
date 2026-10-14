@@ -27,9 +27,9 @@ expect.set_options(timeout=30_000)
 
 ROOT = Path(__file__).resolve().parents[2]
 COLORS = {
-    "dark": "rgb(22, 74, 97)",
-    "blue": "rgb(4, 102, 140)",
-    "light": "rgb(141, 196, 230)",
+    "ink": "rgb(43, 10, 13)",
+    "crimson": "rgb(196, 0, 12)",
+    "blush": "rgb(255, 214, 217)",
     "cream": "rgb(249, 246, 239)",
     "taupe": "rgb(212, 205, 191)",
 }
@@ -270,7 +270,7 @@ def run(args, api, output):
                 active = page.locator(".nav-link.active")
                 assert "underline" in styles(active)["textDecorationLine"]
                 icon = styles(active.locator(".bi"))
-                assert icon["backgroundColor"] == COLORS["dark"] and icon["maskImage"] != "none"
+                assert icon["backgroundColor"] == COLORS["ink"] and icon["maskImage"] != "none"
                 page.keyboard.press("Tab")
                 active.focus()
                 assert styles(active)["outlineColor"] == COLORS["cream"]
@@ -300,7 +300,7 @@ def run(args, api, output):
                 tab_to_next_control(page, check_out_input, guest_input)
                 expect(guest_input).to_be_focused()
                 state = styles(guest_input)
-                assert state["outlineColor"] == COLORS["blue"] and state["outlineWidth"] == "3px"
+                assert state["outlineColor"] == COLORS["crimson"] and state["outlineWidth"] == "3px"
                 evidence["checks"].append(check_focus(guest_input))
                 evidence["checks"].append(check_pair(guest_input, "borderTopColor", "backgroundColor", 3))
                 search = page.get_by_role("button", name="Check availability")
@@ -348,8 +348,8 @@ def run(args, api, output):
                 page.keyboard.press("Space")
                 expect(room).to_have_attribute("aria-pressed", "true")
                 expect(room.locator(".room-selection")).to_have_text("Selected")
-                assert styles(room)["backgroundColor"] == COLORS["light"]
-                assert styles(room)["outlineColor"] == COLORS["blue"]
+                assert styles(room)["backgroundColor"] == COLORS["blush"]
+                assert styles(room)["outlineColor"] == COLORS["crimson"]
                 evidence["checks"].append(check_focus(room))
                 evidence["checks"].append(check_pair(room, "borderTopColor", "backgroundColor", 3))
                 expect(page.locator(".stay-total")).to_contain_text(re.compile(r"567[,.]00"))
@@ -376,14 +376,14 @@ def run(args, api, output):
                     page.mouse.down()
                     page.wait_for_timeout(200)
                     active_state = styles(button)
-                    assert active_state["backgroundColor"] == COLORS["dark"], active_state
+                    assert active_state["backgroundColor"] == COLORS["ink"], active_state
                     page.mouse.move(0, 0)
                     page.mouse.up()
                     button.focus()
                     page.keyboard.press("Tab")
                     page.keyboard.press("Shift+Tab")
                     focused = styles(button)
-                    assert focused["outlineColor"] == COLORS["blue"] and focused["outlineWidth"] == "3px", focused
+                    assert focused["outlineColor"] == COLORS["crimson"] and focused["outlineWidth"] == "3px", focused
                     evidence["checks"].append(check_focus(button))
                     button.evaluate("e => e.disabled = true")
                     page.wait_for_timeout(200)
@@ -505,7 +505,7 @@ def run(args, api, output):
                 lp = loader_context.new_page()
                 lp.goto(args.web_url, wait_until="domcontentloaded")
                 expect(lp.locator(".loading-progress")).to_be_visible()
-                assert lp.locator(".loading-progress circle").last.evaluate("e => getComputedStyle(e).stroke") == COLORS["blue"]
+                assert lp.locator(".loading-progress circle").last.evaluate("e => getComputedStyle(e).stroke") == COLORS["crimson"]
                 capture(lp, size + "-startup-loader", True)
                 loader_context.close()
             assert not evidence["unexpectedRequests"], evidence["unexpectedRequests"]

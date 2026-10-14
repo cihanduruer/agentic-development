@@ -1,6 +1,6 @@
 .navbar-toggler {
-    background-color: var(--brand-blue);
-    border-color: var(--brand-light-blue);
+    background-color: var(--brand-crimson);
+    border-color: var(--brand-blush);
     color: var(--brand-cream);
 }
 
@@ -10,7 +10,7 @@
 
 .top-row {
     min-height: 3.5rem;
-    background-color: var(--brand-dark-blue);
+    background-color: var(--brand-ink);
 }
 
 .navbar-brand {
@@ -19,14 +19,14 @@
 }
 
 .navbar-brand:hover {
-    color: var(--brand-light-blue);
+    color: var(--brand-blush);
 }
 
 .navbar-brand:focus-visible, .navbar-toggler:focus-visible,
 .nav-item ::deep a:focus-visible {
     outline: 3px solid var(--brand-cream);
     outline-offset: 3px;
-    box-shadow: 0 0 0 3px var(--brand-dark-blue);
+    box-shadow: 0 0 0 3px var(--brand-ink);
 }
 
 .bi {
@@ -60,23 +60,74 @@
 
     .nav-item ::deep a {
         color: var(--brand-cream);
-        border-radius: 4px;
+        border-radius: .65rem;
         height: 3rem;
+        transition: background-color .15s ease;
         display: flex;
         align-items: center;
         line-height: 3rem;
     }
 
 .nav-item ::deep a.active {
-    background-color: var(--brand-light-blue);
-    color: var(--brand-dark-blue);
+    background-color: var(--brand-blush);
+    color: var(--brand-ink);
     text-decoration: underline;
     text-underline-offset: .25em;
 }
 
 .nav-item ::deep a:not(.active):hover {
-    background-color: var(--brand-blue);
+    background-color: var(--brand-crimson);
     color: var(--brand-cream);
+}
+
+.nav-item ::deep a.ai-aura {
+    --aura-angle: 0deg;
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    height: auto;
+    line-height: 1.2;
+    padding: .55rem 1.2rem;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    color: var(--brand-cream);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    background:
+        linear-gradient(var(--brand-ink), var(--brand-ink)) padding-box,
+        conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red)) border-box;
+    animation: aura-spin 4s linear infinite;
+}
+
+.nav-item ::deep a.ai-aura::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    z-index: -1;
+    border-radius: inherit;
+    background: conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red));
+    filter: blur(10px);
+    opacity: .6;
+}
+
+.nav-item ::deep a.ai-aura:hover {
+    background:
+        linear-gradient(var(--brand-ink), var(--brand-ink)) padding-box,
+        conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red)) border-box;
+    color: var(--brand-cream);
+}
+
+.nav-item ::deep a.ai-aura:hover::before {
+    opacity: .9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-item ::deep a.ai-aura {
+        animation: none;
+    }
 }
 
 @media (min-width: 641px) {
@@ -90,8 +141,36 @@
     }
 
     .nav-scrollable {
-        /* Allow sidebar to scroll for tall menus */
-        height: calc(100vh - 3.5rem);
-        overflow-y: auto;
+        /* Top bar: links sit beside the brand and never scroll */
+        flex: 1;
+        height: auto;
+        overflow: visible;
+    }
+
+    .nav-scrollable .nav {
+        flex-direction: row !important;
+        align-items: center;
+        gap: .25rem;
+        width: 100%;
+    }
+
+    .ai-nav-item {
+        margin-inline-start: auto;
+    }
+
+    .nav-item,
+    .nav-item:first-of-type,
+    .nav-item:last-of-type {
+        padding: 0;
+    }
+
+    .nav-item ::deep a {
+        height: 2.5rem;
+        line-height: 2.5rem;
+        padding-inline: 1rem;
+    }
+
+    .top-row {
+        padding-inline: 0;
     }
 }

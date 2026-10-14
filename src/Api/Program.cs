@@ -79,6 +79,25 @@ builder.Services.AddSingleton<IKnowledgeGroundingEvaluator, AzureSearchGrounding
 builder.Services.AddSingleton<IRoutingEvaluationGate, MicrosoftRoutingEvaluationGate>();
 builder.Services.AddSingleton<IAmbiguousRouteResolver, MicrosoftAgentFrameworkRouteResolver>();
 builder.Services.AddSingleton<IAgentRouter, MicrosoftAgentRouter>();
+var workItemChatOptions = new WorkItemChatOptions(
+    builder.Configuration["WorkItemChat:Endpoint"],
+    builder.Configuration["WorkItemChat:ChatDeployment"] ?? "gpt-6.1-sol",
+    builder.Configuration["WorkItemChat:EmbeddingDeployment"] ?? "text-embedding-3-large",
+    builder.Configuration["WorkItemChat:SearchEndpoint"],
+    builder.Configuration["WorkItemChat:SearchIndex"] ?? "hotel-knowledge-center",
+    builder.Configuration["WorkItemChat:Organization"] ?? "ai-enabled-ado-org",
+    builder.Configuration["WorkItemChat:Project"] ?? "sample-project",
+    builder.Configuration.GetValue("WorkItemChat:CreateEnabled", false));
+builder.Services.AddSingleton(workItemChatOptions);
+builder.Services.AddSingleton<KnowledgeCenterSearch>();
+builder.Services.AddSingleton(new KnowledgeUploadOptions(
+    builder.Configuration.GetValue("WorkItemChat:UploadEnabled", false)));
+builder.Services.AddSingleton<KnowledgeUploadService>();
+builder.Services.AddSingleton<IWorkItemChatService, WorkItemChatService>();
+builder.Services.AddSingleton<IWorkItemWriter>(services => new AzureBoardsWorkItemWriter(
+    new HttpClient(),
+    services.GetRequiredService<WorkItemChatOptions>(),
+    services.GetRequiredService<Azure.Core.TokenCredential>()));
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? ["http://localhost:5166"])
         .AllowAnyHeader()
@@ -172,6 +191,234 @@ app.MapGet("/api/operations/events", (
     IAgentEventStore store,
     CancellationToken cancellationToken) =>
     store.GetRecentAsync(limit ?? 100, cancellationToken));
+
+app.MapGet("/api/knowledge/blocks", async (
+    KnowledgeCenterSearch knowledge,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await knowledge.ListAsync(cancellationToken));
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The knowledge center is not configured in this environment.");
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The knowledge center could not be read. Try again.");
+    }
+});
+
+app.MapPost("/api/knowledge/upload", async (
+    IFormFile file,
+    KnowledgeUploadService uploads,
+    CancellationToken cancellationToken) =>
+{
+    if (!uploads.Enabled)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Uploading knowledge is disabled in this environment.");
+    }
+
+    if (file.Length is <= 0 or > KnowledgeUploadLimits.MaxFileBytes)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: $"Files must be between 1 byte and {KnowledgeUploadLimits.MaxFileBytes / (1024 * 1024)} MB.");
+    }
+
+    try
+    {
+        await using var stream = file.OpenReadStream();
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, cancellationToken);
+        var document = UploadedDocumentExtractor.Extract(file.FileName, buffer.ToArray());
+        return Results.Ok(await uploads.IngestAsync(file.FileName, document, cancellationToken));
+    }
+    catch (InvalidDataException exception)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The knowledge center is not configured in this environment.");
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The knowledge center could not store the upload. Try again.");
+    }
+})
+    .DisableAntiforgery()
+    .WithMetadata(new RequestSizeLimitAttribute(KnowledgeUploadLimits.MaxFileBytes + 512 * 1024));
+
+app.MapPost("/api/knowledge/text", async (
+    TextUploadRequest request,
+    KnowledgeUploadService uploads,
+    CancellationToken cancellationToken) =>
+{
+    if (!uploads.Enabled)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Uploading knowledge is disabled in this environment.");
+    }
+
+    try
+    {
+        var document = UploadedDocumentExtractor.ExtractText(request?.Title ?? string.Empty, request?.Text ?? string.Empty);
+        return Results.Ok(await uploads.IngestAsync(request!.Title.Trim() + ".txt", document, cancellationToken));
+    }
+    catch (InvalidDataException exception)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The knowledge center is not configured in this environment.");
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The knowledge center could not store the text. Try again.");
+    }
+});
+
+app.MapPost("/api/knowledge/uploads/approve", async (
+    string path,
+    KnowledgeUploadService uploads,
+    CancellationToken cancellationToken) =>
+{
+    if (!uploads.Enabled)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Uploading knowledge is disabled in this environment.");
+    }
+
+    if (!KnowledgeUploadService.IsUploadPath(path))
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Only uploaded sources can be approved.");
+    }
+
+    try
+    {
+        var approved = await uploads.ApproveAsync(path, cancellationToken);
+        return approved == 0
+            ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "That source was not found.")
+            : Results.Ok(new { approved });
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException or InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The knowledge center could not approve the source. Try again.");
+    }
+});
+
+app.MapDelete("/api/knowledge/uploads", async (
+    string path,
+    KnowledgeUploadService uploads,
+    CancellationToken cancellationToken) =>
+{
+    if (!uploads.Enabled)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Uploading knowledge is disabled in this environment.");
+    }
+
+    if (!KnowledgeUploadService.IsUploadPath(path))
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Only uploaded sources can be removed.");
+    }
+
+    try
+    {
+        return Results.Ok(new { removed = await uploads.RemoveAsync(path, cancellationToken) });
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException or InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The knowledge center could not remove the source. Try again.");
+    }
+});
+
+app.MapPost("/api/work-item-chat", async (
+    WorkItemChatRequest request,
+    IWorkItemChatService chat,
+    CancellationToken cancellationToken) =>
+{
+    var problem = WorkItemChatValidator.ValidateRequest(request);
+    if (problem is not null)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: problem);
+    }
+
+    try
+    {
+        return Results.Ok(await chat.ReplyAsync(request, cancellationToken));
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The work item assistant is not configured in this environment.");
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException or System.Text.Json.JsonException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The work item assistant could not complete the request. Try again.");
+    }
+});
+
+app.MapPost("/api/work-items", async (
+    WorkItemDraft draft,
+    IWorkItemWriter writer,
+    CancellationToken cancellationToken) =>
+{
+    var problems = WorkItemChatValidator.ValidateForCreation(draft);
+    if (problems.Count > 0)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: string.Join(" ", problems));
+    }
+
+    try
+    {
+        var created = await writer.CreateUserStoryAsync(draft, cancellationToken);
+        return Results.Created(created.Url, created);
+    }
+    catch (WorkItemCreationDisabledException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Creating Azure Boards work items is disabled in this environment.");
+    }
+    catch (Exception exception) when (exception is HttpRequestException or Azure.Identity.AuthenticationFailedException or Azure.RequestFailedException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "Azure Boards could not create the work item.");
+    }
+});
 
 app.MapGet("/api/delivery/status", async (
     string? workItemId,
