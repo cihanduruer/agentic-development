@@ -62,13 +62,15 @@ else
                 <span class="city">@hotel.City</span>
                 <h2>@hotel.Name</h2>
                 <p>@hotel.Description</p>
-                <button class="btn btn-primary" @onclick="() => SelectHotel(hotel)">View rooms</button>
+                <button class="btn btn-primary"
+                        aria-label="View rooms at @hotel.Name"
+                        @onclick="() => ViewRooms(hotel)">View rooms</button>
             </article>
         }
     </div>
 }
 
-@if (selectedHotel is not null)
+@if (selectedHotel is not null && rooms is not null)
 {
     <section class="booking-panel" aria-labelledby="booking-title">
         <h2 id="booking-title">Available rooms at @selectedHotel.Name</h2>
@@ -195,6 +197,7 @@ else
     private Reservation? reservation;
     private string? error;
     private string? selectedHotelId;
+    private int availabilitySearchId;
     private string guestName = string.Empty;
     private VehiclePreference? vehiclePreference;
     private readonly HashSet<string> selectedAmenities = new(StringComparer.OrdinalIgnoreCase);
@@ -234,6 +237,7 @@ else
 
     private void SelectHotel(Hotel hotel)
     {
+        availabilitySearchId++;
         selectedHotel = hotel;
         selectedHotelId = hotel.Id.ToString();
         rooms = null;
@@ -251,6 +255,12 @@ else
         {
             SelectHotel(hotel);
         }
+    }
+
+    private async Task ViewRooms(Hotel hotel)
+    {
+        SelectHotel(hotel);
+        await SearchRooms();
     }
 
     private void SelectRoom(Room room)
@@ -293,18 +303,27 @@ else
             return;
         }
 
+        var searchId = ++availabilitySearchId;
+        var hotelId = selectedHotel.Id;
         try
         {
             StartNewReservationIfConfirmed();
             error = null;
             selectedRoom = null;
             rooms = null;
-            rooms = await Http.GetFromJsonAsync<Room[]>(
-                $"api/hotels/{selectedHotel.Id}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}") ?? [];
+            var result = await Http.GetFromJsonAsync<Room[]>(
+                $"api/hotels/{hotelId}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}");
+            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
+            {
+                rooms = result ?? [];
+            }
         }
         catch (Exception exception)
         {
-            error = $"Availability could not be checked: {exception.Message}";
+            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
+            {
+                error = $"Availability could not be checked: {exception.Message}";
+            }
         }
     }
 
