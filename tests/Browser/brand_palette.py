@@ -103,7 +103,7 @@ def audit_text(page):
 
 
 def run(args, api, output):
-    evidence = {"schemaVersion": 1, "workItem": "AB#960,AB#961,AB#966",
+    evidence = {"schemaVersion": 1, "workItem": "AB#960,AB#961,AB#966,AB#967",
                 "sourceSha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "workingTreeDiff": subprocess.check_output(["git", "-c", "core.safecrlf=false", "diff", "--stat"], cwd=ROOT, text=True),
                 "web": args.web_url, "api": api, "isolation": "Owned process; EF InMemory; SQL connection empty",
@@ -147,6 +147,18 @@ def run(args, api, output):
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.goto(args.web_url)
                 expect(page.locator(".hotel-card")).to_have_count(2)
+                expect(page.get_by_label("Hotel or destination", exact=True)).to_be_visible()
+                expect(page.get_by_label("Check-in", exact=True)).to_be_visible()
+                expect(page.get_by_label("Check-out", exact=True)).to_be_visible()
+                expect(page.get_by_label("Guests", exact=True)).to_be_visible()
+                expect(page.get_by_role("button", name="Check availability")).to_be_visible()
+                assert page.get_by_label("Hotel or destination", exact=True).input_value()
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                assert all(page.get_by_label(name, exact=True).evaluate(
+                    "e => e.getBoundingClientRect().bottom <= innerHeight")
+                    for name in ["Hotel or destination", "Check-in", "Check-out", "Guests"])
+                assert page.get_by_role("button", name="Check availability").evaluate(
+                    "e => e.getBoundingClientRect().bottom <= innerHeight")
                 capture(page, size + "-catalog")
                 if size == "mobile":
                     toggle = page.get_by_role("button", name="Navigation menu")
@@ -163,23 +175,37 @@ def run(args, api, output):
                 assert styles(active)["outlineColor"] == COLORS["cream"]
                 evidence["checks"].append(check_focus(active))
                 page.keyboard.press("Tab")
-                view_rooms = page.get_by_role("button", name="View rooms").first
-                expect(view_rooms).to_be_focused()
-                assert styles(view_rooms)["outlineColor"] == COLORS["blue"]
-                evidence["checks"].append(check_focus(view_rooms))
-                page.keyboard.press("Enter")
+                hotel_destination = page.get_by_label("Hotel or destination", exact=True)
+                expect(hotel_destination).to_be_focused()
+                evidence["checks"].append(check_focus(hotel_destination))
+                assert hotel_destination.locator("option").count() == 2
+                page.keyboard.press("ArrowDown")
+                expect(hotel_destination).to_have_value("0e7b82cc-4ded-4707-82a4-1e80db408af9")
+                page.keyboard.press("ArrowUp")
+                expect(hotel_destination).to_have_value("3d41ab14-06c3-4c9a-bf29-61f4392f2227")
+                page.keyboard.press("Tab")
                 check_in = (date.today() + timedelta(days=days)).isoformat()
                 check_out = (date.today() + timedelta(days=days + 3)).isoformat()
-                page.get_by_label("Check-in", exact=True).fill(check_in)
-                page.get_by_label("Check-out", exact=True).fill(check_out)
-                page.get_by_label("Guests", exact=True).focus()
-                state = styles(page.get_by_label("Guests", exact=True))
+                check_in_input = page.get_by_label("Check-in", exact=True)
+                expect(check_in_input).to_be_focused()
+                check_in_input.fill(check_in)
+                check_out_input = page.get_by_label("Check-out", exact=True)
+                check_out_input.focus()
+                expect(check_out_input).to_be_focused()
+                check_out_input.fill(check_out)
+                guest_input = page.get_by_label("Guests", exact=True)
+                guest_input.focus()
+                expect(guest_input).to_be_focused()
+                state = styles(guest_input)
                 assert state["outlineColor"] == COLORS["blue"] and state["outlineWidth"] == "3px"
-                evidence["checks"].append(check_focus(page.get_by_label("Guests", exact=True)))
-                evidence["checks"].append(check_pair(page.get_by_label("Guests", exact=True), "borderTopColor", "backgroundColor", 3))
-                capture(page, size + "-form-focus")
+                evidence["checks"].append(check_focus(guest_input))
+                evidence["checks"].append(check_pair(guest_input, "borderTopColor", "backgroundColor", 3))
                 search = page.get_by_role("button", name="Check availability")
-                search.click()
+                search.focus()
+                expect(search).to_be_focused()
+                evidence["checks"].append(check_focus(search))
+                capture(page, size + "-form-focus")
+                page.keyboard.press("Enter")
                 expect(page.locator(".room-option")).to_have_count(2)
                 amenity_group = page.get_by_role("group", name="Filter available rooms by amenities")
                 coffee = amenity_group.get_by_label("Coffee maker", exact=True)
@@ -201,6 +227,12 @@ def run(args, api, output):
                 expect(coffee).not_to_be_checked()
                 expect(kitchenette).not_to_be_checked()
                 expect(page.locator(".room-option")).to_have_count(2)
+                expect(clear_filters).to_be_disabled()
+                evidence["checks"].append({
+                    "selector": ".btn-outline-primary",
+                    "state": "disabled empty-filter control",
+                    **check_pair(clear_filters, "color", "backgroundColor"),
+                })
                 evidence["checks"].append({
                     "amenityFilters": "catalog-labeled, keyboard-operable, match-all, clear-all restores both rooms",
                     "noMatchMessageDistinctFromUnavailableDates": True})
@@ -227,7 +259,7 @@ def run(args, api, output):
                 vehicle.select_option("Luxury")
                 capture(page, size + "-search-selected")
 
-                for selector in [".btn-primary", ".btn-outline-primary", ".btn-success"]:
+                for selector in [".btn-primary", ".btn-success"]:
                     button = page.locator(selector).first
                     page.mouse.move(0, 0)
                     button.evaluate("e => e.blur()")
@@ -374,6 +406,51 @@ def run(args, api, output):
                 capture(lp, size + "-startup-loader", True)
                 loader_context.close()
             assert not evidence["unexpectedRequests"], evidence["unexpectedRequests"]
+            narrow_context = context(320, 780)
+            narrow_page = narrow_context.new_page()
+            narrow_page.goto(args.web_url)
+            expect(narrow_page.get_by_label("Hotel or destination", exact=True)).to_be_visible()
+            expect(narrow_page.get_by_role("button", name="Check availability")).to_be_visible()
+            assert narrow_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            for field in ["Hotel or destination", "Check-in", "Check-out", "Guests"]:
+                bounds = narrow_page.get_by_label(field, exact=True).bounding_box()
+                assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 320, (field, bounds)
+            evidence["checks"].append({
+                "viewport": "narrow-320px",
+                "searchFieldsWithinViewport": True,
+                "documentHorizontalOverflow": False,
+            })
+            capture(narrow_page, "narrow-search-first-viewport")
+            narrow_context.close()
+            tablet_context = context(1024, 900)
+            tablet_page = tablet_context.new_page()
+            tablet_page.goto(args.web_url)
+            expect(tablet_page.get_by_label("Hotel or destination", exact=True)).to_be_visible()
+            expect(tablet_page.get_by_role("button", name="Check availability")).to_be_visible()
+            assert tablet_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            tablet_fields = [
+                tablet_page.get_by_label(field, exact=True)
+                for field in ["Hotel or destination", "Check-in", "Check-out", "Guests"]
+            ]
+            tablet_fields.append(tablet_page.get_by_role("button", name="Check availability"))
+            bounds = [field.bounding_box() for field in tablet_fields]
+            assert all(box and box["x"] >= 0 and box["x"] + box["width"] <= 1024 for box in bounds), bounds
+            assert all(
+                first["y"] + first["height"] <= second["y"] or
+                second["y"] + second["height"] <= first["y"] or
+                first["x"] + first["width"] <= second["x"] or
+                second["x"] + second["width"] <= first["x"]
+                for index, first in enumerate(bounds)
+                for second in bounds[index + 1:]
+            ), bounds
+            evidence["checks"].append({
+                "viewport": "tablet-1024px",
+                "searchFieldsWithinViewport": True,
+                "searchFieldsDoNotOverlap": True,
+                "documentHorizontalOverflow": False,
+            })
+            capture(tablet_page, "tablet-search-first-viewport")
+            tablet_context.close()
             evidence["status"] = "passed"
         except Exception as error:
             evidence["status"] = "failed"

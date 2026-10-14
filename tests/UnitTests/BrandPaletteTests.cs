@@ -75,6 +75,7 @@ public sealed class BrandPaletteTests
         var css = ReadSource("src/Web/wwwroot/css/app.css");
         Assert.Equal("1px solid var(--brand-blue)", Declaration(css, ".room-option", "border"));
         Assert.Equal("1px solid var(--brand-dark-blue)", Declaration(css, ".booking-fields input", "border"));
+        Assert.Equal("1px solid var(--brand-dark-blue)", Declaration(css, ".booking-fields select", "border"));
         Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "input:focus-visible", "outline"));
         Assert.Equal("3px solid var(--brand-blue)", Declaration(css, ".btn:active:focus-visible", "outline"));
         Assert.Equal("0 0 0 3px var(--brand-cream)", Declaration(css, "button:focus-visible", "box-shadow"));
@@ -109,6 +110,29 @@ public sealed class BrandPaletteTests
         Assert.Equal("1px solid var(--brand-dark-blue)",
             Declaration(css, ".vehicle-preference select", "border"));
         Assert.Equal("3px solid var(--brand-blue)", Declaration(css, "select:focus-visible", "outline"));
+    }
+
+    [Fact]
+    public void HomePagePutsHotelAndStaySearchControlsBeforeTheCatalog()
+    {
+        var home = ReadSource("src/Web/Pages/Home.razor");
+        var searchPanel = home.IndexOf("<section class=\"search-panel\"", StringComparison.Ordinal);
+        var catalog = home.IndexOf("<div class=\"hotel-grid\">", StringComparison.Ordinal);
+
+        Assert.True(searchPanel >= 0 && catalog > searchPanel);
+        Assert.Contains("for=\"hotel-destination\"", home);
+        Assert.Contains("Hotel or destination", home);
+        Assert.Contains("for=\"check-in\"", home);
+        Assert.Contains("for=\"check-out\"", home);
+        Assert.Contains("for=\"guest-count\"", home);
+        Assert.Contains("class=\"btn btn-primary search-submit\"", home);
+        Assert.Contains("SelectHotel(hotels[0])", home);
+        Assert.Contains("@bind:after=\"OnHotelSelectionChanged\"", home);
+
+        var css = ReadSource("src/Web/Pages/Home.razor.css");
+        Assert.Contains("grid-template-columns: minmax(220px, 2fr)", css);
+        Assert.Contains("@media (max-width: 1180px)", css);
+        Assert.Contains("@media (max-width: 480px)", css);
     }
 
     [Fact]
