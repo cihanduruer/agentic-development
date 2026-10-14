@@ -8,7 +8,7 @@
 }
 
 .hero {
-    background: color-mix(in srgb, var(--brand-blush) 55%, var(--brand-cream));
+    background: var(--brand-blush);
     color: var(--brand-ink);
     margin-bottom: 0;
     padding: 2.25rem 2rem 4.5rem;

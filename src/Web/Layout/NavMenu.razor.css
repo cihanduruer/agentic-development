@@ -81,7 +81,6 @@
 }
 
 .nav-item ::deep a.ai-aura {
-    --aura-angle: 0deg;
     position: relative;
     isolation: isolate;
     display: inline-flex;
@@ -90,42 +89,43 @@
     height: auto;
     line-height: 1.2;
     padding: .55rem 1.2rem;
-    border: 2px solid transparent;
     border-radius: 999px;
     color: var(--brand-cream);
     font-weight: 600;
     text-decoration: none;
     white-space: nowrap;
-    background:
-        linear-gradient(var(--brand-ink), var(--brand-ink)) padding-box,
-        conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red)) border-box;
+    box-shadow: 0 0 14px rgb(255 0 15 / 45%);
+    transition: box-shadow .2s ease;
+}
+
+/* The animated ring and the solid fill are separate layers so the link text sits on a plain dark background. */
+.nav-item ::deep a.ai-aura::before {
+    --aura-angle: 0deg;
+    content: "";
+    position: absolute;
+    inset: -2px;
+    z-index: -2;
+    border-radius: inherit;
+    background: conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red));
     animation: aura-spin 4s linear infinite;
 }
 
-.nav-item ::deep a.ai-aura::before {
+.nav-item ::deep a.ai-aura::after {
     content: "";
     position: absolute;
-    inset: -4px;
+    inset: 0;
     z-index: -1;
     border-radius: inherit;
-    background: conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red));
-    filter: blur(10px);
-    opacity: .6;
+    background: var(--brand-ink);
 }
 
 .nav-item ::deep a.ai-aura:hover {
-    background:
-        linear-gradient(var(--brand-ink), var(--brand-ink)) padding-box,
-        conic-gradient(from var(--aura-angle), var(--brand-red), #9B7BFF, var(--brand-blush), #FF6FB5, var(--brand-red)) border-box;
     color: var(--brand-cream);
-}
-
-.nav-item ::deep a.ai-aura:hover::before {
-    opacity: .9;
+    box-shadow: 0 0 20px rgb(255 0 15 / 70%);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .nav-item ::deep a.ai-aura {
+    .nav-item ::deep a.ai-aura::before {
         animation: none;
     }
 }
