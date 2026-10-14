@@ -2,7 +2,69 @@
     background: var(--brand-orange);
     margin: -1.1rem -1.5rem;
     min-height: calc(100vh - 4.6rem);
-    padding: 1.1rem 1.5rem;
+    padding: 1rem 1.5rem 2rem;
+    min-width: 0;
+    overflow-x: clip;
+}
+
+.hero {
+    margin-bottom: 1rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.hero h1 {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    margin-bottom: .4rem;
+}
+
+.hero p:last-child {
+    margin-bottom: 0;
+}
+
+.search-panel {
+    background: var(--brand-cream);
+    border: 1px solid var(--brand-taupe);
+    border-radius: 1rem;
+    box-shadow: 0 8px 24px rgb(22 74 97 / 8%);
+    margin-bottom: 1.25rem;
+    padding: 1.25rem;
+}
+
+.search-panel h2 {
+    font-size: 1.35rem;
+    margin-bottom: .9rem;
+}
+
+.search-fields {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(145px, 1fr)) minmax(105px, .7fr) auto;
+    align-items: end;
+    gap: .75rem;
+}
+
+.search-fields label {
+    min-width: 0;
+    width: 100%;
+}
+
+.search-destination {
+    display: grid;
+    gap: .35rem;
+    min-width: 0;
+}
+
+.search-fields input,
+.search-fields select {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.search-fields .search-submit {
+    white-space: nowrap;
+}
+
+.hotel-grid {
+    margin-top: 0;
 }
 
 .amenity-filters {
@@ -36,4 +98,50 @@
     accent-color: var(--brand-blue);
     min-height: 1.1rem;
     min-width: 1.1rem;
+}
+
+@media (max-width: 1180px) {
+    .search-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .search-fields .search-destination {
+        grid-column: 1 / -1;
+    }
+
+    .search-fields .search-submit {
+        grid-column: 1 / -1;
+        justify-self: start;
+    }
+}
+
+@media (max-width: 480px) {
+    .home-page {
+        padding-inline: 1rem;
+    }
+
+    .hero {
+        padding: 1rem;
+    }
+
+    .hero h1 {
+        font-size: 1.8rem;
+    }
+
+    .search-panel {
+        padding: 1rem;
+    }
+
+    .search-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .search-fields .search-destination,
+    .search-fields .search-submit {
+        grid-column: 1;
+    }
+
+    .search-fields .search-submit {
+        justify-self: stretch;
+    }
 }

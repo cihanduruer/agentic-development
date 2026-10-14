@@ -41,7 +41,7 @@ html, body {
 .booking-panel { margin-top: 2rem; }
 .booking-fields, .confirm-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
 .booking-fields label, .confirm-row label { display: grid; gap: .35rem; max-width: 100%; }
-.booking-fields input, .confirm-row input, .vehicle-preference select { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); max-width: 100%; min-width: 0; }
+.booking-fields input, .booking-fields select, .confirm-row input, .vehicle-preference select { border: 1px solid var(--brand-dark-blue); border-radius: .4rem; padding: .5rem; background: var(--brand-cream); color: var(--brand-dark-blue); max-width: 100%; min-width: 0; }
 .vehicle-preference { display: grid; gap: .35rem; max-width: 24rem; }
 .vehicle-preference p { margin: 0; }
 .room-list { display: grid; gap: .6rem; margin: 1rem 0; }

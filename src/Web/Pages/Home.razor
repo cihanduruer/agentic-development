@@ -9,7 +9,7 @@
 <section class="hero">
     <p class="eyebrow">Your stay starts here</p>
     <h1>Find a room. Book with confidence.</h1>
-    <p>Browse hotels, check availability for your dates, and book a room with clear booking rules.</p>
+    <p>Choose a hotel and your dates to find the right room.</p>
 </section>
 
 @if (!string.IsNullOrWhiteSpace(error))
@@ -30,6 +30,31 @@ else if (hotels.Count == 0)
 }
 else
 {
+    <section class="search-panel" aria-labelledby="search-title">
+        <h2 id="search-title">Search your stay</h2>
+        <div class="booking-fields search-fields">
+            <div class="search-destination">
+                <label for="hotel-destination">Hotel or destination</label>
+                <select id="hotel-destination" @bind="selectedHotelId" @bind:after="OnHotelSelectionChanged">
+                    @foreach (var hotel in hotels)
+                    {
+                        <option value="@hotel.Id">@hotel.Name — @hotel.City</option>
+                    }
+                </select>
+            </div>
+            <label for="check-in">Check-in
+                <input id="check-in" type="date" @bind="checkIn" />
+            </label>
+            <label for="check-out">Check-out
+                <input id="check-out" type="date" @bind="checkOut" />
+            </label>
+            <label for="guest-count">Guests
+                <input id="guest-count" type="number" min="1" max="8" @bind="guests" />
+            </label>
+            <button class="btn btn-primary search-submit" @onclick="SearchRooms">Check availability</button>
+        </div>
+    </section>
+
     <div class="hotel-grid">
         @foreach (var hotel in hotels)
         {
@@ -37,22 +62,18 @@ else
                 <span class="city">@hotel.City</span>
                 <h2>@hotel.Name</h2>
                 <p>@hotel.Description</p>
-                <button class="btn btn-primary" @onclick="() => SelectHotel(hotel)">View rooms</button>
+                <button class="btn btn-primary"
+                        aria-label="View rooms at @hotel.Name"
+                        @onclick="() => ViewRooms(hotel)">View rooms</button>
             </article>
         }
     </div>
 }
 
-@if (selectedHotel is not null)
+@if (selectedHotel is not null && rooms is not null)
 {
     <section class="booking-panel" aria-labelledby="booking-title">
-        <h2 id="booking-title">Book @selectedHotel.Name</h2>
-        <div class="booking-fields">
-            <label>Check-in <input type="date" @bind="checkIn" /></label>
-            <label>Check-out <input type="date" @bind="checkOut" /></label>
-            <label>Guests <input type="number" min="1" max="8" @bind="guests" /></label>
-            <button class="btn btn-outline-primary" @onclick="SearchRooms">Check availability</button>
-        </div>
+        <h2 id="booking-title">Available rooms at @selectedHotel.Name</h2>
 
         @if (rooms is not null)
         {
@@ -175,6 +196,8 @@ else
     private Room? selectedRoom;
     private Reservation? reservation;
     private string? error;
+    private string? selectedHotelId;
+    private int availabilitySearchId;
     private string guestName = string.Empty;
     private VehiclePreference? vehiclePreference;
     private readonly HashSet<string> selectedAmenities = new(StringComparer.OrdinalIgnoreCase);
@@ -201,6 +224,10 @@ else
         try
         {
             hotels = await Http.GetFromJsonAsync<Hotel[]>("api/hotels") ?? [];
+            if (hotels.Count > 0)
+            {
+                SelectHotel(hotels[0]);
+            }
         }
         catch (Exception exception)
         {
@@ -210,13 +237,30 @@ else
 
     private void SelectHotel(Hotel hotel)
     {
+        availabilitySearchId++;
         selectedHotel = hotel;
+        selectedHotelId = hotel.Id.ToString();
         rooms = null;
         selectedRoom = null;
         reservation = null;
         vehiclePreference = null;
         selectedAmenities.Clear();
         error = null;
+    }
+
+    private void OnHotelSelectionChanged()
+    {
+        var hotel = hotels?.FirstOrDefault(item => item.Id.ToString() == selectedHotelId);
+        if (hotel is not null && hotel.Id != selectedHotel?.Id)
+        {
+            SelectHotel(hotel);
+        }
+    }
+
+    private async Task ViewRooms(Hotel hotel)
+    {
+        SelectHotel(hotel);
+        await SearchRooms();
     }
 
     private void SelectRoom(Room room)
@@ -259,17 +303,27 @@ else
             return;
         }
 
+        var searchId = ++availabilitySearchId;
+        var hotelId = selectedHotel.Id;
         try
         {
             StartNewReservationIfConfirmed();
             error = null;
             selectedRoom = null;
-            rooms = await Http.GetFromJsonAsync<Room[]>(
-                $"api/hotels/{selectedHotel.Id}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}") ?? [];
+            rooms = null;
+            var result = await Http.GetFromJsonAsync<Room[]>(
+                $"api/hotels/{hotelId}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}");
+            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
+            {
+                rooms = result ?? [];
+            }
         }
         catch (Exception exception)
         {
-            error = $"Availability could not be checked: {exception.Message}";
+            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
+            {
+                error = $"Availability could not be checked: {exception.Message}";
+            }
         }
     }
 
