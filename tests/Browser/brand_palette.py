@@ -463,8 +463,9 @@ def run(args, api, output):
                 held = []
                 fixtures.route("**/api/hotels", lambda route: held.append(route))
                 fp.goto(args.web_url)
-                loading_status = fp.get_by_role("status", name="Loading Hotels")
+                loading_status = fp.get_by_role("status")
                 expect(loading_status).to_be_visible()
+                expect(loading_status).to_have_text("Loading Hotels")
                 spinner = loading_status.locator(".hotel-loading-spinner")
                 assert spinner.get_attribute("aria-hidden") == "true"
                 assert spinner.evaluate("(element) => getComputedStyle(element).borderTopColor") == "rgb(196, 0, 12)"
@@ -482,7 +483,7 @@ def run(args, api, output):
                 fixtures.route("**/api/hotels", lambda r: r.fulfill(status=503, body="Isolated failure"))
                 fp.reload()
                 expect(fp.get_by_role("alert")).to_contain_text("Hotels could not be loaded")
-                expect(fp.get_by_role("status", name="Loading Hotels")).to_have_count(0)
+                expect(fp.get_by_role("status")).to_have_count(0)
                 capture(fp, size + "-catalog-error", True)
                 fixtures.route("**/api/operations/events?*", lambda r: r.fulfill(json=[]))
                 held_negotiate = []
