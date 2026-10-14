@@ -243,6 +243,7 @@ def run(args, api, output):
                 assert "underline" in styles(active)["textDecorationLine"]
                 icon = styles(active.locator(".bi"))
                 assert icon["backgroundColor"] == COLORS["dark"] and icon["maskImage"] != "none"
+                page.keyboard.press("Tab")
                 active.focus()
                 assert styles(active)["outlineColor"] == COLORS["cream"]
                 evidence["checks"].append(check_focus(active))
