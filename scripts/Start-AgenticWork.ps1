@@ -112,7 +112,18 @@ function ConvertTo-ReadableWorkItemText {
         return ""
     }
 
-    return ($Text -replace "<[^>]*>", " " -replace "\s+", " ").Trim()
+    $readableText = [System.Net.WebUtility]::HtmlDecode($Text)
+    $readableText = $readableText -replace '(?i)<br\s*/?\s*>', "`n"
+    $readableText = $readableText -replace '(?i)<li(?:\s[^>]*)?>', "`n- "
+    $readableText = $readableText -replace '(?i)</li\s*>', "`n"
+    $readableText = $readableText -replace '(?i)</?(?:p|div|h[1-6]|ul|ol)\b[^>]*>', "`n"
+    $readableText = $readableText -replace '<[^>]*>', ' '
+    $readableText = $readableText -replace '\r\n?', "`n"
+    $readableText = $readableText -replace '[^\S\n]+', ' '
+    $readableText = $readableText -replace '[ \t]*\n[ \t]*', "`n"
+    $readableText = $readableText -replace '\n{2,}', "`n"
+
+    return $readableText.Trim()
 }
 
 function New-WorkItemIssueBody {

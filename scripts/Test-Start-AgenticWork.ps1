@@ -174,10 +174,13 @@ $bodyWithCriteria = New-WorkItemIssueBody `
     -Project "sample-project" `
     -Id 959 `
     -Description "<p>Guests can filter available rooms.</p>" `
-    -AcceptanceCriteria "<ul><li>Only rooms matching selected amenities appear.</li></ul>"
+    -AcceptanceCriteria "<div><h3>Choose amenities</h3><p>Filter uses pool &amp; spa.</p><ul><li>Only rooms with the pool.</li><li>Only rooms with the spa.</li></ul><br/>Review selected amenities.</div>"
 Assert-True `
-    -Condition ($bodyWithCriteria -match "(?s)## Product requirement\s+Guests can filter available rooms\.\s+## Acceptance criteria\s+Only rooms matching selected amenities appear\.") `
-    -Message "Description and acceptance criteria should be rendered as separate readable sections."
+    -Condition ($bodyWithCriteria -match "(?s)## Product requirement\s+Guests can filter available rooms\.\s+## Acceptance criteria\s+Choose amenities\s+Filter uses pool & spa\.\s+- Only rooms with the pool\.\s+- Only rooms with the spa\.\s+Review selected amenities\.\s+## Agent operating contract") `
+    -Message "Description and decoded acceptance criteria should render as separate readable sections."
+Assert-True `
+    -Condition ($bodyWithCriteria -match '(?m)^- Only rooms with the pool\.$' -and $bodyWithCriteria -match '(?m)^- Only rooms with the spa\.$') `
+    -Message "Each acceptance-criteria list item should remain on a separate line."
 
 $bodyWithoutCriteria = New-WorkItemIssueBody `
     -Organization "ai-enabled-ado-org" `
