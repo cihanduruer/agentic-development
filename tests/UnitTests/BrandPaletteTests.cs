@@ -80,12 +80,16 @@ public sealed class BrandPaletteTests
 
         Assert.True(Ratio(ink, red) >= 4.5, $"Ink on brand red has contrast {Ratio(ink, red):F2}:1.");
         Assert.True(Ratio(cream, red) < 4.5, "Cream on brand red now passes; the ink restriction can be relaxed.");
-        foreach (var property in new[] { "--bs-btn-color", "--bs-btn-hover-color", "--bs-btn-active-color", "--bs-btn-disabled-color" })
+        foreach (var property in new[] { "--bs-btn-color", "--bs-btn-hover-color", "--bs-btn-disabled-color" })
         {
             Assert.Equal("var(--brand-ink)", Declaration(homeCss, ".search-fields .search-submit", property));
         }
 
         Assert.Equal("var(--brand-red)", Declaration(homeCss, ".search-fields .search-submit", "--bs-btn-bg"));
+        Assert.Equal("var(--brand-taupe)", Declaration(homeCss, ".search-fields .search-submit", "--bs-btn-disabled-bg"));
+        Assert.Equal("var(--brand-cream)", Declaration(homeCss, ".search-fields .search-submit", "--bs-btn-active-color"));
+        Assert.Equal("var(--brand-ink)", Declaration(homeCss, ".search-fields .search-submit", "--bs-btn-active-bg"));
+        Assert.True(Ratio(cream, ink) >= 4.5, "The pressed search button needs AA contrast.");
     }
 
     [Fact]

@@ -95,7 +95,6 @@
     text-decoration: none;
     white-space: nowrap;
     box-shadow: 0 0 14px rgb(255 0 15 / 45%);
-    transition: box-shadow .2s ease;
 }
 
 /* The animated ring and the solid fill are separate layers so the link text sits on a plain dark background. */
@@ -122,6 +121,12 @@
 .nav-item ::deep a.ai-aura:hover {
     color: var(--brand-cream);
     box-shadow: 0 0 20px rgb(255 0 15 / 70%);
+}
+
+.nav-item ::deep a.ai-aura:focus-visible {
+    outline: 3px solid var(--brand-cream);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 3px var(--brand-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

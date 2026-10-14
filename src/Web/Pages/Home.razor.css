@@ -149,12 +149,12 @@
     --bs-btn-hover-color: var(--brand-ink);
     --bs-btn-hover-bg: var(--brand-red);
     --bs-btn-hover-border-color: var(--brand-ink);
-    --bs-btn-active-color: var(--brand-ink);
-    --bs-btn-active-bg: var(--brand-red);
+    --bs-btn-active-color: var(--brand-cream);
+    --bs-btn-active-bg: var(--brand-ink);
     --bs-btn-active-border-color: var(--brand-ink);
     --bs-btn-disabled-color: var(--brand-ink);
-    --bs-btn-disabled-bg: var(--brand-red);
-    --bs-btn-disabled-border-color: var(--brand-red);
+    --bs-btn-disabled-bg: var(--brand-taupe);
+    --bs-btn-disabled-border-color: var(--brand-ink);
     white-space: nowrap;
     height: 2.75rem;
     padding-inline: 1.75rem;
@@ -166,6 +166,10 @@
 .search-fields .search-submit:hover {
     transform: translateY(-1px);
     box-shadow: 0 8px 18px rgb(43 10 13 / 22%);
+}
+
+.search-fields .search-submit:focus-visible {
+    transition: none;
 }
 
 .hotel-grid {
