@@ -7,6 +7,31 @@
     overflow-x: clip;
 }
 
+.hotel-loading {
+    align-items: center;
+    background: var(--brand-cream);
+    color: var(--brand-ink);
+    display: inline-flex;
+    gap: .65rem;
+    padding: .75rem 1rem;
+}
+
+.hotel-loading-spinner {
+    animation: hotel-loading-spin .8s linear infinite;
+    border: 3px solid var(--brand-taupe);
+    border-radius: 50%;
+    border-top-color: var(--brand-crimson);
+    flex: 0 0 1.25rem;
+    height: 1.25rem;
+    width: 1.25rem;
+}
+
+@keyframes hotel-loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .hero {
     background: var(--brand-blush);
     color: var(--brand-ink);
@@ -280,6 +305,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .hotel-loading-spinner {
+        animation: none;
+    }
+
     .hotel-card,
     .room-option {
         transition: none;
