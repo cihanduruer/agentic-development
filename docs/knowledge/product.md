@@ -38,7 +38,7 @@ The Hotel web application uses these shared CSS design tokens:
 | `--brand-taupe` | `#D4CDBF` | Secondary surfaces, borders, and disabled states |
 | `--brand-red` | `#FF000F` | Signature brand red: accent bars, indicators, decorative surfaces, and the primary search action |
 
-The home page headline is “Your next stay starts here!”.
+The home page headline: Lets book a holiday!
 
 Ink and crimson are used for text, controls, and focus indicators on cream surfaces. The hotel-loading status uses a cream surface and ink text, with a decorative crimson spinner; it remains visible without animation for reduced-motion preferences. Blush and taupe remain backgrounds or decorative borders, not low-contrast text or required control boundaries. Required room and input boundaries use crimson or ink. Disabled controls retain ink text on taupe without reduced opacity.
 
