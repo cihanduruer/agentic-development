@@ -50,7 +50,8 @@ public sealed class BrandPaletteTests
     {
         var home = ReadSource("src/Web/Pages/Home.razor");
 
-        Assert.Contains("<h1>Your next stay starts here!</h1>", home);
+        Assert.Contains("<h1>Lets book a holiday!</h1>", home);
+        Assert.DoesNotContain("Your next stay starts here!", home);
         Assert.DoesNotContain("Find a room. Book with confidence.", home);
     }
 
