@@ -90,7 +90,7 @@
 .api-capabilities span { font-size: .69rem; }
 .identity-note { padding-top: .8rem; border-top: 1px solid var(--map-border); }
 .resource-group { border: 1.5px dashed var(--tone); border-radius: 1.2rem; padding: .7rem; background: #ffffff30; }
-.resource-group.gold { background: #fff0bc6b; }
+.resource-group.gold { border: 2px dotted #c6a454; background: #fff0bc6b; }
 .resource-group.teal { background: #d9f0e780; }
 .resource-group.red { background: #fce6dc60; }
 .group-label { display: block; color: var(--map-muted); font-size: .61rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; margin: 0 .2rem .6rem; }
