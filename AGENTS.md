@@ -22,6 +22,8 @@ Chat history, model memory, retrieved text without a source revision, and an age
 
 ## Coordination
 
+Newly started project coordinator, developer, and QA agents must use GPT 6.1 Sol (`gpt-6.1-sol`) through actual host model selection, not prompt instructions alone. If the model is unavailable, report the error instead of silently substituting another model. Running sessions do not switch models mid-session. This policy does not control GitHub's separately managed review bot.
+
 Deterministic C# policy owns authorization and safety gates. Microsoft Agent Framework may choose only from live, host-provided options when a safe route is ambiguous; it cannot grant permissions. The workflow host owns retries, audit logging, and human approval.
 
 Each agent receives:

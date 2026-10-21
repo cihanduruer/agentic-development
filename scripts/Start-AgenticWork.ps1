@@ -366,7 +366,7 @@ function Invoke-AgenticIntake {
             base_branch = $BaseBranch
             custom_instructions = "Implement the linked Azure Boards hotel-booking requirement. Follow AGENTS.md, cite canonical knowledge, run tests, and create a draft pull request."
             custom_agent = "hotel-developer"
-            model = ""
+            model = "gpt-6.1-sol"
         }
 
         if ($null -eq $issue) {
