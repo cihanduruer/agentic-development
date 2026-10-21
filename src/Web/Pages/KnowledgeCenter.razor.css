@@ -3,6 +3,14 @@
 .kc-page-title h1 { font-size: clamp(1.35rem, 2.4vw, 1.75rem); font-weight: 800; letter-spacing: -.02em; margin: 0 0 .25rem; }
 .kc-toolbar-actions { display: flex; align-items: center; gap: .5rem; }
 .kc-toolbar-actions button { min-height: 2.5rem; padding: .4rem .85rem; font-size: .85rem; }
+.kc-update-banner, .kc-management-note { flex-shrink: 0; padding: .75rem 1rem; margin-bottom: .75rem; border: 1px solid #8a5a00; border-radius: .65rem; background: #fff4d6; font-size: .85rem; overflow-wrap: anywhere; }
+.kc-update-banner { display: flex; align-items: flex-start; gap: .75rem; }
+.kc-update-banner p, .kc-management-note p { margin: .25rem 0 0; }
+.kc-update-banner.complete { border-color: #1d6b3a; background: #e3f4ea; }
+.kc-update-banner.failed { border-color: #8a1f11; background: #fff0ed; }
+.kc-update-spinner { flex: 0 0 1.2rem; height: 1.2rem; margin-top: .15rem; border: 3px solid var(--brand-taupe); border-top-color: var(--brand-crimson); border-radius: 50%; animation: knowledge-update-spin 1s linear infinite; }
+@keyframes knowledge-update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .kc-update-spinner { animation: none; } }
 .pm-knowledge { background: var(--brand-cream); border: 1px solid var(--brand-taupe); border-left: .35rem solid var(--brand-crimson); border-radius: 1.25rem; box-shadow: 0 10px 28px rgb(43 10 13 / 8%); padding: 1rem 1.4rem 1.2rem; width: 100%; box-sizing: border-box; }
 .pm-knowledge-heading, .pm-knowledge-summary, .pm-add-actions, .pm-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
 .pm-knowledge-heading { justify-content: space-between; margin-bottom: .35rem; }
@@ -28,8 +36,6 @@
 .pm-paste { display: grid; gap: .35rem; margin-top: .7rem; max-width: 42rem; }
 .pm-paste label { font-size: .85rem; font-weight: 700; margin: 0; }
 .pm-paste button { justify-self: start; margin-top: .3rem; }
-.pm-add-status { margin: .6rem 0 0; font-size: .9rem; font-weight: 600; }
-.pm-add-status.failed { color: #8a1f11; }
 .pm-approve { padding: .05rem .7rem; border: 1px solid #1d6b3a; border-radius: .4rem; background: #1d6b3a; color: #fff; font-size: .8rem; font-weight: 700; cursor: pointer; }
 .pm-remove { padding: .1rem .6rem; border: 1px solid var(--brand-crimson); border-radius: .4rem; background: var(--brand-cream); color: var(--brand-crimson); font-size: .8rem; font-weight: 700; cursor: pointer; }
 .pm-source-group { margin-top: .8rem; }
@@ -50,7 +56,6 @@
 .pm-knowledge { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
 #knowledge-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pm-add { flex-shrink: 0; max-height: 30vh; overflow: auto; margin: 0 0 .75rem; padding: .8rem 1rem; border: 1px solid var(--brand-taupe); border-radius: .65rem; background: var(--brand-cream); }
-.pm-add-status { margin: 0 0 .75rem; }
 .kc-workspace { display: grid; flex: 1; grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); min-height: 0; border: 1px solid var(--brand-taupe); border-radius: .85rem; overflow: hidden; }
 .kc-library { background: var(--brand-cream); border-right: 1px solid var(--brand-taupe); padding: .9rem; min-width: 0; min-height: 0; overflow: auto; }
 .kc-library-heading { margin-bottom: 1rem; }

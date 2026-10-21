@@ -133,7 +133,8 @@ public sealed class ArchitecturePageTests
         Assert.DoesNotContain("architecture-journey", page);
         Assert.DoesNotContain("architecture-metrics", page);
         Assert.Contains("<details class=\"architecture-technical\">", page);
-        Assert.Contains("Technical reference: connections, services and optional tools", page);
+        Assert.Contains("Technical reference: services, safety and optional tools", page);
+        AssertOrdered(page, "id=\"system-map-title\"", "Who does each step, what you get, and when you need to act", "<details class=\"architecture-technical\">");
         Assert.Contains("href=\"/admin/architecture\">Architecture</NavLink>", ReadSource("src/Web/Layout/AdminNav.razor"));
         Assert.DoesNotContain("Hotel Architecture", ReadSource("src/Web/Pages/ArchitectureRedirect.razor"));
     }

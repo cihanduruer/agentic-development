@@ -24,6 +24,70 @@
             <p>One flow shows what happens, who does it, and why it matters. AI agents build and review; automated workflows check and publish; you decide when to approve.</p>
         </header>
 
+        <section class="architecture-section" aria-labelledby="system-map-title">
+            <div class="section-heading"><h2 id="system-map-title">System map</h2><span>Everything the guest and agents touch, and everything behind it</span></div>
+            <div class="diagram-sheet runtime-map">
+                <svg class="map-links runtime-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
+                    <path class="map-rail" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                    <path class="map-packets" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                    <g class="connection-badge" transform="translate(360 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(360 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>MCP</text></g>
+                    <g class="connection-badge" transform="translate(772 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(772 360)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>Data</text></g>
+                    <g class="connection-badge" transform="translate(772 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                </svg>
+                <div class="runtime-column">
+                    <article class="system-node red">
+                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-browser" /></svg><h3>Guest &amp; administrator</h3></div>
+                        <p>One Blazor WebAssembly site, hosted by Azure Static Web Apps.</p>
+                        <ul><li>Home: public hotel booking</li><li>AI Product Management: email-code login</li><li>Knowledge, architecture, agent operations</li></ul>
+                        <span class="service-pill">1 &middot; HTTPS REST + authenticated SignalR</span>
+                    </article>
+                    <article class="system-node gold">
+                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-code" /></svg><h3>GitHub Copilot agents</h3></div>
+                        <p><strong>hotel-developer</strong> implements a bounded requirement with tests.</p>
+                        <p><strong>hotel-qa</strong> defines independent evidence expectations; separate human invocation is supported. The QA workflow does not claim this agent ran.</p>
+                        <span class="service-pill">2 &middot; Read-only hosted MCP</span>
+                    </article>
+                </div>
+                <article class="system-node api-node blue">
+                    <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-cloud" /></svg><h3>App Service API</h3></div>
+                    <span class="service-pill">ASP.NET Core &middot; Basic B1</span>
+                    <ul class="api-capabilities">
+                        <li><strong>Guest booking</strong><span>Catalog, availability, reservations</span></li>
+                        <li><strong>Administrator session</strong><span>Approved email, 5-minute code, 8-hour tab session</span></li>
+                        <li><strong>Product assistant</strong><span>Grounded answers and confirmed Boards creation</span></li>
+                        <li><strong>Knowledge Center + /mcp</strong><span>list_knowledge &middot; read_knowledge &middot; search_knowledge</span></li>
+                        <li><strong>Deterministic routing</strong><span>Safety, evidence, permissions, bounded model choice</span></li>
+                        <li><strong>Operations + delivery reads</strong><span>SQL history, SignalR, bounded GitHub/Boards projection</span></li>
+                    </ul>
+                    <p class="identity-note">Managed identity for Azure services. Protected machine credentials stay separate from browser sessions.</p>
+                </article>
+                <div class="runtime-column">
+                    <div class="resource-group gold">
+                        <span class="group-label">Azure AI &middot; service-side only</span>
+                        <article class="system-node"><h3>Azure AI Services</h3><p>Prompt Shields &middot; gpt-6.1-sol chat &middot; text-embedding-3-large &middot; optional gpt-4.1-mini routing</p><span class="service-pill">3 &middot; Safety, chat and embeddings</span></article>
+                    </div>
+                    <div class="resource-group teal">
+                        <span class="group-label">Data and knowledge</span>
+                        <article class="system-node"><h3>Azure SQL Database</h3><p>Catalog, reservations and bounded operations events</p></article>
+                        <article class="system-node"><h3>Blob Storage + AI Search</h3><p>Canonical originals and approvals; rebuildable search index</p><span class="service-pill">4 &middot; One Knowledge Center</span></article>
+                    </div>
+                    <div class="resource-group red">
+                        <span class="group-label">Email and observability</span>
+                        <article class="system-node"><h3>Communication Services Email</h3><p>Approved administrator sign-in codes</p></article>
+                        <article class="system-node"><h3>Application Insights + Log Analytics</h3><p>Correlated API telemetry; metadata, not prompts or credentials</p><span class="service-pill">5 &middot; Delivery and telemetry</span></article>
+                    </div>
+                </div>
+            </div>
+            <ul class="connection-legend" aria-label="Connection protocols">
+                <li><span class="protocol-tag">API</span><span>Browser to API: HTTPS REST and authenticated SignalR. API to Azure AI, email and telemetry services: HTTPS service APIs.</span></li>
+                <li><span class="protocol-tag">MCP</span><span>Copilot agents to the Knowledge Center: read-only MCP over HTTPS at <code>/mcp</code>.</span></li>
+                <li><span class="protocol-tag">Data</span><span>API to Azure SQL: SQL/TDS. API to Blob Storage and AI Search: HTTPS APIs. Azure service access uses managed identity.</span></li>
+            </ul>
+            <p class="section-note">Knowledge flows from retained documents to Search, then through revision-checked API/MCP reads. Repository paths are identifiers, not a second knowledge authority. Delivery status is an API capability, not a live feed on this page.</p>
+        </section>
+
         <section class="architecture-section" aria-labelledby="delivery-map-title">
             <div class="section-heading"><h2 id="delivery-map-title">How your request becomes a working change</h2><span>Who does each step, what you get, and when you need to act</span></div>
             <p class="diagram-disclaimer"><i aria-hidden="true"></i> Read from top to bottom. This explains the configured process, not live runs or service health. Automated checks may run together; production is a separate decision.</p>
@@ -84,7 +148,7 @@
         </section>
 
         <details class="architecture-technical">
-            <summary>Technical reference: connections, services and optional tools</summary>
+            <summary>Technical reference: services, safety and optional tools</summary>
             <details class="flow-supporting-tools">
                 <summary>Optional tools, not delivery steps</summary>
                 <ul aria-label="Optional supporting workflows">
@@ -98,70 +162,6 @@
                     }
                 </ul>
             </details>
-        <section class="architecture-section" aria-labelledby="system-map-title">
-            <div class="section-heading"><h2 id="system-map-title">System map</h2><span>Everything the guest and agents touch, and everything behind it</span></div>
-            <div class="diagram-sheet runtime-map">
-                <svg class="map-links runtime-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
-                    <path class="map-rail" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
-                    <path class="map-packets" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
-                    <g class="connection-badge" transform="translate(370 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
-                    <g class="connection-badge" transform="translate(370 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>MCP</text></g>
-                    <g class="connection-badge" transform="translate(760 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
-                    <g class="connection-badge" transform="translate(760 360)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>Data</text></g>
-                    <g class="connection-badge" transform="translate(760 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
-                </svg>
-                <div class="runtime-column">
-                    <article class="system-node red">
-                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-browser" /></svg><h3>Guest &amp; administrator</h3></div>
-                        <p>One Blazor WebAssembly site, hosted by Azure Static Web Apps.</p>
-                        <ul><li>Home: public hotel booking</li><li>AI Product Management: email-code login</li><li>Knowledge, architecture, agent operations</li></ul>
-                        <span class="service-pill">1 &middot; HTTPS REST + authenticated SignalR</span>
-                    </article>
-                    <article class="system-node gold">
-                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-code" /></svg><h3>GitHub Copilot agents</h3></div>
-                        <p><strong>hotel-developer</strong> implements a bounded requirement with tests.</p>
-                        <p><strong>hotel-qa</strong> defines independent evidence expectations; separate human invocation is supported. The QA workflow does not claim this agent ran.</p>
-                        <span class="service-pill">2 &middot; Read-only hosted MCP</span>
-                    </article>
-                </div>
-                <article class="system-node api-node blue">
-                    <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-cloud" /></svg><h3>App Service API</h3></div>
-                    <span class="service-pill">ASP.NET Core &middot; Basic B1</span>
-                    <ul class="api-capabilities">
-                        <li><strong>Guest booking</strong><span>Catalog, availability, reservations</span></li>
-                        <li><strong>Administrator session</strong><span>Approved email, 5-minute code, 8-hour tab session</span></li>
-                        <li><strong>Product assistant</strong><span>Grounded answers and confirmed Boards creation</span></li>
-                        <li><strong>Knowledge Center + /mcp</strong><span>list_knowledge &middot; read_knowledge &middot; search_knowledge</span></li>
-                        <li><strong>Deterministic routing</strong><span>Safety, evidence, permissions, bounded model choice</span></li>
-                        <li><strong>Operations + delivery reads</strong><span>SQL history, SignalR, bounded GitHub/Boards projection</span></li>
-                    </ul>
-                    <p class="identity-note">Managed identity for Azure services. Protected machine credentials stay separate from browser sessions.</p>
-                </article>
-                <div class="runtime-column">
-                    <div class="resource-group gold">
-                        <span class="group-label">Azure AI &middot; service-side only</span>
-                        <article class="system-node"><h3>Azure AI Services</h3><p>Prompt Shields &middot; gpt-6.1-sol chat &middot; text-embedding-3-large &middot; optional gpt-4.1-mini routing</p><span class="service-pill">3 &middot; Safety, chat and embeddings</span></article>
-                    </div>
-                    <div class="resource-group teal">
-                        <span class="group-label">Data and knowledge</span>
-                        <article class="system-node"><h3>Azure SQL Database</h3><p>Catalog, reservations and bounded operations events</p></article>
-                        <article class="system-node"><h3>Blob Storage + AI Search</h3><p>Canonical originals and approvals; rebuildable search index</p><span class="service-pill">4 &middot; One Knowledge Center</span></article>
-                    </div>
-                    <div class="resource-group red">
-                        <span class="group-label">Email and observability</span>
-                        <article class="system-node"><h3>Communication Services Email</h3><p>Approved administrator sign-in codes</p></article>
-                        <article class="system-node"><h3>Application Insights + Log Analytics</h3><p>Correlated API telemetry; metadata, not prompts or credentials</p><span class="service-pill">5 &middot; Delivery and telemetry</span></article>
-                    </div>
-                </div>
-            </div>
-            <ul class="connection-legend" aria-label="Connection protocols">
-                <li><span class="protocol-tag">API</span><span>Browser to API: HTTPS REST and authenticated SignalR. API to Azure AI, email and telemetry services: HTTPS service APIs.</span></li>
-                <li><span class="protocol-tag">MCP</span><span>Copilot agents to the Knowledge Center: read-only MCP over HTTPS at <code>/mcp</code>.</span></li>
-                <li><span class="protocol-tag">Data</span><span>API to Azure SQL: SQL/TDS. API to Blob Storage and AI Search: HTTPS APIs. Azure service access uses managed identity.</span></li>
-            </ul>
-            <p class="section-note">Knowledge flows from retained documents to Search, then through revision-checked API/MCP reads. Repository paths are identifiers, not a second knowledge authority. Delivery status is an API capability, not a live feed on this page.</p>
-        </section>
-
         <section class="architecture-section" aria-labelledby="routing-title">
             <div class="section-heading"><h2 id="routing-title">A safe agent decision</h2><span>Runtime routing is separate from GitHub's delivery automation</span></div>
             <ol class="decision-flow" aria-label="Runtime routing safety gates">

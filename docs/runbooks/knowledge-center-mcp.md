@@ -15,6 +15,7 @@ The application knowledge authority is the hosted Knowledge Center. Implementati
 - The protected management token remains available to trusted deployment/administration scripts through `X-Knowledge-Token`, but is never requested by the browser. It also supplies domain-separated session-signing and challenge-hashing key material.
 - MCP access token and management token must be different, cryptographically generated secrets of at least 32 characters.
 - Keep `WorkItemChat__CreateEnabled=false` unless Boards creation has separately been authorized.
+- Content management also requires `WorkItemChat__UploadEnabled=true` on the API process. Despite its legacy name, this switch gates adding content, approval, deletion and index rebuilds. `/api/knowledge/capabilities` reports `canManageUploads`; `false` deliberately disables all four actions. For an explicitly authorized local presentation, set this process environment variable before starting the API, keep `AdministratorAccess__RequireSignIn=true`, and leave Boards creation disabled. Do not remove authentication or change the disabled-by-default application setting to work around a read-only local process.
 
 Use the Azure portal's protected App Service configuration to retrieve/rotate tokens. Never paste secrets into issues, code, chat, screenshots, or committed configuration. Rotating an App Service token also requires updating its corresponding GitHub development-environment secret.
 
@@ -58,6 +59,8 @@ Agents first list or search, then read the relevant current document. Cite docum
 ## Management and recovery
 
 All documents can be previewed, approved, and deleted, irrespective of source path. Delete requires confirmation and removes the retained original as well as search blocks. Rebuild requires confirmation, preserves document revisions and approvals, and uses the embedding deployment. A deleted document is not recreated from Git. To reintroduce deleted knowledge, explicitly add and approve it again.
+
+Knowledge Center displays an indeterminate update banner above the document workspace during adding, approval, deletion and rebuilding. It identifies the action, then reports when it is refreshing/verifying indexed content. Search and MCP answers may be temporarily unavailable or incomplete during indexing; this is a caution, not a live MCP health probe or an intentional shutdown. The banner covers this browser's active operation, not other API instances or users. Do not infer a percentage or global service status from it. Success is shown only after the refreshed listing confirms the change; failed or timed-out requests explicitly require refresh before retrying. Uploads remain pending until separately approved. These presentation and verification rules were grounded at implementation revision `86548b545407da7af0699567ef26fc21105aeaef`.
 
 If indexing fails after an upload, the pending durable document remains visible; repair the upstream failure, rebuild, and approve it. If deletion fails, retry that path or rebuild to prune the tombstoned source. Storage versioning and seven-day soft deletion permit administrator recovery, not automatic resurrection.
 

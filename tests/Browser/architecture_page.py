@@ -26,14 +26,18 @@ def check_knowledge_management(page, base):
         {"id": "notes-0", "path": "uploads/notes.txt", "chunkIndex": 0, "content": content},
         {"id": "other", "path": "uploads/other.txt", "chunkIndex": 0, "content": "Keep this source"},
     ]
-    state = {"enabled": True, "fail_delete": False, "fail_preview": False, "delete_calls": 0, "preview_calls": 0}
+    state = {
+        "enabled": True, "fail_delete": False, "fail_preview": False, "fail_rebuild": False,
+        "fail_list": False, "hold_writes": False, "delete_calls": 0, "preview_calls": 0,
+    }
+    held_writes = []
     originals = {}
 
     def block(entry, preview=False):
         return {
             **entry, "title": f"Block {entry['chunkIndex']}", "area": "test", "sourceType": "txt",
             "characters": len(entry["content"]), "excerpt": entry["content"][:80],
-            "lastReviewed": "2026-10-20", "pending": False,
+            "lastReviewed": "2026-10-20", "pending": entry.get("pending", False),
             "hasOriginal": entry["path"] in originals,
             "content": entry["content"] if preview else None,
             "renderedHtml": "<h1>Repository knowledge</h1>" if preview and entry["path"].endswith(".md") else None,
@@ -42,6 +46,9 @@ def check_knowledge_management(page, base):
     def handle(route):
         request = route.request
         uri = urlsplit(request.url)
+        if state["hold_writes"] and request.method in {"POST", "DELETE"}:
+            held_writes.append(route)
+            return
         headers = {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
@@ -56,7 +63,10 @@ def check_knowledge_management(page, base):
         elif uri.path.endswith("/capabilities"):
             respond({"canManageUploads": state["enabled"]})
         elif uri.path.endswith("/blocks"):
-            respond([block(entry) for entry in entries])
+            if state["fail_list"]:
+                respond({"title": "Fixture listing failed."}, 502)
+            else:
+                respond([block(entry) for entry in entries])
         elif uri.path.endswith("/original"):
             path = parse_qs(uri.query).get("path", [""])[0]
             original = originals[path]
@@ -69,7 +79,26 @@ def check_knowledge_management(page, base):
             path = parse_qs(uri.query).get("path", [""])[0]
             respond([block(entry, preview=True) for entry in entries if entry["path"] == path])
         elif uri.path.endswith("/rebuild") and request.method == "POST":
-            respond({"rebuilt": len(entries)})
+            respond({"title": "Fixture rebuild failed."}, 502) if state["fail_rebuild"] else respond({"rebuilt": len(entries)})
+        elif uri.path.endswith("/text") and request.method == "POST":
+            payload = request.post_data_json
+            entries.append({
+                "id": "added", "path": "uploads/added.txt", "chunkIndex": 0,
+                "content": payload["text"], "pending": True,
+            })
+            respond({"path": "uploads/added.txt", "blocks": 1, "characters": len(payload["text"]), "replaced": 0})
+        elif uri.path.endswith("/upload") and request.method == "POST":
+            entries.append({
+                "id": "file", "path": "uploads/fixture.txt", "chunkIndex": 0,
+                "content": "Uploaded fixture content", "pending": True,
+            })
+            respond({"path": "uploads/fixture.txt", "blocks": 1, "characters": 24, "replaced": 0})
+        elif uri.path.endswith("/approve") and request.method == "POST":
+            path = parse_qs(uri.query).get("path", [""])[0]
+            for entry in entries:
+                if entry["path"] == path:
+                    entry["pending"] = False
+            respond({"approved": 1})
         elif uri.path.endswith("/documents") and request.method == "DELETE":
             state["delete_calls"] += 1
             if state["fail_delete"]:
@@ -81,6 +110,25 @@ def check_knowledge_management(page, base):
             respond({"removed": removed})
         else:
             raise AssertionError(f"Unexpected knowledge request: {request.method} {uri.path}")
+
+    def check_update(title):
+        banner = page.locator(".kc-update-banner")
+        expect(banner.get_by_role("progressbar", name=title, exact=True)).to_be_visible()
+        expect(banner).to_contain_text("Search and MCP answers may be temporarily unavailable or incomplete")
+        expect(page.locator("#knowledge-body")).to_have_attribute("aria-busy", "true")
+        assert banner.bounding_box()["y"] < page.locator(".kc-workspace").bounding_box()["y"]
+        for button in ("Refresh", "Add content", "Rebuild index"):
+            expect(page.get_by_role("button", name=button, exact=True)).to_be_disabled()
+        assert len(held_writes) == 1, "only one update should be submitted"
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        animation = banner.get_by_role("progressbar").evaluate("element => getComputedStyle(element).animationName")
+        assert animation == "none", animation
+
+    def finish_update():
+        state["hold_writes"] = False
+        handle(held_writes.pop())
+        expect(page.get_by_role("progressbar")).to_have_count(0)
+        expect(page.locator("#knowledge-body")).to_have_attribute("aria-busy", "false")
 
     page.route("**/api/knowledge/**", handle)
     try:
@@ -137,10 +185,13 @@ def check_knowledge_management(page, base):
         state["fail_delete"] = True
         page.get_by_role("button", name="Delete notes.txt", exact=True).click()
         confirmation.get_by_role("button", name="Confirm delete", exact=True).click()
-        expect(page.get_by_role("alert")).to_have_text("Fixture deletion failed.")
+        expect(page.get_by_role("alert")).to_contain_text("Fixture deletion failed.")
         expect(preview_button).to_be_visible()
         state["fail_delete"] = False
+        state["hold_writes"] = True
         confirmation.get_by_role("button", name="Confirm delete", exact=True).click()
+        check_update("Deleting the document and its search blocks")
+        finish_update()
         expect(page.get_by_text("Deleted notes.txt and 2 indexed blocks.", exact=True)).to_be_visible()
         expect(page.get_by_text("2 blocks from 2 sources", exact=True)).to_be_visible()
         expect(preview_button).to_have_count(0)
@@ -152,7 +203,11 @@ def check_knowledge_management(page, base):
         rebuild.get_by_role("button", name="Cancel", exact=True).click()
         expect(rebuild).to_have_count(0)
         page.get_by_role("button", name="Rebuild index", exact=True).click()
+        state["hold_writes"] = True
         rebuild.get_by_role("button", name="Confirm rebuild", exact=True).click()
+        check_update("Rebuilding the search index")
+        expect(rebuild.get_by_role("button", name="Confirm rebuild", exact=True)).to_be_disabled()
+        finish_update()
         expect(page.get_by_text("Search index rebuilt from retained documents.", exact=True)).to_be_visible()
         expect(page.get_by_text("2 blocks from 2 sources", exact=True)).to_be_visible()
         repository.click()
@@ -161,9 +216,50 @@ def check_knowledge_management(page, base):
         expect(repository).to_have_count(0)
         expect(page.get_by_role("button", name="Preview other.txt", exact=True)).to_be_visible()
 
+        state["fail_rebuild"] = True
+        page.get_by_role("button", name="Rebuild index", exact=True).click()
+        rebuild.get_by_role("button", name="Confirm rebuild", exact=True).click()
+        expect(page.locator(".kc-update-banner")).to_contain_text("Fixture rebuild failed.")
+        expect(page.get_by_text("Search index rebuilt from retained documents.", exact=True)).to_have_count(0)
+        state["fail_rebuild"] = False
+        state["fail_list"] = True
+        rebuild.get_by_role("button", name="Confirm rebuild", exact=True).click()
+        expect(page.locator(".kc-update-banner")).to_contain_text("Rebuild was accepted, but the refreshed index could not be verified.")
+        expect(page.get_by_text("Search index rebuilt from retained documents.", exact=True)).to_have_count(0)
+        state["fail_list"] = False
+        page.get_by_role("button", name="Refresh", exact=True).click()
+        expect(page.get_by_role("button", name="Preview other.txt", exact=True)).to_be_visible()
+
+        page.get_by_role("button", name="Add content", exact=True).click()
+        page.get_by_role("button", name="Write or paste text", exact=True).click()
+        page.get_by_label("Title", exact=True).fill("Added text")
+        page.get_by_label("Text", exact=True).fill("New fixture knowledge")
+        state["hold_writes"] = True
+        page.get_by_role("button", name="Add to knowledge center", exact=True).click()
+        expect(page.locator(".kc-update-banner").get_by_role("progressbar", name="Adding and indexing your text")).to_be_visible()
+        expect(page.get_by_role("button", name="Add to knowledge center", exact=True)).to_be_disabled()
+        finish_update()
+        expect(page.locator(".kc-update-banner")).to_contain_text("Approve it to let the assistant use it.")
+        page.get_by_role("button", name="Preview added.txt", exact=True).click()
+        state["hold_writes"] = True
+        page.get_by_role("button", name="Approve added.txt", exact=True).click()
+        expect(page.locator(".kc-update-banner").get_by_role("progressbar", name="Approving the document for search and MCP")).to_be_visible()
+        finish_update()
+        expect(page.locator(".kc-update-banner")).to_contain_text("Approved added.txt.")
+        expect(page.get_by_role("button", name="Approve added.txt", exact=True)).to_have_count(0)
+        state["hold_writes"] = True
+        page.locator("#add-knowledge input[type=file]").set_input_files({
+            "name": "fixture.txt", "mimeType": "text/plain", "buffer": b"Uploaded fixture content",
+        })
+        expect(page.locator(".kc-update-banner").get_by_role("progressbar", name="Adding and indexing your file")).to_be_visible()
+        finish_update()
+        expect(page.get_by_role("button", name="Preview fixture.txt", exact=True)).to_be_visible()
+        expect(page.locator(".kc-update-banner")).to_contain_text("Added fixture.txt: 1 blocks")
+        page.get_by_role("button", name="Close add content", exact=True).click()
+
         state["enabled"] = False
         page.get_by_role("button", name="Refresh", exact=True).click()
-        expect(page.get_by_text("Preview is available. Uploading, approval and deletion are disabled in this environment.")).to_be_visible()
+        expect(page.get_by_text("Preview is available. Uploading, approval, deletion and rebuilding are disabled in this environment.")).to_be_visible()
         expect(page.get_by_role("button", name="Add content", exact=True)).to_be_disabled()
         expect(page.get_by_role("button", name="Preview other.txt", exact=True)).to_be_enabled()
         state["fail_preview"] = True
@@ -239,7 +335,7 @@ def check_knowledge_management(page, base):
         expect(page.get_by_role("group", name="Confirm creation", exact=True)).to_be_visible()
         page.get_by_role("button", name="Back to editing", exact=True).click()
         page.unroute("**/api/work-item-chat", chat)
-        print("knowledge: separate page, full preview, confirm/cancel, isolated delete, failure and disabled states passed")
+        print("knowledge: delayed delete/rebuild/text/file/approval, page-level progress, MCP warning, explicit failure and disabled states passed")
     finally:
         page.unroute("**/api/knowledge/**", handle)
 
@@ -415,7 +511,11 @@ def main():
                         assert current["y"] > previous["y"] + previous["height"], (name, index)
                 technical = page.locator(".architecture-technical")
                 expect(technical).not_to_have_attribute("open", "")
-                expect(page.get_by_role("heading", name="System map", exact=True)).not_to_be_visible()
+                expect(page.get_by_role("heading", name="System map", exact=True)).to_be_visible()
+                system_map = page.locator(".runtime-map").bounding_box()
+                flow_intro = page.locator('[aria-labelledby="delivery-map-title"] .section-heading').bounding_box()
+                assert system_map["y"] + system_map["height"] < flow_intro["y"], name
+                expect(technical.get_by_role("heading", name="A safe agent decision", exact=True)).not_to_be_visible()
                 expect(page.get_by_role("heading", name="Which workflow does what?", exact=True)).to_have_count(0)
                 technical.locator(":scope > summary").click()
                 page.locator(".flow-supporting-tools > summary").click()
@@ -504,9 +604,22 @@ def main():
             motion_page.wait_for_function(
                 "initial => getComputedStyle(document.querySelector('.map-packets')).strokeDashoffset !== initial",
                 arg=initial_offset)
-            for width in (1024, 768):
+            for width in (1920, 1440, 1024, 768):
                 motion_page.set_viewport_size({"width": width, "height": 900})
                 assert motion_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                columns = motion_page.locator(".runtime-map > .runtime-column, .runtime-map > .api-node")
+                assert columns.count() == 3
+                for index in (1, 2):
+                    left = columns.nth(index - 1).bounding_box()
+                    right = columns.nth(index).bounding_box()
+                    assert right["x"] - left["x"] - left["width"] >= 71, (width, index)
+                for badge in motion_page.locator(".connection-badge").all():
+                    box = badge.bounding_box()
+                    assert any(
+                        box["x"] > columns.nth(index - 1).bounding_box()["x"] + columns.nth(index - 1).bounding_box()["width"]
+                        and box["x"] + box["width"] < columns.nth(index).bounding_box()["x"]
+                        for index in (1, 2)
+                    ), (width, "protocol badge must fit between cards")
                 for selector in (".architecture-canvas", ".delivery-sheet", ".runtime-map",
                                  ".architecture-technical", ".service-catalogue"):
                     assert motion_page.locator(selector).evaluate(
