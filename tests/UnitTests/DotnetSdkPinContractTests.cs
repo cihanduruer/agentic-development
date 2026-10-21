@@ -34,6 +34,22 @@ public sealed class DotnetSdkPinContractTests
     }
 
     [Fact]
+    public void WorkflowsRestoringTheSolutionUseAnIsolatedSdkInstallDirectory()
+    {
+        var workflowRoot = Path.GetDirectoryName(FindRepositoryFile(".github/workflows/pr-validation.yml"))!;
+        var workflows = Directory.GetFiles(workflowRoot, "*.yml")
+            .Select(path => (path, content: File.ReadAllText(path)))
+            .Where(entry => entry.content.Contains("dotnet restore --locked-mode", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(workflows);
+        Assert.All(workflows, entry => Assert.Contains(
+            "DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-sdk",
+            entry.content,
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WebAssemblySdkPackLockMatchesThePinnedSdkPack()
     {
         var repositoryRoot = Path.GetDirectoryName(FindRepositoryFile("global.json"))!;
