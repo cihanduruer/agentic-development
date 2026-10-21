@@ -28,7 +28,7 @@ def check_knowledge_management(page, base):
     ]
     state = {
         "enabled": True, "fail_delete": False, "fail_preview": False, "fail_rebuild": False,
-        "fail_list": False, "hold_writes": False, "delete_calls": 0, "preview_calls": 0,
+        "fail_list": False, "hold_writes": False, "delete_calls": 0, "preview_calls": 0, "write_calls": 0,
     }
     held_writes = []
     originals = {}
@@ -49,6 +49,8 @@ def check_knowledge_management(page, base):
         if state["hold_writes"] and request.method in {"POST", "DELETE"}:
             held_writes.append(route)
             return
+        if request.method in {"POST", "DELETE"}:
+            state["write_calls"] += 1
         headers = {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
@@ -119,16 +121,18 @@ def check_knowledge_management(page, base):
         assert banner.bounding_box()["y"] < page.locator(".kc-workspace").bounding_box()["y"]
         for button in ("Refresh", "Add content", "Rebuild index"):
             expect(page.get_by_role("button", name=button, exact=True)).to_be_disabled()
-        assert len(held_writes) == 1, "only one update should be submitted"
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         animation = banner.get_by_role("progressbar").evaluate("element => getComputedStyle(element).animationName")
         assert animation == "none", animation
 
     def finish_update():
+        previous_writes = state["write_calls"]
         state["hold_writes"] = False
-        handle(held_writes.pop())
+        while held_writes:
+            handle(held_writes.pop(0))
         expect(page.get_by_role("progressbar")).to_have_count(0)
         expect(page.locator("#knowledge-body")).to_have_attribute("aria-busy", "false")
+        assert state["write_calls"] == previous_writes + 1, "only one update should be submitted"
 
     page.route("**/api/knowledge/**", handle)
     try:
