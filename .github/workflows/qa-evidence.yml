@@ -26,17 +26,99 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  eligibility:
+    name: Determine whether independent QA is required
+    runs-on: ubuntu-24.04
+    outputs:
+      run_qa: ${{ steps.check.outputs.run_qa }}
+    steps:
+      - name: Check current review requirement
+        id: check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const baseRepository = `${context.repo.owner}/${context.repo.repo}`;
+            const setEligibility = eligible => core.setOutput('run_qa', eligible.toString());
+
+            if (context.eventName === 'workflow_dispatch') {
+              setEligibility(true);
+              return;
+            }
+            if (run?.name === 'PR validation'
+                && run.event === 'push'
+                && run.head_branch === 'main'
+                && run.conclusion === 'success'
+                && run.repository?.full_name === baseRepository
+                && run.head_repository?.full_name === baseRepository) {
+              setEligibility(true);
+              return;
+            }
+            if (run?.name !== 'Hotel code review'
+                || run.event !== 'pull_request_target'
+                || run.conclusion !== 'success'
+                || run.head_repository?.full_name !== baseRepository
+                || !/^[0-9a-f]{40}$/.test(run.head_sha || '')) {
+              setEligibility(false);
+              return;
+            }
+
+            let pull;
+            if (run.pull_requests?.length === 1) {
+              pull = (await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: run.pull_requests[0].number
+              })).data;
+            } else if (!run.pull_requests?.length) {
+              const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: run.head_sha
+              });
+              const candidates = associated.data.filter(candidate =>
+                candidate.base.repo.full_name === baseRepository
+                && candidate.base.ref === 'main'
+                && candidate.head.sha === run.head_sha);
+              if (candidates.length === 1) {
+                pull = (await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: candidates[0].number
+                })).data;
+              }
+            }
+
+            if (!pull
+                || pull.state !== 'open'
+                || pull.draft
+                || pull.base.repo.full_name !== baseRepository
+                || pull.base.ref !== 'main'
+                || pull.head.repo?.full_name !== baseRepository
+                || pull.head.sha !== run.head_sha) {
+              setEligibility(false);
+              return;
+            }
+
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+              per_page: 100
+            });
+            const reviewPassed = jobs.data.jobs.some(job =>
+              job.name === 'Copilot findings gate'
+              && job.status === 'completed'
+              && job.conclusion === 'success');
+            core.info(reviewPassed
+              ? 'The exact current, non-draft pull request passed its required Copilot review gate.'
+              : 'The review was not required or did not pass; independent QA will not run.');
+            setEligibility(reviewPassed);
+
   qa:
     name: Independent QA evidence gate
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (github.event.workflow_run.name == 'Hotel code review'
-        && github.event.workflow_run.event == 'pull_request_target'
-        && github.event.workflow_run.conclusion == 'success')
-      || (github.event.workflow_run.name == 'PR validation'
-        && github.event.workflow_run.event == 'push'
-        && github.event.workflow_run.head_branch == 'main'
-        && github.event.workflow_run.conclusion == 'success')
+    needs: eligibility
+    if: needs.eligibility.outputs.run_qa == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Resolve source context
@@ -300,6 +382,7 @@ jobs:
           inlineScript: az bicep build --file source/infra/main.bicep
 
       - name: Write pull request evidence
+        id: qa-inputs
         shell: pwsh
         env:
           BODY_BASE64: ${{ steps.context.outputs.body-base64 }}
@@ -332,7 +415,7 @@ jobs:
           "metadata-digest=$($result.metadataDigest)" >> $env:GITHUB_OUTPUT
 
       - name: Upload QA evidence
-        if: always()
+        if: always() && steps.qa-inputs.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: qa-evidence-${{ steps.context.outputs.head-sha }}-${{ steps.evidence.outputs.metadata-digest }}

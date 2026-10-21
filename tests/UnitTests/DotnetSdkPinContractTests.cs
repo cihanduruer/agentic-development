@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -30,6 +31,50 @@ public sealed class DotnetSdkPinContractTests
         Assert.All(versions, entry => Assert.True(
             entry.version == pinned,
             $"{Path.GetFileName(entry.path)} uses dotnet-version {entry.version}; expected {pinned} from global.json."));
+    }
+
+    [Fact]
+    public void WebAssemblySdkPackLockMatchesThePinnedSdkPack()
+    {
+        var repositoryRoot = Path.GetDirectoryName(FindRepositoryFile("global.json"))!;
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = repositoryRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("msbuild");
+        startInfo.ArgumentList.Add("src/Web/AgenticHotelBooking.Web.csproj");
+        startInfo.ArgumentList.Add("-getItem:KnownWebAssemblySdkPack");
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        var output = process!.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"Could not read the pinned SDK's WebAssembly pack: {error}");
+
+        using var sdkDocument = JsonDocument.Parse(output);
+        var sdkPackVersion = Assert.Single(
+            sdkDocument.RootElement
+                .GetProperty("Items")
+                .GetProperty("KnownWebAssemblySdkPack")
+                .EnumerateArray(),
+            item => item.GetProperty("TargetFramework").GetString() == "net10.0")
+            .GetProperty("WebAssemblySdkPackVersion")
+            .GetString();
+        Assert.NotNull(sdkPackVersion);
+
+        using var lockDocument = JsonDocument.Parse(
+            File.ReadAllText(FindRepositoryFile("src/Web/packages.lock.json")));
+        var lockedPack = lockDocument.RootElement
+            .GetProperty("dependencies")
+            .GetProperty("net10.0")
+            .GetProperty("Microsoft.NET.Sdk.WebAssembly.Pack");
+
+        Assert.Equal(sdkPackVersion, lockedPack.GetProperty("resolved").GetString());
+        Assert.Equal($"[{sdkPackVersion}, )", lockedPack.GetProperty("requested").GetString());
     }
 
     private static string FindRepositoryFile(string path)

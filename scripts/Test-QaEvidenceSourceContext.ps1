@@ -397,7 +397,7 @@ try {
     $script = Get-SourceContextScript -Workflow $workflow
     $pinnedHash = [regex]::Match(
         [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'assert_qa_test_selection.py')),
-        '"(?<hash>[0-9a-f]{64})"').Groups['hash'].Value
+        'SOURCE_CONTEXT_SCRIPT_SHA256 = \(\s*"(?<hash>[0-9a-f]{64})"').Groups['hash'].Value
     $scriptHash = [Convert]::ToHexString(
         [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($script))).ToLowerInvariant()
     Assert-Equal $scriptHash $pinnedHash 'The exercised source-context script must be the pinned workflow script.'
@@ -480,6 +480,15 @@ try {
     Assert-Equal (Get-Count $result 'listArtifactsForRepo') 60 'Missing evidence must poll exactly 60 times.'
     Assert-Equal $result.total 61 'Missing evidence must cost one request per attempt plus the PR read.'
     Assert-Equal @($result.sleeps).Count 59 'Missing evidence must not wait after the final attempt.'
+
+    $result = Invoke-Scenario 'failed-validation-not-accepted' (New-ManualScenario @{
+        historicalRuns = 0
+        runs = @((New-Run @{ conclusion = 'failure' }))
+        artifacts = @($trustedArtifact)
+    })
+    Assert-Failure $result 'No successful trusted PR validation evidence exists for this commit.' 'Failed validation'
+    Assert-Equal (Get-Count $result 'listWorkflowRunArtifacts') 0 'Failed validation must never authorize its artifact.'
+    Assert-Equal (Get-Count $result 'listArtifactsForRepo') 60 'Failed validation must remain bounded while checking for a successful rerun.'
 
     $result = Invoke-Scenario 'only-untrusted-evidence' (New-ManualScenario @{
         runs = $decoyRuns
