@@ -500,6 +500,55 @@ def run(args, api, output):
                 expect(page.get_by_role("heading", name="Your request, step by step", exact=True)).to_be_visible()
                 expect(page.locator(".delivery-empty")).to_be_visible()
                 capture(page, size + "-operations-empty", True, strict_palette=False)
+                ctx.unroute("**/api/delivery/status**")
+                history_requests = [{
+                    "workItemId": item, "gitHubIssueTitle": f"History fixture {item}",
+                    "gitHubIssueUrl": f"https://github.com/example/hotel/issues/{item}",
+                    "gitHubIssueNumber": item, "updatedAtUtc": "2026-10-21T00:00:00Z",
+                    "overallStatus": "Waiting", "stages": [],
+                } for item in (101, 102, 103)]
+                history_failures = set()
+                history_reads = []
+
+                def history_status(route):
+                    request_id = int(route.request.url.split("workItemId=")[1].split("&")[0]) if "workItemId=" in route.request.url else 101
+                    history_reads.append(request_id)
+                    if request_id in history_failures:
+                        route.fulfill(status=503, body="Isolated history failure")
+                        return
+                    route.fulfill(json={
+                        **empty_progress, "deliveries": history_requests,
+                        "selectedDelivery": next(item for item in history_requests if item["workItemId"] == request_id),
+                    })
+
+                ctx.route("**/api/delivery/status**", history_status)
+                page.reload()
+                history_picker = page.get_by_label("History", exact=True)
+                for request_id in (101, 102, 101, 102, 103, 101):
+                    expect(history_picker).to_be_enabled()
+                    if request_id != 101 or history_picker.input_value() != "101":
+                        history_picker.select_option(str(request_id))
+                    expect(page.locator(".request-number")).to_have_text(f"#{request_id}")
+                    expect(history_picker).to_be_enabled()
+                    expect(history_picker.locator("option:checked")).to_be_disabled()
+                    expect(history_picker.locator("option:checked")).to_have_text("Choose another request")
+                    assert history_picker.locator("option").evaluate_all(
+                        "(options) => options.map(option => option.value)") == ["101", "102", "103"]
+                history_failures.add(102)
+                history_picker.select_option("102")
+                expect(page.get_by_role("alert")).to_contain_text("Progress could not be refreshed.")
+                expect(page.locator(".request-number")).to_have_text("#101")
+                expect(history_picker).to_have_value("101")
+                history_failures.clear()
+                page.get_by_role("button", name="Refresh", exact=True).click()
+                expect(page.get_by_role("alert")).to_have_count(0)
+                expect(history_picker).to_be_enabled()
+                assert history_reads[-1] == 101
+                history_picker.select_option("102")
+                expect(page.locator(".request-number")).to_have_text("#102")
+                expect(history_picker).to_be_enabled()
+                evidence["checks"].append({"viewport": size, "historySwitching": True,
+                    "historyOrderPreserved": True, "failedHistorySelectionRecovery": True})
                 response = ctx.request.post(api + "/api/operations/events", data={
                     "kind": 1, "correlationId": "brand-browser-" + size, "workItemId": "AB#960",
                     "agent": "browser-fixture", "summary": "Isolated visual test event, not agent execution",

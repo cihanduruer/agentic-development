@@ -59,10 +59,9 @@
                 <div class="request-picker">
                     <label for="delivery-request">History</label>
                     <select id="delivery-request" value="@selectedId" @onchange="SelectAsync" disabled="@(busy || approving)">
-                        <option value="@selectedId" disabled>Choose another request</option>
-                        @foreach (var delivery in snapshot.Deliveries.Where(delivery => delivery.WorkItemId != current.WorkItemId))
+                        @foreach (var delivery in snapshot.Deliveries)
                         {
-                            <option value="@delivery.WorkItemId">@delivery.GitHubIssueTitle</option>
+                            <option @key="delivery.WorkItemId" value="@delivery.WorkItemId" disabled="@(delivery.WorkItemId == current.WorkItemId)">@(delivery.WorkItemId == current.WorkItemId ? "Choose another request" : delivery.GitHubIssueTitle)</option>
                         }
                     </select>
                 </div>
@@ -235,6 +234,7 @@
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
         {
             Logger.LogWarning(exception, "Delivery progress could not be refreshed.");
+            selectedId = current?.WorkItemId;
             error = "Progress could not be refreshed. Approval is paused; please retry.";
             if (snapshot is not null) snapshot = snapshot with { IsStale = true };
         }
