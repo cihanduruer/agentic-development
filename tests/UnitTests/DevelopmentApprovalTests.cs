@@ -300,11 +300,20 @@ public sealed class DevelopmentApprovalTests
                 };
                 if (Variant is "historical-review-skipped" or "historical-review-failed" or "newer-review-failed" or "newer-review-pending")
                 {
-                    checks.Add(new { id = 20L, name = "Copilot findings gate",
+                    checks.Add(new
+                    {
+                        id = 20L,
+                        name = "Copilot findings gate",
                         status = Variant == "newer-review-pending" ? "in_progress" : "completed",
-                        conclusion = Variant == "newer-review-failed" ? "failure" : Variant == "newer-review-pending" ? "" : "success" });
-                    checks.Add(new { id = 12L, name = "Copilot findings gate", status = "completed",
-                        conclusion = Variant == "historical-review-failed" ? "failure" : Variant == "historical-review-skipped" ? "skipped" : "success" });
+                        conclusion = Variant == "newer-review-failed" ? "failure" : Variant == "newer-review-pending" ? "" : "success"
+                    });
+                    checks.Add(new
+                    {
+                        id = 12L,
+                        name = "Copilot findings gate",
+                        status = "completed",
+                        conclusion = Variant == "historical-review-failed" ? "failure" : Variant == "historical-review-skipped" ? "skipped" : "success"
+                    });
                 }
                 return Response(new
                 {
