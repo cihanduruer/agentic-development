@@ -1,6 +1,6 @@
 ---
 owner: Engineering owner
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-21
 ---
 # Agentic delivery
 
@@ -15,6 +15,8 @@ The user has authorized development-demo delivery without another human merge or
 Production remains a separate path:
 
 `Verified main revision -> Release proposal -> Human approval -> Manual production promotion`
+
+Release proposals are built only when the completed QA workflow's independent QA job succeeded. If eligibility intentionally skips that job, no proposal is created; if QA ran, missing or invalid QA evidence remains an error.
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.
 
@@ -67,8 +69,6 @@ Application implementation and testing run in GitHub-hosted cloud agents and Git
 Use the [short team demo](../../demo/TEAM-DEMO-GUIDE.md) for the presenter sequence. Preview availability and price without submitting a new shared-development booking. Do not reset existing reservations or restart shared services for a demonstration.
 
 The .NET SDK is pinned: `global.json` sets an exact version with `rollForward: disable`, and every workflow installs that same version (enforced by `DotnetSdkPinContractTests`). Workflows that restore the solution install it into a fresh `runner.temp/dotnet-sdk` directory. Runner images have supplied SDK 10.0.401 metadata selecting WebAssembly SDK pack 10.0.12 or 10.0.13, so `src/Web/Directory.Build.targets` explicitly pins this implicit pack to 10.0.13 for the Web project; the contract test verifies the declared pin, effective MSBuild item, and lock entry agree. This deterministic source pin supports trusted validation from `main` even before its workflows gain the isolated SDK setup. A floating `10.0.x` SDK silently changed the implicit `Microsoft.NET.ILLink.Tasks` version and broke `dotnet restore --locked-mode` for every pipeline. When updating the SDK or its implicit/runtime packs, run `dotnet restore --force-evaluate` with the pinned SDK, review only the resulting real lock-graph changes, then verify `dotnet restore --locked-mode` succeeds without further lock-file edits. Keep locked restore enabled in every workflow.
-
-The temporary `demo-skip-sql-bootstrapper` pull-request label skips only SQL bootstrapper mutation/evidence tests and the SQL Server integration/evidence pair in PR validation. It applies only to `pull_request` runs; pushes to `main` and trusted `workflow_dispatch` retain those checks even if the target PR has the label. The validation summary and provenance artifact mark skipped SQL coverage explicitly, and this partial PR artifact is not trusted SQL evidence for QA or release. Remove the label to roll back the exception and restore all SQL checks on subsequent pull-request runs; the SQL service startup remains unchanged.
 
 The Hotel Agent Operations screen shows events ingested through the operations API. Desktop conversations, Azure Boards intake, and GitHub Actions are not automatically mirrored there. Show Boards and Actions for delivery progress; an empty operations view is not proof of inactivity or success.
 

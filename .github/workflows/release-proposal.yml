@@ -23,7 +23,35 @@ jobs:
       sha: ${{ steps.source.outputs.sha }}
       metadata-digest: ${{ steps.source.outputs.metadata-digest }}
     steps:
+      - name: Confirm QA was executed
+        id: qa-status
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+              per_page: 100
+            });
+            const qaJob = jobs.find(job => job.name === 'Independent QA evidence gate');
+            if (!qaJob) {
+              core.setFailed('QA workflow run did not include the independent QA job.');
+              return;
+            }
+            if (qaJob.conclusion === 'skipped') {
+              core.info('QA was intentionally skipped; no release proposal will be created.');
+              core.setOutput('executed', 'false');
+              return;
+            }
+            if (qaJob.conclusion !== 'success') {
+              core.setFailed(`Independent QA did not succeed (conclusion: ${qaJob.conclusion || 'unknown'}).`);
+              return;
+            }
+            core.setOutput('executed', 'true');
+
       - name: Download QA result
+        if: steps.qa-status.outputs.executed == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: qa-evidence-*
@@ -35,6 +63,7 @@ jobs:
 
       - name: Resolve and verify tested source
         id: source
+        if: steps.qa-status.outputs.executed == 'true'
         uses: actions/github-script@v8
         with:
           script: |
