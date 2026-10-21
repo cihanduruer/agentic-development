@@ -306,8 +306,8 @@ def check_knowledge_sign_in(page, base):
         expect(page).to_have_url(f"{base}/admin/knowledge")
         expect(page.get_by_text("admin@example.test", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name="Add content", exact=True)).to_be_enabled()
-        page.get_by_role("navigation", name="Administration").get_by_role("link", name="Hotel architecture", exact=True).click()
-        expect(page.get_by_role("heading", name="ARCHITECTURE", level=1)).to_be_visible()
+        page.get_by_role("navigation", name="Administration").get_by_role("link", name="Architecture", exact=True).click()
+        expect(page.get_by_role("heading", name="Architecture", level=1)).to_be_visible()
         expect(page.get_by_role("button", name="Sign out", exact=True)).to_be_visible()
         page.get_by_role("navigation", name="Administration").get_by_role("link", name="Knowledge Center", exact=True).click()
         page.reload(wait_until="networkidle")
@@ -388,38 +388,56 @@ def main():
 
                 response = page.goto(f"{base}/admin/architecture", wait_until="networkidle")
                 assert response is not None and response.status == 200, name
-                expect(page.get_by_role("heading", name="ARCHITECTURE", level=1)).to_be_visible()
+                expect(page).to_have_title("Architecture")
+                expect(page.get_by_role("heading", name="Architecture", level=1)).to_be_visible()
                 expect(page.get_by_role("navigation", name="Administration")).to_be_visible()
                 if name == "mobile":
                     page.get_by_role("button", name="Navigation menu").click()
-                expect(page.get_by_role("list", name="Four stages of agentic delivery").get_by_role("listitem")).to_have_count(4)
+                expect(page.locator(".architecture-journey, .architecture-metrics")).to_have_count(0)
                 delivery_path = page.get_by_role("list", name="Requirement to deployment")
                 expect(delivery_path.get_by_role("listitem")).to_have_count(9)
                 expected_stages = (
-                    "Agree the requirement", "Intake & assignment", "Cloud development",
-                    "Build, test & inspect", "Review & repair", "Verify acceptance",
-                    "Approve & merge", "Deploy & sync Boards", "Propose & promote",
+                    "Describe what you need", "Your request is picked up", "The AI builds your change",
+                    "Automatic checks run", "The AI reviews the code", "Check the agreed outcome",
+                    "You approve publishing", "Publish to the demo site", "Optional: release to production",
                 )
                 assert delivery_path.get_by_role("heading", level=3).all_text_contents() == list(expected_stages)
-                catalogue = page.get_by_role("list", name="Repository workflows")
-                expect(catalogue.get_by_role("listitem")).to_have_count(13)
+                cards = delivery_path.get_by_role("listitem")
+                for index in range(cards.count()):
+                    card = cards.nth(index)
+                    expect(card.locator(".node-type")).to_be_visible()
+                    expect(card.get_by_text("What you get", exact=True)).to_be_visible()
+                    expect(card.get_by_text("Your part", exact=True)).to_be_visible()
+                    if index:
+                        previous = cards.nth(index - 1).bounding_box()
+                        current = card.bounding_box()
+                        assert abs(current["x"] - previous["x"]) <= 1, (name, index)
+                        assert current["y"] > previous["y"] + previous["height"], (name, index)
+                technical = page.locator(".architecture-technical")
+                expect(technical).not_to_have_attribute("open", "")
+                expect(page.get_by_role("heading", name="System map", exact=True)).not_to_be_visible()
+                expect(page.get_by_role("heading", name="Which workflow does what?", exact=True)).to_have_count(0)
+                technical.locator(":scope > summary").click()
+                page.locator(".flow-supporting-tools > summary").click()
+                for details in page.locator(".stage-technical").all():
+                    details.locator(":scope > summary").click()
                 for workflow in (
                     "Agentic intake", "Copilot setup steps", "PR validation", "Hotel browser evidence",
                     "Hotel code review", "QA evidence", "Deploy development", "Sync development lifecycle",
                     "Release proposal", "Deploy production", "Microsoft grounded evaluation",
                     "Diagnose development SQL permissions", "Deploy Knowledge MCP POC",
                 ):
-                    link = catalogue.get_by_role("link", name=workflow, exact=True)
+                    link = page.get_by_role("link", name=workflow, exact=True)
                     expect(link).to_be_visible()
                     assert "/actions/workflows/" in link.get_attribute("href")
                 expect(page.get_by_role("list", name="Declared Azure services").get_by_role("listitem")).to_have_count(9)
                 expect(page.get_by_role("list", name="Runtime routing safety gates").get_by_role("listitem")).to_have_count(4)
-                for heading in ("System map", "Which workflow does what?", "A safe agent decision", "Where are the boundaries?"):
+                for heading in ("System map", "A safe agent decision", "Where are the boundaries?"):
                     expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
                 assert page.locator(".architecture-canvas").evaluate(
                     "e => getComputedStyle(e).backgroundColor") == "rgb(248, 239, 223)"
                 for selector in (".architecture-canvas", ".delivery-sheet", ".runtime-map",
-                                 ".workflow-catalogue", ".service-catalogue"):
+                                 ".architecture-technical", ".service-catalogue"):
                     assert page.locator(selector).evaluate("e => e.scrollWidth <= e.clientWidth + 1"), (name, selector)
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), name
 
@@ -428,7 +446,7 @@ def main():
                 expect(public_nav.get_by_role("link", name="AI Product Management")).to_be_visible()
                 assert public_nav.get_by_role("link").count() == 2, "top bar must contain only Home and AI Product Management"
 
-                connectors = page.locator(".map-packets, .orbit-ring")
+                connectors = page.locator(".map-packets")
                 assert connectors.count() > 0
                 for index in range(connectors.count()):
                     animation = connectors.nth(index).evaluate(
@@ -446,7 +464,8 @@ def main():
                 overview = page.goto(f"{base}/admin", wait_until="networkidle")
                 assert overview is not None and overview.status == 200, name
                 expect(page.get_by_role("heading", name="AI Product Management", level=1)).to_be_visible()
-                expect(page.get_by_role("link", name="Manage sources in Knowledge Center")).to_be_visible()
+                expect(page.get_by_role("link", name="Manage sources in Knowledge Center")).to_have_count(0)
+                expect(page.get_by_role("navigation", name="Administration").get_by_role("link", name="Knowledge Center", exact=True)).to_be_visible()
                 expect(page.get_by_role("region", name="Knowledge center (RAG)")).to_have_count(0)
                 check_knowledge_management(page, base)
                 check_knowledge_sign_in(page, base)
@@ -475,7 +494,8 @@ def main():
             motion_page.route("**/api/admin/auth/capabilities", development_capabilities)
             motion_page.emulate_media(reduced_motion="no-preference")
             motion_page.goto(f"{base}/admin/architecture", wait_until="networkidle")
-            for selector, expected in ((".map-packets", "architecture-flow"), (".orbit-ring", "architecture-orbit")):
+            motion_page.locator(".architecture-technical > summary").click()
+            for selector, expected in ((".map-packets", "architecture-flow"),):
                 animation = motion_page.locator(selector).first.evaluate(
                     "element => getComputedStyle(element).animationName")
                 assert animation == expected or animation.startswith(f"{expected}-b-"), animation
@@ -488,10 +508,10 @@ def main():
                 motion_page.set_viewport_size({"width": width, "height": 900})
                 assert motion_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
                 for selector in (".architecture-canvas", ".delivery-sheet", ".runtime-map",
-                                 ".workflow-catalogue", ".service-catalogue"):
+                                 ".architecture-technical", ".service-catalogue"):
                     assert motion_page.locator(selector).evaluate(
                         "e => e.scrollWidth <= e.clientWidth + 1"), (width, selector)
-            print("motion/layout: animated flow and orbits enabled; tablet widths fit without horizontal scrolling")
+            print("motion/layout: technical-map animation enabled; tablet widths fit without horizontal scrolling")
         finally:
             browser.close()
 

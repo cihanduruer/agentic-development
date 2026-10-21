@@ -46,7 +46,8 @@ public sealed class ArchitecturePageTests
         var page = ReadSource("src/Web/Pages/Architecture.razor");
 
         Assert.Contains("@page \"/admin/architecture\"", page);
-        Assert.Contains("<h1 id=\"architecture-title\">ARCHITECTURE</h1>", page);
+        Assert.Contains("<PageTitle>Architecture</PageTitle>", page);
+        Assert.Contains("<h1 id=\"architecture-title\">Architecture</h1>", page);
         foreach (var service in new[]
         {
             "Azure Static Web Apps", "Blazor WebAssembly", "App Service", "Azure SQL",
@@ -57,11 +58,11 @@ public sealed class ArchitecturePageTests
             Assert.Contains(service, page);
         }
         AssertOrdered(page,
-            "\"Agree the requirement\"", "\"Intake & assignment\"", "\"Cloud development\"",
-            "\"Build, test & inspect\"", "\"Review & repair\"", "\"Verify acceptance\"",
-            "\"Approve & merge\"", "\"Deploy & sync Boards\"", "\"Propose & promote\"");
+            "\"Describe what you need\"", "\"Your request is picked up\"", "\"The AI builds your change\"",
+            "\"Automatic checks run\"", "\"The AI reviews the code\"", "\"Check the agreed outcome\"",
+            "\"You approve publishing\"", "\"Publish to the demo site\"", "\"Optional: release to production\"");
         Assert.Contains("aria-label=\"Requirement to deployment\"", page);
-        Assert.Contains("aria-label=\"Repository workflows\"", page);
+        Assert.Contains("aria-label=\"Optional supporting workflows\"", page);
         Assert.Contains("aria-label=\"Declared Azure services\"", page);
         Assert.Contains("hotel-developer", page);
         Assert.Contains("does not dispatch hotel-qa", page);
@@ -75,9 +76,13 @@ public sealed class ArchitecturePageTests
     }
 
     [Fact]
-    public void ArchitectureCatalogueUsesEveryActualWorkflowNameAndFile()
+    public void ArchitectureFlowUsesEveryActualWorkflowWithoutDuplicateCatalogue()
     {
         var page = ReadSource("src/Web/Pages/Architecture.razor");
+        Assert.DoesNotContain("workflows-title", page);
+        Assert.DoesNotContain("workflow-catalogue", page);
+        Assert.Contains("@workflow.Description", page);
+        Assert.Contains("Optional tools, not delivery steps", page);
         var workflowDirectory = Path.GetDirectoryName(FindSource(".github/workflows/agentic-intake.yml"))
             ?? throw new DirectoryNotFoundException();
         var files = Directory.GetFiles(workflowDirectory, "*.yml");
@@ -97,15 +102,40 @@ public sealed class ArchitecturePageTests
         var page = ReadSource("src/Web/Pages/Architecture.razor");
         var styles = ReadSource("src/Web/Pages/Architecture.razor.css");
 
-        Assert.Contains("Animated connections illustrate the process", page);
+        Assert.Contains("Read from top to bottom", page);
         Assert.Contains("aria-hidden=\"true\"", page);
         Assert.Contains("@media (prefers-reduced-motion: reduce)", styles);
         Assert.Contains("animation: none;", styles);
         Assert.Contains("@media (max-width: 760px)", styles);
         Assert.Contains("@keyframes architecture-flow", styles);
-        Assert.Contains("@keyframes architecture-orbit", styles);
         Assert.DoesNotContain("overflow-x: auto", styles);
         Assert.Contains("minmax(0, 1fr)", styles);
+    }
+
+    [Fact]
+    public void DeliveryChartIsVerticalAndExplainsTypeOutcomeAndProductOwnerAction()
+    {
+        var page = ReadSource("src/Web/Pages/Architecture.razor");
+        var styles = ReadSource("src/Web/Pages/Architecture.razor.css");
+
+        Assert.Contains("grid-template-columns: minmax(0, 1fr)", styles);
+        Assert.DoesNotContain(".delivery-grid { position: relative; display: grid; grid-template-columns: repeat(3", styles);
+        Assert.Contains("@stage.Type", page);
+        Assert.Contains("Human action", page);
+        Assert.Contains("AI coding agent", page);
+        Assert.Contains("AI reviewer + GitHub workflow", page);
+        Assert.Contains("Human approval + API", page);
+        Assert.Contains("<dt>What you get</dt>", page);
+        Assert.Contains("<dt>Your part</dt>", page);
+        Assert.Contains("<summary>Technical details</summary>", page);
+        Assert.Contains("Automated checks may run together; production is a separate decision.", page);
+        Assert.Contains("stage.Number is not (\"08\" or \"09\")", page);
+        Assert.DoesNotContain("architecture-journey", page);
+        Assert.DoesNotContain("architecture-metrics", page);
+        Assert.Contains("<details class=\"architecture-technical\">", page);
+        Assert.Contains("Technical reference: connections, services and optional tools", page);
+        Assert.Contains("href=\"/admin/architecture\">Architecture</NavLink>", ReadSource("src/Web/Layout/AdminNav.razor"));
+        Assert.DoesNotContain("Hotel Architecture", ReadSource("src/Web/Pages/ArchitectureRedirect.razor"));
     }
 
     [Fact]
