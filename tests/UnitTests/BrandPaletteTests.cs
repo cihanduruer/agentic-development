@@ -133,9 +133,9 @@ public sealed class BrandPaletteTests
         Assert.Equal("var(--brand-blush)", Declaration(css, ".room-option.selected", "background"));
         Assert.NotEqual(Declaration(css, ".room-option.selected", "background"),
             Declaration(css, ".room-option:hover", "background"));
-        var home = ReadSource("src/Web/Pages/Home.razor");
-        Assert.Contains("aria-pressed=", home);
-        Assert.Contains("<span class=\"room-selection\">Selected</span>", home);
+        var availability = ReadSource("src/Web/Pages/Availability.razor");
+        Assert.Contains("aria-pressed=", availability);
+        Assert.Contains("<span class=\"room-selection\">Selected</span>", availability);
 
         var navigation = ReadSource("src/Web/Layout/NavMenu.razor.css");
         Assert.Equal("currentColor", Declaration(navigation, ".bi-house-door-fill-nav-menu", "background-color"));
@@ -148,13 +148,13 @@ public sealed class BrandPaletteTests
     [Fact]
     public void VehiclePreferenceControlIsLabeledAndExplainsItsLimits()
     {
-        var home = ReadSource("src/Web/Pages/Home.razor");
+        var availability = ReadSource("src/Web/Pages/Availability.razor");
 
-        Assert.Contains("<label for=\"vehicle-preference\">Vehicle preference</label>", home);
-        Assert.Contains("aria-describedby=\"vehicle-preference-help\"", home);
-        Assert.Contains("<option value=\"\">No preference</option>", home);
-        Assert.Contains("A vehicle preference is not a guaranteed rental.", home);
-        Assert.Contains("cannot be added or changed after confirmation", home);
+        Assert.Contains("<label for=\"vehicle-preference\">Vehicle preference</label>", availability);
+        Assert.Contains("aria-describedby=\"vehicle-preference-help\"", availability);
+        Assert.Contains("<option value=\"\">No preference</option>", availability);
+        Assert.Contains("A vehicle preference is not a guaranteed rental.", availability);
+        Assert.Contains("cannot be added or changed after confirmation", availability);
 
         var css = ReadSource("src/Web/wwwroot/css/app.css");
         Assert.Equal("1px solid var(--brand-ink)",
@@ -176,8 +176,11 @@ public sealed class BrandPaletteTests
         Assert.Contains("for=\"check-out\"", home);
         Assert.Contains("for=\"guest-count\"", home);
         Assert.Contains("class=\"btn btn-primary search-submit\"", home);
-        Assert.Contains("SelectHotel(hotels[0])", home);
-        Assert.Contains("@bind:after=\"OnHotelSelectionChanged\"", home);
+        Assert.Contains("selectedHotelId = hotels[0].Id.ToString()", home);
+        Assert.Contains("@onclick=\"SearchAvailabilityFromForm\"", home);
+        Assert.Contains("Navigation.NavigateTo(", home);
+        Assert.DoesNotContain("booking-panel", home);
+        Assert.DoesNotContain("api/hotels/{hotelId}/availability", home);
 
         var css = ReadSource("src/Web/Pages/Home.razor.css");
         Assert.Contains("grid-template-columns: minmax(220px, 2fr)", css);
@@ -188,18 +191,18 @@ public sealed class BrandPaletteTests
     [Fact]
     public void AmenityFiltersAreCatalogDrivenLabeledAndClearable()
     {
-        var home = ReadSource("src/Web/Pages/Home.razor");
+        var availability = ReadSource("src/Web/Pages/Availability.razor");
 
-        Assert.Contains("selectedHotel?.Rooms", home);
-        Assert.Contains("Choose one or more amenities. Rooms must include every selected amenity.", home);
-        Assert.Contains("<fieldset class=\"amenity-filters\" aria-describedby=\"amenity-filter-help\">", home);
-        Assert.Contains("<legend>Filter available rooms by amenities</legend>", home);
-        Assert.Contains("type=\"checkbox\"", home);
-        Assert.Contains("for=\"@inputId\"", home);
-        Assert.Contains(">Clear all filters</button>", home);
-        Assert.Contains("Available rooms were found, but none match all selected amenities.", home);
-        Assert.Contains("No rooms are available for these dates and guest count.", home);
-        Assert.Contains("RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities)", home);
+        Assert.Contains("selectedHotel?.Rooms", availability);
+        Assert.Contains("Choose one or more amenities. Rooms must include every selected amenity.", availability);
+        Assert.Contains("<fieldset class=\"amenity-filters\" aria-describedby=\"amenity-filter-help\">", availability);
+        Assert.Contains("<legend>Filter available rooms by amenities</legend>", availability);
+        Assert.Contains("type=\"checkbox\"", availability);
+        Assert.Contains("for=\"@inputId\"", availability);
+        Assert.Contains(">Clear all filters</button>", availability);
+        Assert.Contains("Available rooms were found, but none match all selected amenities.", availability);
+        Assert.Contains("No rooms are available for these dates and guest count.", availability);
+        Assert.Contains("RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities)", availability);
     }
 
     private static string Declaration(string css, string selector, string property)

@@ -11,7 +11,7 @@ Demonstrate an evidence-grounded, fully agentic software-delivery lifecycle with
 ## MVP users and outcomes
 
 - A guest browses hotels and rooms.
-- A guest searches availability using dates and party size.
+- A guest enters a hotel, check-in/check-out dates, and guest count on the home page; the search carries those values to `/availability`, where the dates, search summary, and available rooms are shown.
 - A guest can refine available rooms using accessible amenity filters drawn from the selected hotel's current room catalog; multiple amenities use match-all semantics, and all filters can be cleared together.
 - A guest creates one reservation and receives a stable reference.
 - A guest may optionally choose Economy, Compact, SUV, or Luxury as a vehicle
