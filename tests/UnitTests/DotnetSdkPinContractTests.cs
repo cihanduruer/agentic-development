@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -50,9 +51,17 @@ public sealed class DotnetSdkPinContractTests
     }
 
     [Fact]
-    public void WebAssemblySdkPackLockMatchesThePinnedSdkPack()
+    public void WebAssemblySdkPackPinMatchesTheEffectiveSdkPackAndLock()
     {
         var repositoryRoot = Path.GetDirectoryName(FindRepositoryFile("global.json"))!;
+        var targets = XDocument.Load(FindRepositoryFile("src/Web/Directory.Build.targets"));
+        var declaredPackVersion = Assert.Single(
+            targets.Descendants("KnownWebAssemblySdkPack"),
+            item => (string?)item.Attribute("Update") == "Microsoft.NET.Sdk.WebAssembly.Pack")
+            .Element("WebAssemblySdkPackVersion")
+            ?.Value;
+        Assert.False(string.IsNullOrWhiteSpace(declaredPackVersion));
+
         var startInfo = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = repositoryRoot,
@@ -89,8 +98,9 @@ public sealed class DotnetSdkPinContractTests
             .GetProperty("net10.0")
             .GetProperty("Microsoft.NET.Sdk.WebAssembly.Pack");
 
-        Assert.Equal(sdkPackVersion, lockedPack.GetProperty("resolved").GetString());
-        Assert.Equal($"[{sdkPackVersion}, )", lockedPack.GetProperty("requested").GetString());
+        Assert.Equal(declaredPackVersion, sdkPackVersion);
+        Assert.Equal(declaredPackVersion, lockedPack.GetProperty("resolved").GetString());
+        Assert.Equal($"[{declaredPackVersion}, )", lockedPack.GetProperty("requested").GetString());
     }
 
     private static string FindRepositoryFile(string path)
