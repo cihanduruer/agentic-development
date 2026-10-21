@@ -93,7 +93,14 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: dotnet restore --locked-mode
+      - name: Resolve SQL bootstrapper coverage mode
+        id: sql-coverage
+        shell: pwsh
+        env:
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: ./scripts/Set-ValidationSqlCoverage.ps1
       - name: Test SQL bootstrapper source mutations
+        if: steps.sql-coverage.outputs.skip != 'true'
         shell: pwsh
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
@@ -105,11 +112,16 @@ jobs:
             TrustServerCertificate=True
         run: ./scripts/Test-SqlManagedIdentityBootstrapperMutations.ps1
       - name: Test SQL bootstrapper evidence gate
+        if: steps.sql-coverage.outputs.skip != 'true'
         shell: pwsh
         run: ./scripts/Test-Assert-SqlManagedIdentityBootstrapperEvidence.ps1
       - name: Test SQL bootstrapper evidence mutants
+        if: steps.sql-coverage.outputs.skip != 'true'
         shell: pwsh
         run: ./scripts/Test-SqlManagedIdentityBootstrapperEvidenceMutations.ps1
+      - name: Test PR validation SQL demo opt-out
+        shell: pwsh
+        run: ./scripts/Test-PrValidationSqlDemoOptOut.ps1
       - name: Test agentic intake script
         if: github.event_name != 'workflow_dispatch' || hashFiles('scripts/Test-Start-AgenticWork.ps1') != ''
         shell: pwsh
@@ -165,6 +177,7 @@ jobs:
         shell: bash
         run: bash ./scripts/Test-KnowledgeMcpTransport.sh
       - name: Test SQL bootstrapper against SQL Server
+        if: steps.sql-coverage.outputs.skip != 'true'
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
             Server=localhost,${{ job.services.sqlserver.ports[1433] }};
@@ -180,6 +193,7 @@ jobs:
           --logger "trx;LogFileName=sql-bootstrapper.trx"
           --results-directory TestResults
       - name: Verify SQL bootstrapper evidence
+        if: steps.sql-coverage.outputs.skip != 'true'
         shell: pwsh
         run: >-
           ./scripts/Assert-SqlManagedIdentityBootstrapperEvidence.ps1
@@ -222,6 +236,7 @@ jobs:
         shell: pwsh
         env:
           TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          SQL_BOOTSTRAPPER_COVERAGE: ${{ steps.sql-coverage.outputs.coverage }}
         run: |
           New-Item -ItemType Directory -Path ValidationEvidence -Force | Out-Null
           @{
@@ -230,6 +245,7 @@ jobs:
             targetSha = $env:TARGET_SHA
             checkedOutSha = (git rev-parse HEAD).Trim()
             runId = '${{ github.run_id }}'
+            sqlBootstrapperCoverage = $env:SQL_BOOTSTRAPPER_COVERAGE
           } | ConvertTo-Json | Set-Content ValidationEvidence/validation.json
       - name: Upload validation provenance
         uses: actions/upload-artifact@v4
