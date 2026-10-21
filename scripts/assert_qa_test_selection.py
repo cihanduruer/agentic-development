@@ -112,6 +112,7 @@ expected_steps = [
     },
     {
         "uses": "actions/setup-dotnet@v4",
+        "env": {"DOTNET_INSTALL_DIR": "${{ runner.temp }}/dotnet-sdk"},
         "with": {"dotnet-version": "10.0.401"},
     },
     {

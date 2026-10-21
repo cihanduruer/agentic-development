@@ -34,7 +34,23 @@ public sealed class DotnetSdkPinContractTests
     }
 
     [Fact]
-    public void WebAssemblySdkPackPinMatchesTheLockFile()
+    public void WorkflowsRestoringTheSolutionUseAnIsolatedSdkInstallDirectory()
+    {
+        var workflowRoot = Path.GetDirectoryName(FindRepositoryFile(".github/workflows/pr-validation.yml"))!;
+        var workflows = Directory.GetFiles(workflowRoot, "*.yml")
+            .Select(path => (path, content: File.ReadAllText(path)))
+            .Where(entry => entry.content.Contains("dotnet restore --locked-mode", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(workflows);
+        Assert.All(workflows, entry => Assert.Contains(
+            "DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-sdk",
+            entry.content,
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WebAssemblySdkPackLockMatchesThePinnedSdkPack()
     {
         var repositoryRoot = Path.GetDirectoryName(FindRepositoryFile("global.json"))!;
         var startInfo = new ProcessStartInfo("dotnet")
@@ -53,7 +69,7 @@ public sealed class DotnetSdkPinContractTests
         var output = process!.StandardOutput.ReadToEnd();
         var error = process.StandardError.ReadToEnd();
         process.WaitForExit();
-        Assert.True(process.ExitCode == 0, $"Could not read the pinned WebAssembly pack: {error}");
+        Assert.True(process.ExitCode == 0, $"Could not read the pinned SDK's WebAssembly pack: {error}");
 
         using var sdkDocument = JsonDocument.Parse(output);
         var sdkPackVersion = Assert.Single(
@@ -65,7 +81,6 @@ public sealed class DotnetSdkPinContractTests
             .GetProperty("WebAssemblySdkPackVersion")
             .GetString();
         Assert.NotNull(sdkPackVersion);
-        Assert.Equal("10.0.13", sdkPackVersion);
 
         using var lockDocument = JsonDocument.Parse(
             File.ReadAllText(FindRepositoryFile("src/Web/packages.lock.json")));

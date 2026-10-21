@@ -1,7 +1,0 @@
-<Project>
-  <ItemGroup Condition="'$(MSBuildProjectName)' == 'AgenticHotelBooking.Web'">
-    <KnownWebAssemblySdkPack Update="Microsoft.NET.Sdk.WebAssembly.Pack">
-      <WebAssemblySdkPackVersion>10.0.13</WebAssemblySdkPackVersion>
-    </KnownWebAssemblySdkPack>
-  </ItemGroup>
-</Project>
