@@ -3,6 +3,44 @@ namespace AgenticHotelBooking.UnitTests;
 public sealed class ArchitecturePageTests
 {
     [Fact]
+    public void DeliveryViewsUseOrderedCardsWithoutCrossingLinesAndPillRequestWithHistory()
+    {
+        var operations = ReadSource("src/Web/Pages/Operations.razor");
+        var operationStyles = ReadSource("src/Web/Pages/Operations.razor.css");
+        var architecture = ReadSource("src/Web/Pages/Architecture.razor");
+        var architectureStyles = ReadSource("src/Web/Pages/Architecture.razor.css");
+
+        Assert.Contains("class=\"request-pill\"", operations);
+        Assert.Contains("class=\"request-number\"", operations);
+        Assert.Contains("<label for=\"delivery-request\">History</label>", operations);
+        Assert.DoesNotContain("Choose a request", operations);
+        Assert.Contains("border-radius: 999px", operationStyles);
+        Assert.DoesNotContain(".delivery-step::before", operationStyles);
+        Assert.DoesNotContain("map-links delivery-links", architecture);
+        Assert.DoesNotContain(".delivery-node:nth-child(", architectureStyles);
+        Assert.DoesNotContain(".delivery-node + .delivery-node::before", architectureStyles);
+        var admin = ReadSource("src/Web/Pages/Admin.razor");
+        Assert.Contains("<AdminNav />", admin);
+        Assert.DoesNotContain("Manage sources in Knowledge Center", admin);
+    }
+
+    [Fact]
+    public void SystemMapLabelsConnectionsAndExplainsProtocolsOnMobileToo()
+    {
+        var page = ReadSource("src/Web/Pages/Architecture.razor");
+        var styles = ReadSource("src/Web/Pages/Architecture.razor.css");
+
+        Assert.Contains(">API</text>", page);
+        Assert.Contains(">MCP</text>", page);
+        Assert.Contains(">Data</text>", page);
+        Assert.Contains("aria-label=\"Connection protocols\"", page);
+        Assert.Contains("SQL/TDS", page);
+        Assert.Contains("read-only MCP over HTTPS", page);
+        Assert.Contains("HTTPS REST and authenticated SignalR", page);
+        Assert.Contains(".connection-legend { grid-template-columns: 1fr; }", styles);
+    }
+
+    [Fact]
     public void ArchitecturePageShowsCompleteAgenticProcessAndHotelSystem()
     {
         var page = ReadSource("src/Web/Pages/Architecture.razor");

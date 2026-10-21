@@ -61,14 +61,8 @@
 .architecture-canvas .map-rail { stroke-width: 3; opacity: .35; }
 .architecture-canvas .map-packets { stroke-width: 5; stroke-dasharray: 1 28; animation: architecture-flow 4s linear infinite; opacity: .8; }
 .architecture-canvas .map-arrow { stroke-width: 2; }
-.delivery-grid { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 3rem; list-style: none; margin: 0; padding: 1.5rem; }
+.delivery-grid { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; list-style: none; margin: 0; padding: 1.25rem; }
 .delivery-node { position: relative; min-width: 0; padding: 1rem 1rem .9rem; border: 1px solid var(--map-border); border-top: 4px solid var(--tone); border-radius: 1rem; background: #fffefd; box-shadow: 0 .3rem .8rem #243f7306; }
-.delivery-node:nth-child(4) { grid-area: 2 / 3; }
-.delivery-node:nth-child(5) { grid-area: 2 / 2; }
-.delivery-node:nth-child(6) { grid-area: 2 / 1; }
-.delivery-node:nth-child(7) { grid-area: 3 / 1; }
-.delivery-node:nth-child(8) { grid-area: 3 / 2; }
-.delivery-node:nth-child(9) { grid-area: 3 / 3; }
 .node-number { position: absolute; top: .85rem; right: .8rem; color: var(--tone); font-size: 1.25rem; line-height: 1; font-weight: 800; opacity: .85; }
 .node-kicker { display: block; padding-right: 1.7rem; margin-bottom: .4rem; color: var(--map-muted); font-size: .64rem; text-transform: uppercase; letter-spacing: .065em; font-weight: 700; }
 .node-copy h3 { font-size: 1rem; font-weight: 800; margin-bottom: .45rem; padding-right: 1rem; }
@@ -80,6 +74,11 @@
 .delivery-guardrails strong { color: var(--map-ink); }
 .runtime-map { display: grid; grid-template-columns: .9fr 1fr 1.1fr; gap: 2.8rem; padding: 1.8rem; }
 .runtime-links { color: var(--teal); }
+.architecture-canvas .connection-badge rect { fill: #fffdf8; stroke: var(--map-border); stroke-width: 1; }
+.architecture-canvas .connection-badge text { fill: var(--map-ink); stroke: none; font-size: 12px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
+.connection-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; list-style: none; padding: 1rem; margin: 1rem 0 0; border: 1px solid var(--map-border); border-radius: 1rem; background: #fffdf8; }
+.connection-legend li { display: flex; align-items: flex-start; gap: .6rem; min-width: 0; color: var(--map-muted); font-size: .72rem; line-height: 1.6; }
+.protocol-tag { flex: 0 0 auto; border: 1px solid var(--map-border); border-radius: 999px; padding: .15rem .5rem; color: var(--map-ink); background: #edf0f8; font-size: .65rem; font-weight: 800; }
 .runtime-column, .api-node { position: relative; }
 .runtime-column { display: flex; flex-direction: column; justify-content: space-around; gap: 1.2rem; min-width: 0; }
 .system-node { min-width: 0; position: relative; padding: 1rem; border: 1px solid var(--map-border); border-radius: .95rem; background: #fffefd; }
@@ -143,7 +142,7 @@
     .circuit-decoration { width: 5rem; opacity: .35; }
     .architecture-journey { gap: 1.2rem; }
     .runtime-map { gap: 1.5rem; padding: 1rem; }
-    .delivery-grid { gap: 2rem; padding: 1rem; }
+    .delivery-grid { padding: 1rem; }
     .delivery-node { padding: .8rem; }
     .workflow-catalogue, .service-catalogue { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -167,13 +166,11 @@
     .section-heading h2 { font-size: 1rem; line-height: 1.5; overflow-wrap: anywhere; }
     .section-heading > span { display: block; max-width: none; text-align: left; font-size: .72rem; margin-top: .3rem; }
     .diagram-sheet { border-radius: 1rem; }
-    .delivery-links, .runtime-links { display: none; }
-    .delivery-grid { grid-template-columns: 1fr; grid-template-rows: none; gap: 1.3rem; padding: .9rem; }
-    .delivery-node:nth-child(n) { grid-area: auto; }
-    .delivery-node + .delivery-node::before { content: ""; position: absolute; height: 1.3rem; left: 50%; bottom: calc(100% + 4px); border-left: 2px dashed var(--teal); }
+    .runtime-links { display: none; }
+    .delivery-grid { grid-template-columns: 1fr; padding: .9rem; }
     .node-copy p { font-size: .8rem; }
     .workflow-chip { font-size: .73rem; }
-    .delivery-guardrails, .runtime-map, .workflow-catalogue, .service-catalogue, .boundary-grid { grid-template-columns: 1fr; }
+    .delivery-guardrails, .runtime-map, .workflow-catalogue, .service-catalogue, .boundary-grid, .connection-legend { grid-template-columns: 1fr; }
     .runtime-map { gap: 1.2rem; }
     .api-node { align-self: stretch; }
     .system-node p, .system-node ul { font-size: .79rem; }

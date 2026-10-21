@@ -42,8 +42,13 @@
     {
         <article class="request-card">
             <div class="request-description">
-                <p class="eyebrow">Current request</p>
-                <h2>@(current.BoardsWorkItem?.Title ?? current.GitHubIssueTitle)</h2>
+                <div class="request-pill">
+                    <span class="request-number">#@current.WorkItemId</span>
+                    <div class="request-copy">
+                        <p class="eyebrow">Current request</p>
+                        <h2>@(current.BoardsWorkItem?.Title ?? current.GitHubIssueTitle)</h2>
+                    </div>
+                </div>
                 <div class="request-links">
                     <a href="@RequestUrl" target="_blank" rel="noopener noreferrer">View request #@current.WorkItemId</a>
                     <a href="@current.GitHubIssueUrl" target="_blank" rel="noopener noreferrer">View work #@current.GitHubIssueNumber</a>
@@ -52,7 +57,7 @@
             @if (snapshot!.Deliveries.Count > 1)
             {
                 <div class="request-picker">
-                    <label for="delivery-request">Choose a request</label>
+                    <label for="delivery-request">History</label>
                     <select id="delivery-request" value="@selectedId" @onchange="SelectAsync" disabled="@(busy || approving)">
                         @foreach (var delivery in snapshot.Deliveries)
                         {

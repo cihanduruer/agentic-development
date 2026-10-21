@@ -50,11 +50,6 @@
             <div class="section-heading"><h2 id="delivery-map-title">Agentic delivery map</h2><span>The requirement, the agents, the gates, and the release</span></div>
             <p class="diagram-disclaimer"><i aria-hidden="true"></i> Sourced from repository configuration. Animated connections illustrate the process, not live runs or service health.</p>
             <div class="diagram-sheet delivery-sheet">
-                <svg class="map-links delivery-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
-                    <path class="map-rail" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
-                    <path class="map-packets" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
-                    <path class="map-arrow" d="m400 114 10 6-10 6m390-12 10 6-10 6m204 108 6 10 6-10M810 354l-10 6 10 6m-400-12-10 6 10 6M194 474l6 10 6-10m188 120 10 6-10 6" />
-                </svg>
                 <ol class="delivery-grid" aria-label="Requirement to deployment">
                     @foreach (var stage in DeliveryStages)
                     {
@@ -82,6 +77,11 @@
                 <svg class="map-links runtime-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
                     <path class="map-rail" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
                     <path class="map-packets" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                    <g class="connection-badge" transform="translate(370 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(370 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>MCP</text></g>
+                    <g class="connection-badge" transform="translate(760 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(760 360)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>Data</text></g>
+                    <g class="connection-badge" transform="translate(760 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
                 </svg>
                 <div class="runtime-column">
                     <article class="system-node red">
@@ -127,6 +127,11 @@
                     </div>
                 </div>
             </div>
+            <ul class="connection-legend" aria-label="Connection protocols">
+                <li><span class="protocol-tag">API</span><span>Browser to API: HTTPS REST and authenticated SignalR. API to Azure AI, email and telemetry services: HTTPS service APIs.</span></li>
+                <li><span class="protocol-tag">MCP</span><span>Copilot agents to the Knowledge Center: read-only MCP over HTTPS at <code>/mcp</code>.</span></li>
+                <li><span class="protocol-tag">Data</span><span>API to Azure SQL: SQL/TDS. API to Blob Storage and AI Search: HTTPS APIs. Azure service access uses managed identity.</span></li>
+            </ul>
             <p class="section-note">Knowledge flows from retained documents to Search, then through revision-checked API/MCP reads. Repository paths are identifiers, not a second knowledge authority. Delivery status is an API capability, not a live feed on this page.</p>
         </section>
 
