@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace AgenticHotelBooking.UnitTests;
 
@@ -30,6 +31,26 @@ public sealed class DotnetSdkPinContractTests
         Assert.All(versions, entry => Assert.True(
             entry.version == pinned,
             $"{Path.GetFileName(entry.path)} uses dotnet-version {entry.version}; expected {pinned} from global.json."));
+    }
+
+    [Fact]
+    public void WebAssemblySdkPackIsExplicitlyPinnedAndMatchesTheLockFile()
+    {
+        var project = XDocument.Load(FindRepositoryFile("src/Web/AgenticHotelBooking.Web.csproj"));
+        var reference = Assert.Single(project.Descendants("PackageReference"),
+            element => (string?)element.Attribute("Include") == "Microsoft.NET.Sdk.WebAssembly.Pack");
+        var pinned = (string?)reference.Attribute("Version");
+
+        Assert.NotNull(pinned);
+        Assert.Matches(@"^\d+\.\d+\.\d+$", pinned);
+        Assert.Equal("all", (string?)reference.Attribute("PrivateAssets"));
+
+        using var document = JsonDocument.Parse(File.ReadAllText(FindRepositoryFile("src/Web/packages.lock.json")));
+        var pack = document.RootElement.GetProperty("dependencies")
+            .GetProperty("net10.0").GetProperty("Microsoft.NET.Sdk.WebAssembly.Pack");
+
+        Assert.Equal($"[{pinned}, )", pack.GetProperty("requested").GetString());
+        Assert.Equal(pinned, pack.GetProperty("resolved").GetString());
     }
 
     private static string FindRepositoryFile(string path)
