@@ -71,7 +71,7 @@ public static partial class KnowledgeAccess
             if (!valid)
             {
                 context.Response.Headers.WWWAuthenticate = "Bearer realm=\"hotel-knowledge\"";
-                await Results.Problem(statusCode: 401, title: mcp ? "A valid MCP access token is required." : "Sign in to AI Product Management to continue.")
+                await Results.Problem(statusCode: 401, title: mcp ? "A valid MCP access token is required." : "Sign in to the administrator workspace to continue.")
                     .ExecuteAsync(context);
                 return;
             }

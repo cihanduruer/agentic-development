@@ -276,7 +276,7 @@ def run(args, api, output):
                 assert styles(active)["outlineColor"] == COLORS["cream"]
                 evidence["checks"].append(check_focus(active))
                 page.keyboard.press("Tab")
-                ai_link = page.get_by_role("link", name="AI Product Management")
+                ai_link = page.get_by_role("link", name="Requirement Analysis")
                 expect(ai_link).to_be_focused()
                 evidence["checks"].append(check_focus(ai_link))
                 page.keyboard.press("Tab")

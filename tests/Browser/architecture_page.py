@@ -321,7 +321,7 @@ def check_knowledge_management(page, base):
             }))
 
         page.route("**/api/work-item-chat", chat)
-        page.get_by_role("navigation", name="Administration").get_by_role("link", name="AI Product Management", exact=True).click()
+        page.get_by_role("navigation", name="Administration").get_by_role("link", name="Requirement Analysis", exact=True).click()
         expect(page.get_by_role("heading", name="Conversation", exact=True)).to_be_visible()
         expect(page.get_by_role("region", name="Knowledge center (RAG)")).to_have_count(0)
         page.get_by_role("textbox", name="Message to the product assistant", exact=True).fill("Draft a fixture requirement.")
@@ -476,7 +476,7 @@ def main():
                     page.get_by_role("button", name="Navigation menu").click()
                 expect(page.locator(".sidebar nav").get_by_role("link", name="Home")).to_be_visible()
                 assert page.locator(".sidebar nav").get_by_role("link").count() == 2
-                expect(page.locator(".sidebar nav").get_by_role("link", name="AI Product Management")).to_be_visible()
+                expect(page.locator(".sidebar nav").get_by_role("link", name="Requirement Analysis")).to_be_visible()
                 public_copy = page.locator("body").inner_text().lower()
                 assert "find a room. book with confidence." not in public_copy
                 for forbidden_copy in ("agentic", "agent operations", "architecture", "delivery", "demo", "agents", "sample hotel"):
@@ -543,8 +543,8 @@ def main():
 
                 public_nav = page.locator(".sidebar nav")
                 expect(public_nav.get_by_role("link", name="Home")).to_be_visible()
-                expect(public_nav.get_by_role("link", name="AI Product Management")).to_be_visible()
-                assert public_nav.get_by_role("link").count() == 2, "top bar must contain only Home and AI Product Management"
+                expect(public_nav.get_by_role("link", name="Requirement Analysis")).to_be_visible()
+                assert public_nav.get_by_role("link").count() == 2, "top bar must contain only Home and Requirement Analysis"
 
                 connectors = page.locator(".map-packets")
                 assert connectors.count() > 0
@@ -554,7 +554,7 @@ def main():
                     )
                     assert animation == "none", (name, animation)
 
-                page.get_by_role("link", name="AI Product Management").last.focus()
+                page.get_by_role("link", name="Requirement Analysis").last.focus()
                 page.keyboard.press("Tab")
                 focus_outline = page.get_by_role("link", name="Knowledge Center", exact=True).evaluate(
                     "element => getComputedStyle(element).outlineStyle"
@@ -563,7 +563,15 @@ def main():
 
                 overview = page.goto(f"{base}/admin", wait_until="networkidle")
                 assert overview is not None and overview.status == 200, name
-                expect(page.get_by_role("heading", name="AI Product Management", level=1)).to_be_visible()
+                expect(page).to_have_title("Requirement Analysis")
+                expect(page.get_by_role("heading", name="AI Product Management", level=1)).to_have_count(0)
+                expect(page.get_by_text("Product assistant", exact=True)).to_have_count(0)
+                expect(page.locator(".pm-heading")).to_have_count(0)
+                expect(page.locator("#requirement-analysis-title")).to_have_class("visually-hidden")
+                expect(page.get_by_role("heading", name="Conversation", exact=True)).to_be_visible()
+                expect(page.get_by_role("heading", name="Work item draft", exact=True)).to_be_visible()
+                if width >= 1000:
+                    assert page.locator(".pm-layout").bounding_box()["y"] < 260, "removed headings must not leave an empty header gap"
                 expect(page.get_by_role("link", name="Manage sources in Knowledge Center")).to_have_count(0)
                 expect(page.get_by_role("navigation", name="Administration").get_by_role("link", name="Knowledge Center", exact=True)).to_be_visible()
                 expect(page.get_by_role("region", name="Knowledge center (RAG)")).to_have_count(0)

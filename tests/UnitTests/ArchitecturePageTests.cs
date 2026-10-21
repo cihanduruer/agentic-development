@@ -140,7 +140,7 @@ public sealed class ArchitecturePageTests
     }
 
     [Fact]
-    public void AdminPageIsAProductManagementShellAndDeliveryStatusServiceKeepsOrderedStageEvidence()
+    public void AdminPageIsARequirementAnalysisShellAndDeliveryStatusServiceKeepsOrderedStageEvidence()
     {
         var page = ReadSource("src/Web/Pages/Admin.razor");
         var deliveryService = ReadSource("src/Infrastructure/DeliveryStatusService.cs");
@@ -153,8 +153,11 @@ public sealed class ArchitecturePageTests
         };
 
         Assert.Contains("@page \"/admin\"", page);
-        Assert.Contains("<PageTitle>AI Product Management</PageTitle>", page);
-        Assert.Contains("<h1 id=\"product-management-title\">AI Product Management</h1>", page);
+        Assert.Contains("<PageTitle>Requirement Analysis</PageTitle>", page);
+        Assert.Contains("<h1 id=\"requirement-analysis-title\" class=\"visually-hidden\">Requirement Analysis</h1>", page);
+        Assert.DoesNotContain("pm-heading", page);
+        Assert.DoesNotContain("Product assistant", page);
+        Assert.DoesNotContain("AI Product Management", page);
         Assert.DoesNotContain("api/delivery/status", page);
         Assert.Contains("Not connected (reason:", deliveryService);
         Assert.Contains("BoardsStatus:Organization", deliveryService);
@@ -174,7 +177,7 @@ public sealed class ArchitecturePageTests
     }
 
     [Fact]
-    public void PublicNavigationExposesOnlyHomeAndTheProductManagementEntry()
+    public void PublicNavigationExposesOnlyHomeAndTheRequirementAnalysisEntry()
     {
         var navigation = ReadSource("src/Web/Layout/NavMenu.razor");
         var adminNav = ReadSource("src/Web/Layout/AdminNav.razor");
@@ -186,7 +189,10 @@ public sealed class ArchitecturePageTests
 
         Assert.Contains("href=\"\"", navigation);
         Assert.Contains("href=\"admin\"", navigation);
-        Assert.Contains("AI Product Management", navigation);
+        Assert.Contains("Requirement Analysis", navigation);
+        Assert.Contains("Requirement Analysis", adminNav);
+        Assert.DoesNotContain("AI Product Management", navigation);
+        Assert.DoesNotContain("AI Product Management", adminNav);
         Assert.DoesNotContain("operations", navigation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("architecture", navigation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("admin", home, StringComparison.OrdinalIgnoreCase);
@@ -199,7 +205,7 @@ public sealed class ArchitecturePageTests
         Assert.DoesNotContain("access gap", adminNav, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("@page \"/admin/operations\"", operations);
         Assert.Contains("<main>", layout);
-        Assert.Contains("<section class=\"product-management\" aria-labelledby=\"product-management-title\">", admin);
+        Assert.Contains("<section class=\"product-management\" aria-labelledby=\"requirement-analysis-title\">", admin);
         Assert.Contains("<section class=\"architecture-page\" aria-labelledby=\"architecture-title\">", architecture);
         Assert.DoesNotContain("<main", admin, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("<main", architecture, StringComparison.OrdinalIgnoreCase);
