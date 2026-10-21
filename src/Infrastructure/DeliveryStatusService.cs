@@ -178,7 +178,8 @@ public sealed class DeliveryStatusService(
                 pullRequest?.Number,
                 pullRequest?.Url,
                 stages,
-                null));
+                null)
+            { IsDraft = pullRequest?.IsDraft == true });
         }
 
         var now = timeProvider.GetUtcNow();
@@ -689,6 +690,7 @@ public sealed class DeliveryStatusService(
             var mergeSha = merged ? ReadOptionalString(element, "merge_commit_sha") : "";
             result.Add(new PullRequestData(number, workItemId, title, url, updated, merged)
             {
+                IsDraft = element.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
                 HeadSha = headSha.Length == 40 && headSha.All(Uri.IsHexDigit) ? headSha : "",
                 MergeCommitSha = mergeSha.Length == 40 && mergeSha.All(Uri.IsHexDigit) ? mergeSha : ""
             });
@@ -844,10 +846,10 @@ public sealed class DeliveryStatusService(
     {
         var postMergeWorkflows = new[] { "Deploy development", "Sync development lifecycle", "Release proposal" };
         var matched = runs.Where(run =>
-            (pullRequest is not null && (run.PullRequestNumbers.Contains(pullRequest.Number) ||
-                (run.HeadSha.Length > 0 &&
-                    (run.HeadSha == pullRequest.HeadSha ||
-                        (run.HeadSha == pullRequest.MergeCommitSha && postMergeWorkflows.Contains(run.Name, StringComparer.Ordinal)))))) ||
+            (pullRequest is not null && run.HeadSha.Length > 0 &&
+                (postMergeWorkflows.Contains(run.Name, StringComparer.Ordinal)
+                    ? pullRequest.Merged && run.HeadSha == pullRequest.MergeCommitSha
+                    : run.HeadSha == pullRequest.HeadSha)) ||
             (run.Name == "Agentic intake" && run.WorkItemId == issue.WorkItemId))
             .GroupBy(run => run.Name, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(run => run.UpdatedAt).First(), StringComparer.Ordinal);
@@ -931,9 +933,8 @@ public sealed class DeliveryStatusService(
         var status = evidence.Any(run => run.Status == "Failed") ? "Failed" :
             evidence.Any(run => run.Status == "Running") ? "Running" :
             evidence.Any(run => run.Status == "Waiting") ? "Waiting" :
-            evidence.All(run => run.Status is "Passed" or "Skipped") &&
-                evidence.Any(run => run.Status == "Passed") ? "Passed" :
-                evidence.All(run => run.Status == "Skipped") ? "Skipped" : "Not started";
+            evidence.Any(run => run.Status == "Skipped") ? "Skipped" :
+            evidence.Length == QaWorkflowNames.Length && evidence.All(run => run.Status == "Passed") ? "Passed" : "Waiting";
         var latest = evidence.OrderByDescending(run => run.UpdatedAt).First();
         long? duration = evidence.All(run => run.DurationMilliseconds.HasValue)
             ? evidence.Sum(run => run.DurationMilliseconds!.Value)
@@ -1030,6 +1031,8 @@ public sealed class DeliveryStatusService(
         DateTimeOffset UpdatedAt,
         bool Merged)
     {
+        public bool IsDraft { get; init; }
+
         public string HeadSha { get; init; } = "";
 
         public string MergeCommitSha { get; init; } = "";

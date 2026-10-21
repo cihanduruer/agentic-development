@@ -22,6 +22,10 @@ public sealed class KnowledgeSignInTests
     [InlineData("POST", "/api/work-items/")]
     [InlineData("GET", "/api/delivery/status")]
     [InlineData("GET", "/api/delivery/status/")]
+    [InlineData("GET", "/api/delivery/approvals/77?workItemId=975")]
+    [InlineData("GET", "/API/DELIVERY/APPROVALS/77/?workItemId=975")]
+    [InlineData("POST", "/api/delivery/approvals")]
+    [InlineData("POST", "/API/DELIVERY/APPROVALS/")]
     [InlineData("GET", "/api/operations/events")]
     [InlineData("GET", "/api/operations/events/")]
     [InlineData("POST", "/hubs/operations/negotiate?negotiateVersion=1")]
@@ -66,6 +70,13 @@ public sealed class KnowledgeSignInTests
         Assert.Equal(session.ExpiresAt.ToUnixTimeSeconds(), profile.ExpiresAt.ToUnixTimeSeconds());
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/knowledge/blocks")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/operations/events")).StatusCode);
+        var approval = await client.GetFromJsonAsync<AgenticHotelBooking.Application.DevelopmentApprovalState>(
+            "/api/delivery/approvals/77?workItemId=975");
+        Assert.NotNull(approval);
+        Assert.False(approval.CanApprove);
+        Assert.Equal("Unavailable", approval.Status);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsJsonAsync("/api/delivery/approvals",
+            new AgenticHotelBooking.Application.ApproveDevelopmentRequest(975, 77, new string('a', 40)))).StatusCode);
         Assert.Equal(HttpStatusCode.OK,
             (await client.PostAsync("/hubs/operations/negotiate?negotiateVersion=1", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/mcp", new { })).StatusCode);
@@ -208,17 +219,33 @@ public sealed class KnowledgeSignInTests
             (await client.PostAsJsonAsync("/api/knowledge/auth/request-code", new { email = "unknown@example.test" })).StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManagementCredentialCannotApproveEvenInDevelopment(bool development)
+    {
+        using var fixture = new Fixture(development: development);
+        using var client = fixture.App.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Knowledge-Token", new string('m', 64));
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/API/DELIVERY/APPROVALS/77/?workItemId=975")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/API/DELIVERY/APPROVALS/",
+                new AgenticHotelBooking.Application.ApproveDevelopmentRequest(975, 77, new string('a', 40)))).StatusCode);
+    }
+
     private sealed class Fixture : IDisposable
     {
         public EmailSender Email { get; } = new();
         public ChallengeStore Store { get; } = new();
         public Clock Clock { get; } = new();
         public WebApplicationFactory<Program> App { get; }
-        public Fixture(bool configured = true)
+        public Fixture(bool configured = true, bool development = false)
         {
             App = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                builder.UseEnvironment("Production");
+                builder.UseEnvironment(development ? "Development" : "Production");
+                builder.UseSetting("DevelopmentApproval:GitHubToken", "");
                 builder.UseSetting("OperationsAuth:Authority", "https://login.example/tenant/v2.0");
                 builder.UseSetting("OperationsAuth:Audience", "operations-test");
                 builder.UseSetting("OperationsAuth:RequiredRole", "Operations.Ingest");
