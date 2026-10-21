@@ -16,6 +16,8 @@ Production remains a separate path:
 
 `Verified main revision -> Release proposal -> Human approval -> Manual production promotion`
 
+For presentation speed, routine `pull_request` validation persistently skips the SQL-bootstrapper service, mutation scripts, dedicated SQL integration invocation and evidence-verification scripts. No label is required. The job prints an explicit waiver notice and its provenance records `sqlBootstrapperTestsExecuted: false`; those suites must not be reported as passing. Post-merge `main` and trusted manual validation retain the full SQL suites, and actual development/production database bootstrap remains enabled. This owner-authorized PR/demo waiver is not production release evidence.
+
 Release proposals are built only when the completed QA workflow's independent QA job succeeded. If eligibility intentionally skips that job, no proposal is created; if QA ran, missing or invalid QA evidence remains an error.
 
 Azure Boards stores work state. GitHub stores code, pull requests, checks, immutable build artifacts, and deployments.

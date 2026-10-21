@@ -217,4 +217,122 @@ Assert-True `
     -Condition ($null -eq $script:requestedIssueMethod -and $unchangedIssue.number -eq 5) `
     -Message "An already-current canonical issue body should not require another update."
 
+. "$PSScriptRoot/Start-AgenticWork.ps1"
+
+function az {
+    return "mock-ado-token"
+}
+
+function Invoke-RestMethod {
+    param($Method, $Uri, $Headers, $ContentType, $Body)
+
+    if ($Uri -eq "https://api.github.com/user") {
+        return [PSCustomObject]@{ type = "User" }
+    }
+
+    if ($Uri -match "^https://api\.github\.com/repos/cihanduruer/agentic-development/issues\?") {
+        return $script:intakeIssues
+    }
+
+    if ($Uri -like "https://dev.azure.com/*") {
+        if ($Method -eq "Patch") {
+            $script:boardPatches.Add(($Body | ConvertFrom-Json))
+            return
+        }
+        return $script:intakeItem
+    }
+
+    if ($Method -eq "Patch" -and $Uri -eq "https://api.github.com/repos/cihanduruer/agentic-development/issues/5") {
+        $updatedIssue = $linkedIssue.PSObject.Copy()
+        $updatedIssue.body = ($Body | ConvertFrom-Json).body
+        return $updatedIssue
+    }
+
+    if ($Method -eq "Post" -and $Uri -in @(
+        "https://api.github.com/repos/cihanduruer/agentic-development/issues",
+        "https://api.github.com/repos/cihanduruer/agentic-development/issues/5/assignees"
+    )) {
+        $script:assignmentRequests.Add([PSCustomObject]@{
+            Uri = $Uri
+            Body = $Body | ConvertFrom-Json
+        })
+        if ($script:rejectModel) {
+            throw "422 Unprocessable Entity: model gpt-6.1-sol is unavailable"
+        }
+        return [PSCustomObject]@{
+            number = 5
+            html_url = "https://github.com/cihanduruer/agentic-development/issues/5"
+            assignees = @([PSCustomObject]@{ login = "copilot-swe-agent[bot]" })
+        }
+    }
+
+    throw "Unexpected REST request: $Method $Uri"
+}
+
+$originalAgentToken = $env:COPILOT_AGENT_TOKEN
+try {
+    $env:COPILOT_AGENT_TOKEN = "mock-github-token"
+    foreach ($existingIssue in @($false, $true)) {
+        foreach ($rejectModel in @($false, $true)) {
+            $script:rejectModel = $rejectModel
+            $script:intakeIssues = if ($existingIssue) { @($linkedIssue) } else { @($unrelatedIssue, $spoofedLink) }
+            $script:intakeItem = [PSCustomObject]@{
+                rev = 1
+                fields = @{
+                    "System.Title" = "Show total stay price before booking confirmation"
+                    "System.State" = "New"
+                    "System.WorkItemType" = "User Story"
+                    "System.TeamProject" = "sample-project"
+                    "System.Tags" = "ready-for-triage"
+                    "System.Description" = "Guests can review the total stay price."
+                }
+                relations = @()
+            }
+            $script:assignmentRequests = [System.Collections.Generic.List[object]]::new()
+            $script:boardPatches = [System.Collections.Generic.List[object]]::new()
+            $results = [System.Collections.Generic.List[object]]::new()
+            $invokeIntake = {
+                Invoke-AgenticIntake `
+                    -Organization "ai-enabled-ado-org" `
+                    -Project "sample-project" `
+                    -Repository "cihanduruer/agentic-development" `
+                    -BaseBranch "main" `
+                    -WorkItemId @(959) | ForEach-Object { $results.Add($_) }
+            }
+
+            if ($rejectModel) {
+                Assert-Throws -Action $invokeIntake -ExpectedMessage "422 Unprocessable Entity: model gpt-6.1-sol is unavailable"
+                Assert-True -Condition ($results.Count -eq 0) -Message "Rejected assignment must not report success."
+                Assert-True -Condition ($script:boardPatches.Count -eq 0) -Message "Rejected assignment must not activate or tag the Board item."
+            }
+            else {
+                & $invokeIntake
+                Assert-True `
+                    -Condition ($results.Count -eq 1 -and $results[0].CopilotAssigned -and $results[0].BoardUpdated) `
+                    -Message "Accepted assignment should report verified assignment and Board update."
+                Assert-True -Condition ($script:boardPatches.Count -eq 1) -Message "Accepted assignment should update Boards once."
+                $statePatch = @($script:boardPatches[0] | Where-Object { $_.path -eq "/fields/System.State" })
+                Assert-True -Condition ($statePatch.Count -eq 1 -and $statePatch[0].value -eq "Active") -Message "Verified assignment should activate the New Board item."
+            }
+
+            Assert-True -Condition ($script:assignmentRequests.Count -eq 1) -Message "Each path must send exactly one assignment request without fallback retries."
+            $request = $script:assignmentRequests[0]
+            $expectedUri = if ($existingIssue) {
+                "https://api.github.com/repos/cihanduruer/agentic-development/issues/5/assignees"
+            }
+            else {
+                "https://api.github.com/repos/cihanduruer/agentic-development/issues"
+            }
+            Assert-True -Condition ($request.Uri -eq $expectedUri) -Message "Intake must use the expected new-issue or existing-issue assignment path."
+            Assert-True -Condition ($request.Body.agent_assignment.model -ceq "gpt-6.1-sol") -Message "Both assignment paths must send the explicit GPT 6.1 Sol model."
+            Assert-True `
+                -Condition ($request.Body.agent_assignment.custom_agent -eq "hotel-developer" -and $request.Body.agent_assignment.base_branch -eq "main" -and $request.Body.agent_assignment.target_repo -eq "cihanduruer/agentic-development") `
+                -Message "Explicit model selection must preserve the agent, base branch, and target repository."
+        }
+    }
+}
+finally {
+    $env:COPILOT_AGENT_TOKEN = $originalAgentToken
+}
+
 Write-Output "Start-AgenticWork tests passed."

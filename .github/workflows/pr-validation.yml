@@ -93,6 +93,9 @@ jobs:
           cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: dotnet restore --locked-mode
+      - name: Record routine PR SQL test waiver
+        if: github.event_name == 'pull_request'
+        run: echo "::notice::Slow SQL-bootstrapper mutation, integration and evidence suites are intentionally skipped for routine PR/demo checks. Main and trusted manual validation still execute them; deployment database setup is unchanged."
       - name: Test SQL bootstrapper source mutations
         if: github.event_name != 'pull_request'
         shell: pwsh
@@ -235,6 +238,7 @@ jobs:
             targetSha = $env:TARGET_SHA
             checkedOutSha = (git rev-parse HEAD).Trim()
             runId = '${{ github.run_id }}'
+            sqlBootstrapperTestsExecuted = '${{ github.event_name }}' -ne 'pull_request'
           } | ConvertTo-Json | Set-Content ValidationEvidence/validation.json
       - name: Upload validation provenance
         uses: actions/upload-artifact@v4

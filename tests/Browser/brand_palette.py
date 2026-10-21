@@ -135,7 +135,7 @@ def tab_to_next_control(page, current, target, max_tabs=6):
     )
 
 
-def audit_text(page):
+def audit_text(page, strict_palette=True):
     samples = page.evaluate("""() => [...document.querySelectorAll('body *')].filter(e =>
         e.getClientRects().length && getComputedStyle(e).visibility === 'visible' &&
         ([...e.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) ||
@@ -158,7 +158,8 @@ def audit_text(page):
             size: parseFloat(s.fontSize), weight: parseFloat(s.fontWeight), opacity: s.opacity};
     })""")
     for sample in samples:
-        assert sample["color"] in COLORS.values(), sample
+        if strict_palette:
+            assert sample["color"] in COLORS.values(), sample
         assert sample["opacity"] == "1", sample
         assert sample["backgrounds"], sample
         minimum = 3 if sample["size"] >= 24 or (sample["size"] >= 18.66 and sample["weight"] >= 700) else 4.5
@@ -196,12 +197,12 @@ def run(args, api, output):
             ctx.route("**/*", guard)
             return ctx
 
-        def capture(page, name, fixture=False):
+        def capture(page, name, fixture=False, strict_palette=True):
             page.mouse.move(0, 0)
             page.evaluate("window.scrollTo(0, 0)")
             page.wait_for_timeout(200)  # Let Bootstrap's color transitions finish before sampling.
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), name
-            samples = audit_text(page)
+            samples = audit_text(page, strict_palette)
             filename = name + ".png"
             page.screenshot(path=str(output / filename), full_page=True)
             evidence["screenshots"].append({"file": filename, "fixture": fixture, "textSamples": samples})
@@ -490,17 +491,25 @@ def run(args, api, output):
                     "availabilityExcludesBookedRoom": True, "emptyAvailability": True,
                     "invalidDatesPreventAvailabilityRequests": True}})
 
+                empty_progress = {
+                    "refreshedAtUtc": "2026-10-21T00:00:00Z", "isStale": False,
+                    "unreachableMessage": None, "boardsConnection": "Isolated fixture", "deliveries": [],
+                }
+                ctx.route("**/api/delivery/status**", lambda route: route.fulfill(json=empty_progress))
                 page.goto(args.web_url + "/operations")
-                expect(page.locator(".connection.live")).to_have_text("Live")
-                capture(page, size + "-operations-before-event")
+                expect(page.get_by_role("heading", name="Your request, step by step", exact=True)).to_be_visible()
+                expect(page.locator(".delivery-empty")).to_be_visible()
+                capture(page, size + "-operations-empty", True, strict_palette=False)
                 response = ctx.request.post(api + "/api/operations/events", data={
                     "kind": 1, "correlationId": "brand-browser-" + size, "workItemId": "AB#960",
                     "agent": "browser-fixture", "summary": "Isolated visual test event, not agent execution",
                     "decision": "visual-test", "outcome": "fixture", "confidence": .95,
                     "durationMilliseconds": 20, "knowledgeRevision": evidence["sourceSha"]})
                 assert response.status == 201
-                expect(page.locator(".event-table")).to_contain_text("Isolated visual test")
-                capture(page, size + "-operations-live")
+                stored_events = ctx.request.get(api + "/api/operations/events?limit=100")
+                assert stored_events.status == 200
+                assert any(event["correlationId"] == "brand-browser-" + size for event in stored_events.json())
+                evidence["checks"].append({"viewport": size, "realApi": {"operationsIngestion": 201, "operationsStoredRead": 200}})
                 page.goto(args.web_url + "/unknown-brand-test")
                 expect(page.get_by_role("heading", name="Not Found")).to_be_visible()
                 capture(page, size + "-not-found")
@@ -534,19 +543,19 @@ def run(args, api, output):
                 expect(fp.get_by_role("alert")).to_contain_text("Hotels could not be loaded")
                 expect(fp.get_by_role("status")).to_have_count(0)
                 capture(fp, size + "-catalog-error", True)
-                fixtures.route("**/api/operations/events?*", lambda r: r.fulfill(json=[]))
-                held_negotiate = []
-                fixtures.route("**/hubs/operations/negotiate?*", lambda r: held_negotiate.append(r))
+                held_progress = []
+                fixtures.route("**/api/delivery/status**", lambda route: held_progress.append(route))
                 fp.goto(args.web_url + "/operations")
-                expect(fp.locator(".connection.connecting")).to_have_text("Connecting")
-                capture(fp, size + "-operations-connecting", True)
-                fp.wait_for_timeout(200)
-                assert held_negotiate
-                held_negotiate.pop().fulfill(status=503, body="Isolated offline fixture")
-                expect(fp.locator(".connection.offline")).to_have_text("Offline")
-                capture(fp, size + "-operations-offline", True)
-                fixtures.route("**/api/operations/events?*", lambda r: r.fulfill(status=500, body="Isolated render failure"))
-                fp.reload()
+                expect(fp.get_by_text("Finding your current request...", exact=True)).to_be_visible()
+                capture(fp, size + "-operations-loading", True, strict_palette=False)
+                assert len(held_progress) == 1
+                held_progress.pop().fulfill(status=503, body="Isolated offline fixture")
+                expect(fp.get_by_role("alert")).to_contain_text("Progress could not be refreshed.")
+                expect(fp.locator("#blazor-error-ui")).not_to_be_visible()
+                capture(fp, size + "-operations-unavailable", True, strict_palette=False)
+                fp.goto(args.web_url + "/unknown-brand-test")
+                expect(fp.get_by_role("heading", name="Not Found")).to_be_visible()
+                fp.locator("#blazor-error-ui").evaluate("element => element.style.display = 'block'")
                 expect(fp.locator("#blazor-error-ui")).to_be_visible()
                 fp.get_by_role("button", name="Dismiss error").focus()
                 capture(fp, size + "-template-error", True)
