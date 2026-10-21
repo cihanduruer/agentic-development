@@ -274,12 +274,12 @@ public sealed class KnowledgeUploadTests
     [Theory]
     [InlineData("uploads/guide.pdf", true)]
     [InlineData("uploads/sub/guide.pdf", true)]
-    [InlineData("docs/knowledge/product.md", false)]
+    [InlineData("docs/knowledge/product.md", true)]
     [InlineData("uploads/../docs/knowledge/product.md", false)]
-    [InlineData("uploads/it's.txt", false)]
+    [InlineData("uploads/it's.txt", true)]
     [InlineData("", false)]
     [InlineData(null, false)]
-    public void OnlyAllowsRemovingPathsUnderTheUploadsPrefix(string? path, bool expected)
+    public void AllowsManagingAnyValidDocumentPath(string? path, bool expected)
     {
         Assert.Equal(expected, KnowledgeUploadService.IsUploadPath(path));
     }
@@ -313,25 +313,26 @@ public sealed class KnowledgeUploadTests
     }
 
     [Fact]
-    public async Task ServiceNeverRemovesRepositoryKnowledge()
+    public async Task ServiceRejectsTraversalBeforeAnyNetworkCall()
     {
         var chat = new WorkItemChatOptions("https://x/", "c", "e", "https://s/", "i", "o", "p", false);
         var service = new KnowledgeUploadService(new KnowledgeUploadOptions(true), chat, new ThrowingCredential());
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RemoveAsync("docs/knowledge/product.md", CancellationToken.None));
+            service.RemoveAsync("../product.md", CancellationToken.None));
     }
 
     [Fact]
-    public void PromptMarksUploadedSourcesAsApprovedUploadsNotRepositoryDocs()
+    public void PromptTreatsAllApprovedKnowledgeEqually()
     {
         var prompt = WorkItemChatService.BuildSystemPrompt(
             null,
             [new KnowledgeSource("Page 1", "uploads/guide.pdf", "x"), new KnowledgeSource("Rules", "docs/knowledge/domain.md", "y")]);
 
-        Assert.Contains("uploads/guide.pdf, user-uploaded and approved in the admin page", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("domain.md, user-uploaded", prompt, StringComparison.Ordinal);
-        Assert.Contains("prefer repository documentation", prompt, StringComparison.Ordinal);
+        Assert.Contains("uploads/guide.pdf, approved Knowledge Center document", prompt, StringComparison.Ordinal);
+        Assert.Contains("docs/knowledge/domain.md, approved Knowledge Center document", prompt, StringComparison.Ordinal);
+        Assert.Contains("regardless of a document's origin or path", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("prefer repository documentation", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -342,7 +343,7 @@ public sealed class KnowledgeUploadTests
     }
 
     [Fact]
-    public async Task ServiceRefusesToApproveWhenDisabledOrForRepositoryPaths()
+    public async Task ServiceRefusesToApproveWhenDisabledOrForInvalidPaths()
     {
         var chat = new WorkItemChatOptions("https://x/", "c", "e", "https://s/", "i", "o", "p", false);
         var disabled = new KnowledgeUploadService(new KnowledgeUploadOptions(false), chat, new ThrowingCredential());
@@ -351,7 +352,7 @@ public sealed class KnowledgeUploadTests
         await Assert.ThrowsAsync<KnowledgeUploadDisabledException>(() =>
             disabled.ApproveAsync("uploads/a.txt", CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            enabled.ApproveAsync("docs/knowledge/product.md", CancellationToken.None));
+            enabled.ApproveAsync("../product.md", CancellationToken.None));
     }
 
     private sealed class ThrowingCredential : TokenCredential

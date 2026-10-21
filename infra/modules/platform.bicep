@@ -17,6 +17,19 @@ var chatDeploymentName = 'gpt-6.1-sol'
 var embeddingDeploymentName = 'text-embedding-3-large'
 var sqlServerName = empty(existingSqlServerName) ? '${baseName}-sql' : existingSqlServerName
 
+module knowledgeStorage 'knowledge-storage.bicep' = {
+  name: 'knowledge-storage-${environment}'
+  params: {
+    location: location
+    environment: environment
+    tags: tags
+  }
+}
+
+resource knowledgeAccount 'Microsoft.Storage/storageAccounts@2025-01-01' existing = {
+  name: 'ahb${environment}${uniqueString(subscription().id, resourceGroup().id, environment)}kc'
+}
+
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${baseName}-log'
   location: location
@@ -269,6 +282,10 @@ resource api 'Microsoft.Web/sites@2023-12-01' = if (configureApi) {
           value: 'false'
         }
         {
+          name: 'KnowledgeStorage__Endpoint'
+          value: knowledgeStorage.outputs.endpoint
+        }
+        {
           name: 'OperationsAuth__Authority'
           value: '${az.environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
         }
@@ -374,6 +391,62 @@ resource deploymentSearchContributorRole 'Microsoft.Authorization/roleAssignment
   }
 }
 
+resource apiKnowledgeStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
+  name: guid(knowledgeAccount.id, api.id, 'knowledge-blob-data-contributor')
+  scope: knowledgeAccount
+  properties: {
+    principalId: api!.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    )
+  }
+}
+
+resource apiKnowledgeSearchRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
+  // Development already has this writer assignment; reuse it instead of duplicating RBAC.
+  name: environment == 'dev'
+    ? '19070211-251b-45dc-af8c-35c20a0e8e16'
+    : guid(search.id, api.id, 'knowledge-search-data-contributor')
+  scope: search
+  properties: {
+    principalId: api!.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+    )
+  }
+}
+
+resource apiKnowledgeSchemaRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (configureApi) {
+  name: guid(search.id, api.id, 'knowledge-search-service-contributor')
+  scope: search
+  properties: {
+    principalId: api!.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
+    )
+  }
+}
+
+resource deploymentKnowledgeStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(knowledgeAccount.id, deploymentPrincipalObjectId, 'knowledge-blob-data-contributor')
+  scope: knowledgeAccount
+  dependsOn: [knowledgeStorage]
+  properties: {
+    principalId: deploymentPrincipalObjectId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    )
+  }
+}
+
 resource deploymentSearchServiceContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(search.id, deploymentPrincipalObjectId, 'search-service-contributor')
   scope: search
@@ -399,5 +472,6 @@ output embeddingDeploymentName string = embeddingModel.name
 output staticWebAppName string = staticWebApp.name
 output searchServiceName string = search.name
 output searchEndpoint string = 'https://${search.name}.search.windows.net/'
+output knowledgeStorageEndpoint string = knowledgeStorage.outputs.endpoint
 output sqlServerName string = sqlServerName
 output legacyKeyVaultName string = '${baseName}-kv'

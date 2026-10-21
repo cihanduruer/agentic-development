@@ -9,8 +9,32 @@ using Azure.Search.Documents.Indexes.Models;
 using Azure.Search.Documents.Models;
 using OpenAI;
 using OpenAI.Embeddings;
+using Ganss.Xss;
+using Markdig;
 
 namespace AgenticHotelBooking.Infrastructure;
+
+public static class KnowledgeMarkdownRenderer
+{
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
+    public static string Render(string content)
+    {
+        var sanitizer = new HtmlSanitizer();
+        sanitizer.AllowedTags.Clear();
+        sanitizer.AllowedTags.UnionWith(
+            ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "pre", "code",
+             "blockquote", "hr", "br", "table", "thead", "tbody", "tr", "th", "td", "strong", "em", "del", "a"]);
+        sanitizer.AllowedAttributes.Clear();
+        sanitizer.AllowedAttributes.UnionWith(["href", "title", "colspan", "rowspan"]);
+        sanitizer.AllowedSchemes.Clear();
+        sanitizer.AllowedSchemes.UnionWith(["http", "https"]);
+        return sanitizer.Sanitize(Markdown.ToHtml(content, Pipeline));
+    }
+}
 
 public static class KnowledgeCenterSchema
 {
@@ -215,7 +239,12 @@ public static class KnowledgeCenterChunker
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 }
 
-public sealed class AzureOpenAiEmbedder(Uri openAiEndpoint, string deployment, TokenCredential credential)
+public interface IKnowledgeEmbedder
+{
+    Task<IReadOnlyList<ReadOnlyMemory<float>>> EmbedAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken);
+}
+
+public sealed class AzureOpenAiEmbedder(Uri openAiEndpoint, string deployment, TokenCredential credential) : IKnowledgeEmbedder
 {
     private const int BatchSize = 16;
     private readonly Lazy<EmbeddingClient> embeddingClient = new(() =>
@@ -261,7 +290,7 @@ public static class KnowledgeIndexOperations
 
     public static async Task<List<string>> FindIdsAsync(
         SearchClient client,
-        string filter,
+        string? filter,
         CancellationToken cancellationToken)
     {
         var options = new SearchOptions { Filter = filter };

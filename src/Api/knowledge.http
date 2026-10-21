@@ -1,0 +1,74 @@
+@baseUrl = http://localhost:5224
+@mcpToken = REPLACE_WITH_SECRET
+@managementToken = REPLACE_WITH_DIFFERENT_SECRET
+@administratorSession = REPLACE_WITH_SHORT_LIVED_SESSION
+
+### Shared administrator login capabilities (public metadata only)
+GET {{baseUrl}}/api/admin/auth/capabilities
+
+### Request an administrator email code (generic response for unapproved addresses)
+POST {{baseUrl}}/api/admin/auth/request-code
+Content-Type: application/json
+
+{"email":"administrator@example.com"}
+
+### Verify a code; never log or share the response token
+POST {{baseUrl}}/api/admin/auth/verify-code
+Content-Type: application/json
+
+{"email":"administrator@example.com","code":"REPLACE_WITH_CODE"}
+
+### Current approved administrator and expiry
+GET {{baseUrl}}/api/admin/auth/session
+Authorization: Bearer {{administratorSession}}
+
+### Initialize the authenticated, stateless MCP endpoint
+POST {{baseUrl}}/mcp
+Authorization: Bearer {{mcpToken}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"hotel-manual-check","version":"1.0"}}}
+
+### Discover read-only tools
+POST {{baseUrl}}/mcp
+Authorization: Bearer {{mcpToken}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+
+### List canonical approved documents
+POST {{baseUrl}}/mcp
+Authorization: Bearer {{mcpToken}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_knowledge","arguments":{"limit":20}}}
+
+### Capabilities (no token required)
+GET {{baseUrl}}/api/knowledge/capabilities
+
+### Inventory
+GET {{baseUrl}}/api/knowledge/blocks
+X-Knowledge-Token: {{managementToken}}
+
+### Full extracted preview (missing paths return 404)
+GET {{baseUrl}}/api/knowledge/preview?path=uploads/notes.txt
+X-Knowledge-Token: {{managementToken}}
+
+### Original (legacy originals may be unavailable)
+GET {{baseUrl}}/api/knowledge/original?path=uploads/notes.txt
+X-Knowledge-Token: {{managementToken}}
+
+### Rebuild the index; uses the embedding deployment
+POST {{baseUrl}}/api/knowledge/rebuild
+X-Knowledge-Token: {{managementToken}}
+
+### Approve any document, regardless of its historical source path
+POST {{baseUrl}}/api/knowledge/documents/approve?path=uploads/notes.txt
+X-Knowledge-Token: {{managementToken}}
+
+### Explicitly destructive: delete a document and its search blocks
+DELETE {{baseUrl}}/api/knowledge/documents?path=uploads/notes.txt
+X-Knowledge-Token: {{managementToken}}

@@ -131,8 +131,11 @@ $routeBody = @{
 } | ConvertTo-Json -Compress
 
 $publicRead = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=1"
-Assert-Status -Response $publicRead -Expected 200 -Operation 'Public operations read'
-Write-Output 'Verified public operations read: HTTP 200.'
+Assert-Status -Response $publicRead -Expected 401 -Operation 'Anonymous operations read'
+Write-Output 'Verified anonymous operations read rejection: HTTP 401.'
+if ([string]::IsNullOrWhiteSpace($env:KNOWLEDGE_MANAGEMENT_TOKEN)) {
+    throw 'The protected administration token is required for the post-restart operations read.'
+}
 
 $anonymousEvent = Invoke-ApiRequest -Method POST -Uri "$api/api/operations/events" -Body $eventBody
 Assert-Status -Response $anonymousEvent -Expected 401 -Operation 'Anonymous operations ingestion'
@@ -251,7 +254,8 @@ if (-not $healthy) {
 }
 Write-Output 'Verified post-restart API health recovery: HTTP 200.'
 
-$persistedResponse = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=500"
+$persistedResponse = Invoke-ApiRequest -Method GET -Uri "$api/api/operations/events?limit=500" `
+    -Headers @{ 'X-Knowledge-Token' = $env:KNOWLEDGE_MANAGEMENT_TOKEN }
 Assert-Status -Response $persistedResponse -Expected 200 -Operation 'Post-restart operations read'
 $persistedEvents = @($persistedResponse.Content | ConvertFrom-Json)
 $missingCorrelations = @(

@@ -1,0 +1,714 @@
+@page "/admin/knowledge"
+@using System.Text.Json
+
+<PageTitle>Knowledge Center</PageTitle>
+
+<section class="knowledge-center" aria-labelledby="knowledge-page-title">
+    <AdminNav />
+    <header class="kc-toolbar">
+        <div class="kc-page-title">
+            <h1 id="knowledge-page-title">Knowledge Center</h1>
+            <div class="pm-knowledge-summary">
+                <span class="pm-knowledge-count">@blocks.Count blocks from @blocks.Select(block => block.Path).Distinct().Count() sources</span>
+                @if (PendingUploadCount > 0)
+                {
+                    <span class="pm-knowledge-chip pending">@PendingUploadCount awaiting approval</span>
+                }
+            </div>
+        </div>
+        <div class="kc-toolbar-actions">
+            <button type="button" class="pm-toggle pm-refresh" @onclick="RefreshKnowledgeAsync" disabled="@(loadingBlocks || adding)">Refresh</button>
+            <button type="button" class="pm-toggle" @onclick="() => confirmRebuild = true" disabled="@(adding || !canManageUploads)">Rebuild index</button>
+            <button type="button" class="btn btn-primary" @onclick="() => showAdd = !showAdd" aria-expanded="@(showAdd ? "true" : "false")" aria-controls="add-knowledge" disabled="@(adding || !canManageUploads)">@(showAdd ? "Close add content" : "Add content")</button>
+        </div>
+    </header>
+    @if (confirmRebuild)
+    {
+        <div class="pm-delete-confirm" role="group" aria-label="Confirm index rebuild">
+            <p>Rebuild search blocks and embeddings from all retained documents? Documents and approval decisions are preserved. Deleted documents will not return. This uses the configured embedding service.</p>
+            <button type="button" class="btn btn-outline-primary" @onclick="() => confirmRebuild = false" disabled="@adding">Cancel</button>
+            <button type="button" class="btn btn-primary" @onclick="RebuildAsync" disabled="@adding">Confirm rebuild</button>
+        </div>
+    }
+
+    <section class="pm-knowledge" aria-label="Knowledge center (RAG)">
+        <div id="knowledge-body">
+        @if (capabilitiesError is not null)
+        {
+            <p class="pm-knowledge-note" role="alert">@capabilitiesError</p>
+        }
+        else if (!canManageUploads)
+        {
+            <p class="pm-knowledge-note">Preview is available. Uploading, approval and deletion are disabled in this environment.</p>
+        }
+        @if (showAdd)
+        {
+        <div id="add-knowledge" class="pm-add" aria-label="Add content" role="group">
+            <div class="pm-add-actions">
+                <label class="pm-file-button @(adding || !canManageUploads ? "disabled" : null)">
+                    <span>Upload a file</span>
+                    <InputFile OnChange="UploadFileAsync" accept=".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv" disabled="@(adding || !canManageUploads)" />
+                </label>
+                <button type="button" class="btn btn-outline-primary" @onclick="() => showPaste = !showPaste" aria-expanded="@(showPaste ? "true" : "false")" disabled="@(adding || !canManageUploads)">Write or paste text</button>
+                <span class="pm-add-hint">PDF, Word, Excel, text, Markdown or CSV, up to 5 MB. Uploads stay out of answers until you approve them.</span>
+            </div>
+
+            @if (showPaste)
+            {
+                <div class="pm-paste">
+                    <label for="paste-title">Title</label>
+                    <input id="paste-title" class="form-control" maxlength="120" @bind="pasteTitle" @bind:event="oninput" />
+                    <label for="paste-text">Text</label>
+                    <textarea id="paste-text" class="form-control" rows="6" maxlength="200000" @bind="pasteText" @bind:event="oninput"></textarea>
+                    <button type="button" class="btn btn-primary" @onclick="AddTextAsync" disabled="@(adding || !canManageUploads || string.IsNullOrWhiteSpace(pasteTitle) || string.IsNullOrWhiteSpace(pasteText))">Add to knowledge center</button>
+                </div>
+            }
+
+        </div>
+        }
+        @if (adding)
+        {
+            <p class="pm-add-status" role="status">Updating the knowledge center...</p>
+        }
+        else if (addMessage is not null)
+        {
+            <p class="pm-add-status @(addFailed ? "failed" : "ok")" role="@(addFailed ? "alert" : "status")">@addMessage</p>
+        }
+
+        @if (loadingBlocks)
+        {
+            <p class="pm-knowledge-note" role="status">Loading indexed content...</p>
+        }
+        else if (blocksError is not null)
+        {
+            <p class="pm-knowledge-note" role="alert">@blocksError</p>
+        }
+        else if (blocks.Count == 0)
+        {
+            <p class="pm-knowledge-note">Nothing is indexed yet.</p>
+        }
+        else
+        {
+            <div class="kc-workspace">
+                <aside class="kc-library" aria-label="Indexed sources">
+                    <div class="kc-library-heading">
+                        <h3>Sources</h3>
+                        <label for="source-filter">Find a document</label>
+                        <input id="source-filter" class="form-control" type="search" @bind="sourceFilter" @bind:event="oninput" placeholder="Search files or folders" />
+                    </div>
+                    @if (!FilteredSources.Any())
+                    {
+                        <p class="pm-knowledge-note" role="status">No documents match your search.</p>
+                    }
+                        <details class="kc-root" open>
+                            <summary>All documents <span>@FilteredSources.Count()</span></summary>
+                            @foreach (var folder in FilteredSources.GroupBy(group => SourceExtension(group.Key)))
+                            {
+                                <details class="kc-folder" open>
+                                    <summary>@folder.Key documents</summary>
+                                    <ul class="kc-files">
+                                        @foreach (var source in folder)
+                                        {
+                                            <li>
+                                                <button type="button" class="kc-file @(previewPath == source.Key ? "selected" : null)" aria-label="Preview @FileName(source.Key)" aria-pressed="@(previewPath == source.Key ? "true" : "false")" @onclick="() => PreviewAsync(source.Key)" disabled="@adding">
+                                                    <span class="kc-file-type" aria-hidden="true">@SourceExtension(source.Key)</span>
+                                                    <span class="kc-file-name">@FileName(source.Key)</span>
+                                                    <span class="kc-file-meta">@source.Count() blocks@(source.Any(block => block.Pending) ? " · pending" : "")</span>
+                                                </button>
+                                            </li>
+                                        }
+                                    </ul>
+                                </details>
+                            }
+                        </details>
+                </aside>
+                <section class="kc-viewer" aria-label="Document viewer">
+                    @if (previewPath is null)
+                    {
+                        <div class="kc-empty">
+                            <span class="kc-empty-icon" aria-hidden="true">&#128196;</span>
+                            <h3>Select a document</h3>
+                            <p>Choose a source on the left to read it here. Markdown is formatted as a document; original PDFs can be opened locally.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        var selected = blocks.Where(block => block.Path == previewPath).ToList();
+                        var pending = selected.Any(block => block.Pending);
+                        <header class="kc-document-heading">
+                            <div>
+                                <p class="kc-document-path">@previewPath</p>
+                                <h3>@FileName(previewPath)</h3>
+                                <p class="kc-document-meta">@SourceExtension(previewPath) &middot; @selected.Count blocks &middot; @selected.Sum(block => block.Characters).ToString("N0") characters</p>
+                            </div>
+                            <div class="pm-source-actions">
+                                    <span class="pm-upload-tag @(pending ? "pending" : "approved")">@(pending ? "Pending approval" : "Approved")</span>
+                                    @if (pending)
+                                    {
+                                        <button type="button" class="pm-approve" @onclick="() => ApproveAsync(previewPath)" disabled="@(adding || !canManageUploads)" aria-label="Approve @FileName(previewPath)">Approve</button>
+                                    }
+                                    <button type="button" class="pm-remove" @onclick="() => deletePath = previewPath" disabled="@(adding || !canManageUploads)" aria-label="Delete @FileName(previewPath)">Delete</button>
+                            </div>
+                        </header>
+                        @if (deletePath == previewPath)
+                        {
+                            <div class="pm-delete-confirm" role="group" aria-label="Confirm source deletion">
+                                <p>Delete <strong>@FileName(previewPath)</strong>, its retained original and all @selected.Count search blocks? It will no longer be used by the assistant or MCP and will not return during a rebuild. Azure storage retention may permit administrator recovery, but this cannot be undone here.</p>
+                                <div class="pm-source-actions">
+                                    <button type="button" class="btn btn-outline-primary" @onclick="() => deletePath = null" disabled="@adding">Cancel</button>
+                                    <button type="button" class="btn btn-primary" @onclick="() => RemoveAsync(previewPath)" disabled="@(adding || !canManageUploads)">@(adding ? "Deleting..." : "Confirm delete")</button>
+                                </div>
+                            </div>
+                        }
+                        <div class="kc-view-modes" role="group" aria-label="Document display">
+                            <button type="button" aria-pressed="@(!showIndexedBlocks ? "true" : "false")" @onclick="() => showIndexedBlocks = false">Document</button>
+                            <button type="button" aria-pressed="@(showIndexedBlocks ? "true" : "false")" @onclick="() => showIndexedBlocks = true">Indexed blocks</button>
+                        </div>
+                        @if (previewLoading)
+                        {
+                            <p class="kc-view-status" role="status">Loading full indexed text...</p>
+                        }
+                        else if (previewError is not null)
+                        {
+                            <div class="kc-view-status">
+                                <p role="alert">@previewError</p>
+                                <button type="button" class="btn btn-outline-primary" @onclick="() => LoadPreviewAsync(previewPath)">Retry preview</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <section id="knowledge-preview" class="kc-document" aria-label="Indexed text preview">
+                                @if (IsPdf(previewPath) && !showIndexedBlocks)
+                                {
+                                    <div class="kc-pdf-tools">
+                                        <p>New documents retain their originals. If this legacy document has only extracted text, choose a local PDF to view it here without uploading it.</p>
+                                        <label class="pm-file-button">
+                                            <span>Open original PDF locally</span>
+                                            <InputFile OnChange="OpenLocalPdfAsync" accept=".pdf" />
+                                        </label>
+                                        @if (pdfError is not null)
+                                        {
+                                            <p role="alert">@pdfError</p>
+                                        }
+                                    </div>
+                                    @if (localPdfUri is not null)
+                                    {
+                                        <p class="kc-document-meta">@(storedPdf ? $"Stored original: {localPdfName}." : $"Local file: {localPdfName}. Its match to the indexed source has not been verified.")</p>
+                                        <iframe class="kc-pdf" title="PDF document preview" src="@localPdfUri" sandbox="allow-scripts allow-same-origin"></iframe>
+                                    }
+                                    else
+                                    {
+                                        <p class="kc-text-note">Original PDF unavailable. Showing the complete indexed text below.</p>
+                                    }
+                                }
+                                @if (showIndexedBlocks || localPdfUri is null)
+                                {
+                                    @foreach (var block in previewBlocks)
+                                    {
+                                        <article class="kc-document-block">
+                                            @if (showIndexedBlocks)
+                                            {
+                                                <p class="kc-block-label">Block @(block.ChunkIndex + 1) &middot; @block.Characters.ToString("N0") characters</p>
+                                            }
+                                            @if (!showIndexedBlocks && block.RenderedHtml is not null)
+                                            {
+                                                <div class="kc-markdown">@((MarkupString)block.RenderedHtml)</div>
+                                            }
+                                            else
+                                            {
+                                                @if (showIndexedBlocks)
+                                                {
+                                                    <h4>@block.Title</h4>
+                                                }
+                                                <pre>@block.Content</pre>
+                                            }
+                                        </article>
+                                    }
+                                }
+                            </section>
+                        }
+                    }
+                </section>
+            </div>
+        }
+        </div>
+    </section>
+
+</section>
+
+@code {
+    [Inject] private HttpClient Http { get; set; } = default!;
+
+    private List<Block> blocks = [];
+    private bool loadingBlocks = true;
+    private string? blocksError;
+    private bool canManageUploads;
+    private string? capabilitiesError;
+    private string? previewPath;
+    private List<Block> previewBlocks = [];
+    private bool previewLoading;
+    private string? previewError;
+    private int previewRequest;
+    private string? deletePath;
+    private bool adding;
+    private bool showPaste;
+    private bool showAdd;
+    private bool confirmRebuild;
+    private bool storedPdf;
+    private string sourceFilter = string.Empty;
+    private bool showIndexedBlocks;
+    private string? localPdfUri;
+    private string? localPdfName;
+    private string? pdfError;
+    private bool addFailed;
+    private string? addMessage;
+    private string pasteTitle = string.Empty;
+    private string pasteText = string.Empty;
+
+    private int PendingUploadCount => blocks
+        .Where(block => block.Pending)
+        .Select(block => block.Path)
+        .Distinct()
+        .Count();
+
+    private IEnumerable<IGrouping<string, Block>> FilteredSources => blocks
+        .GroupBy(block => block.Path)
+        .Where(group => group.Key.Contains(sourceFilter, StringComparison.OrdinalIgnoreCase) ||
+                        group.Any(block => block.Title.Contains(sourceFilter, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+
+    protected override Task OnInitializedAsync() => RefreshKnowledgeAsync();
+
+    private async Task LoadCapabilitiesAsync()
+    {
+        try
+        {
+            var capabilities = await Http.GetFromJsonAsync<KnowledgeCapabilities>("api/knowledge/capabilities")
+                ?? throw new JsonException("Empty capabilities response.");
+            canManageUploads = capabilities.CanManageUploads;
+            capabilitiesError = null;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            canManageUploads = false;
+            capabilitiesError = "Content management permissions could not be loaded. Changes are disabled; refresh to retry.";
+        }
+    }
+
+    private async Task RefreshKnowledgeAsync()
+    {
+        loadingBlocks = true;
+        deletePath = null;
+        previewPath = null;
+        localPdfUri = null;
+        localPdfName = null;
+        pdfError = null;
+        storedPdf = false;
+        previewRequest++;
+        await LoadCapabilitiesAsync();
+        await LoadBlocksAsync();
+    }
+
+    private async Task PreviewAsync(string path)
+    {
+        if (previewPath == path)
+        {
+            return;
+        }
+
+        deletePath = null;
+        localPdfUri = null;
+        localPdfName = null;
+        pdfError = null;
+        storedPdf = false;
+        showIndexedBlocks = false;
+        previewPath = path;
+        await LoadPreviewAsync(path);
+    }
+
+    private async Task OpenLocalPdfAsync(InputFileChangeEventArgs args)
+    {
+        var path = previewPath;
+        localPdfUri = null;
+        localPdfName = null;
+        pdfError = null;
+        storedPdf = false;
+        var file = args.File;
+        if (path is null || !IsPdf(path) || !IsPdf(file.Name) || file.Size is < 5 or > 5 * 1024 * 1024)
+        {
+            pdfError = "Choose a PDF file up to 5 MB.";
+            return;
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var bytes = buffer.ToArray();
+            if (!bytes.AsSpan().StartsWith("%PDF-"u8))
+            {
+                pdfError = "That file is not a PDF.";
+                return;
+            }
+            if (previewPath == path)
+            {
+                localPdfUri = "data:application/pdf;base64," + Convert.ToBase64String(bytes);
+                localPdfName = file.Name;
+            }
+        }
+        catch (IOException)
+        {
+            pdfError = "The local PDF could not be opened. Try choosing it again.";
+        }
+    }
+
+    private async Task LoadPreviewAsync(string path)
+    {
+        var request = ++previewRequest;
+        previewBlocks = [];
+        previewError = null;
+        previewLoading = true;
+        try
+        {
+            using var response = await SendKnowledgeAsync(HttpMethod.Get, $"api/knowledge/preview?path={Uri.EscapeDataString(path)}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var problem = await ReadProblemAsync(response, "The source could not be previewed. Try again.");
+                if (request == previewRequest)
+                {
+                    previewError = problem;
+                }
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<List<Block>>();
+            if (result is null || result.Count == 0 || result.Any(block => block.Path != path || block.Content is null))
+            {
+                throw new JsonException("Incomplete preview response.");
+            }
+
+            if (request == previewRequest)
+            {
+                previewBlocks = result.OrderBy(block => block.ChunkIndex).ToList();
+                if (IsPdf(path) && result.Any(block => block.HasOriginal))
+                {
+                    using var original = await SendKnowledgeAsync(HttpMethod.Get, $"api/knowledge/original?path={Uri.EscapeDataString(path)}");
+                    if (!original.IsSuccessStatusCode)
+                    {
+                        pdfError = await ReadProblemAsync(original, "The stored original could not be opened.");
+                    }
+                    else
+                    {
+                        var bytes = await original.Content.ReadAsByteArrayAsync();
+                        if (request == previewRequest)
+                        {
+                            localPdfUri = "data:application/pdf;base64," + Convert.ToBase64String(bytes);
+                            localPdfName = FileName(path);
+                            storedPdf = true;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            if (request == previewRequest)
+            {
+                previewError = "The source could not be previewed. Try again.";
+            }
+        }
+        finally
+        {
+            if (request == previewRequest)
+            {
+                previewLoading = false;
+            }
+        }
+    }
+
+    private async Task<bool> LoadBlocksAsync(Func<List<Block>, bool>? isCurrent = null)
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                using var response = await SendKnowledgeAsync(HttpMethod.Get, "api/knowledge/blocks");
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    canManageUploads = false;
+                    blocks.Clear();
+                    blocksError = "Your session has expired. Sign in to AI Product Management to continue.";
+                    loadingBlocks = false;
+                    return false;
+                }
+                response.EnsureSuccessStatusCode();
+                blocks = await response.Content.ReadFromJsonAsync<List<Block>>()
+                    ?? throw new JsonException("Empty knowledge response.");
+                blocksError = null;
+            }
+            catch (Exception exception) when (exception is HttpRequestException or JsonException)
+            {
+                blocksError = "The indexed content could not be loaded. The assistant may still be able to answer.";
+                loadingBlocks = false;
+                return false;
+            }
+
+            if (isCurrent is null || isCurrent(blocks))
+            {
+                loadingBlocks = false;
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(700));
+        }
+
+        loadingBlocks = false;
+        blocksError = "The indexed content has not reflected the change yet. Refresh to check its current state.";
+        return false;
+    }
+
+    private async Task UploadFileAsync(InputFileChangeEventArgs args)
+    {
+        if (adding || !canManageUploads)
+        {
+            return;
+        }
+
+        const long maxBytes = 5 * 1024 * 1024;
+        var file = args.File;
+        BeginAdd();
+        try
+        {
+            if (file.Size > maxBytes)
+            {
+                Fail("That file is larger than 5 MB.");
+                return;
+            }
+
+            using var content = new MultipartFormDataContent();
+            var part = new StreamContent(file.OpenReadStream(maxBytes));
+            content.Add(part, "file", file.Name);
+            using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/upload", content);
+            await FinishAddAsync(response, file.Name);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException)
+        {
+            Fail("The file could not be uploaded. Try again.");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private async Task AddTextAsync()
+    {
+        if (adding || !canManageUploads || string.IsNullOrWhiteSpace(pasteTitle) || string.IsNullOrWhiteSpace(pasteText))
+        {
+            return;
+        }
+
+        BeginAdd();
+        try
+        {
+            using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/text", JsonContent.Create(new { title = pasteTitle.Trim(), text = pasteText }));
+            if (await FinishAddAsync(response, pasteTitle.Trim()))
+            {
+                pasteTitle = string.Empty;
+                pasteText = string.Empty;
+                showPaste = false;
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            Fail("The text could not be added. Try again.");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private async Task ApproveAsync(string path)
+    {
+        if (adding || !canManageUploads)
+        {
+            return;
+        }
+
+        BeginAdd();
+        try
+        {
+            using var response = await SendKnowledgeAsync(HttpMethod.Post, $"api/knowledge/documents/approve?path={Uri.EscapeDataString(path)}");
+            if (!response.IsSuccessStatusCode)
+            {
+                Fail(await ReadProblemAsync(response, "The source could not be approved."));
+                return;
+            }
+
+            if (!await LoadBlocksAsync(list => list.Any(block => block.Path == path) &&
+                list.Where(block => block.Path == path).All(block => !block.Pending)))
+            {
+                Fail("Approval was accepted, but the refreshed list could not confirm it. Refresh before trying again.");
+                return;
+            }
+            addFailed = false;
+            addMessage = $"Approved {FileName(path)}. The assistant can use it now.";
+        }
+        catch (HttpRequestException)
+        {
+            Fail("The source could not be approved. Try again.");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private async Task RemoveAsync(string path)
+    {
+        if (adding || !canManageUploads || deletePath != path)
+        {
+            return;
+        }
+
+        BeginAdd();
+        try
+        {
+            using var response = await SendKnowledgeAsync(HttpMethod.Delete, $"api/knowledge/documents?path={Uri.EscapeDataString(path)}");
+            if (!response.IsSuccessStatusCode)
+            {
+                Fail(await ReadProblemAsync(response, "The source could not be deleted."));
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DeleteResult>();
+            if (result is null || result.Removed <= 0)
+            {
+                Fail("The server did not confirm deletion. Refresh the knowledge center before trying again.");
+                return;
+            }
+
+            if (!await LoadBlocksAsync(list => !list.Any(block => block.Path == path)))
+            {
+                Fail("Deletion was accepted, but the refreshed list could not confirm it. Refresh before trying again.");
+                deletePath = null;
+                return;
+            }
+
+            deletePath = null;
+            if (previewPath == path)
+            {
+                previewPath = null;
+                localPdfUri = null;
+                localPdfName = null;
+                previewRequest++;
+            }
+            addFailed = false;
+            addMessage = $"Deleted {FileName(path)} and {result.Removed} indexed blocks.";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            Fail("Deletion could not be confirmed. Refresh the knowledge center before trying again.");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendKnowledgeAsync(HttpMethod method, string uri, HttpContent? content = null)
+    {
+        using var request = new HttpRequestMessage(method, uri) { Content = content };
+        return await Http.SendAsync(request);
+    }
+
+    private async Task RebuildAsync()
+    {
+        BeginAdd();
+        try
+        {
+            using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/rebuild");
+            if (!response.IsSuccessStatusCode)
+            {
+                Fail(await ReadProblemAsync(response, "Rebuild failed. Retained documents are unchanged; retry to repair the index."));
+                return;
+            }
+            confirmRebuild = false;
+            await LoadBlocksAsync();
+            addMessage = "Search index rebuilt from retained documents.";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            Fail("Rebuild completion could not be confirmed. Refresh before retrying.");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private void BeginAdd()
+    {
+        adding = true;
+        addFailed = false;
+        addMessage = null;
+    }
+
+    private void Fail(string message)
+    {
+        addFailed = true;
+        addMessage = message;
+    }
+
+    private async Task<bool> FinishAddAsync(HttpResponseMessage response, string name)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            Fail(await ReadProblemAsync(response, "The knowledge center could not store that. Try again."));
+            return false;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<UploadResult>();
+        if (!await LoadBlocksAsync(list => result is null ||
+            (list.Count(block => block.Path == result.Path) == result.Blocks &&
+             list.Where(block => block.Path == result.Path).All(block => block.Pending))))
+        {
+            Fail("The upload was accepted, but the refreshed list could not confirm it. Refresh before trying again.");
+            return false;
+        }
+        addFailed = false;
+        addMessage = result is null
+            ? $"Added {name}."
+            : $"Added {name}: {result.Blocks} blocks{(result.Replaced > 0 ? $", replaced {result.Replaced} older blocks" : string.Empty)}. Approve it to let the assistant use it.";
+        return true;
+    }
+
+    private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
+    private static string SourceExtension(string path) => Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+    private static bool IsPdf(string path) => path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<string> ReadProblemAsync(HttpResponseMessage response, string fallback)
+    {
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            return document.RootElement.TryGetProperty("title", out var title) && title.GetString() is { Length: > 0 } text
+                ? text
+                : fallback;
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
+    }
+
+    private sealed record Block(string Id, string Title, string Path, string Area, string SourceType, int ChunkIndex, int Characters, string Excerpt, string LastReviewed, bool Pending, string? Content = null, string? RenderedHtml = null, string? Revision = null, bool HasOriginal = false);
+
+    private sealed record KnowledgeCapabilities(bool CanManageUploads);
+
+    private sealed record DeleteResult(int Removed);
+
+    private sealed record UploadResult(string Path, int Blocks, int Characters, int Replaced);
+}

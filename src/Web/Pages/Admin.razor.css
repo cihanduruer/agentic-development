@@ -137,6 +137,10 @@
 .pm-remove { margin-inline-start: .5rem; padding: 0 .4rem; border: 0; background: none; color: #8a1f11; font-size: .8rem; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .pm-remove:disabled { opacity: .5; cursor: default; }
 
+.pm-answer-sources { margin-bottom: 1rem; overflow-wrap: anywhere; }
+.pm-answer-sources summary { font-weight: 700; cursor: pointer; }
+.pm-answer-sources p { white-space: pre-wrap; font-size: .85rem; }
+
 .pm-source-group { margin-top: .6rem; }
 .pm-source-name { margin: 0 0 .35rem; font-size: .85rem; }
 .pm-source-name span { margin-inline-start: .35rem; }

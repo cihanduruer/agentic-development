@@ -1,5 +1,18 @@
+@inject AdministratorSession Session
 <nav class="admin-nav" aria-label="Administration">
     <NavLink href="/admin" Match="NavLinkMatch.All">AI Product Management</NavLink>
+    <NavLink href="/admin/knowledge">Knowledge Center</NavLink>
     <NavLink href="/admin/architecture">Hotel architecture</NavLink>
     <NavLink href="/admin/operations">Agent operations</NavLink>
+    @if (Session.RequiresSignIn && Session.IsAuthenticated)
+    {
+        <div class="admin-identity" role="group" aria-label="Administrator session">
+            <span>@Session.Email</span>
+            <button type="button" @onclick="() => Session.SignOutAsync()">Sign out</button>
+        </div>
+        @if (Session.Notice is not null)
+        {
+            <span class="admin-session-notice" role="status">@Session.Notice</span>
+        }
+    }
 </nav>

@@ -1,8 +1,14 @@
 ﻿@inherits LayoutComponentBase
-<div class="page">
+@inject NavigationManager Navigation
+<div class="page @(IsKnowledgePage ? "knowledge-layout" : null)">
     <div class="sidebar">
         <NavMenu />
     </div>
+
+    @code {
+        private bool IsKnowledgePage =>
+            new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/').Equals("/admin/knowledge", StringComparison.OrdinalIgnoreCase);
+    }
 
     <main>
         <article class="content px-4">

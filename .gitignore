@@ -2,7 +2,8 @@
 **/obj/
 .vs/
 .idea/
-.vscode/
+.vscode/*
+!.vscode/mcp.json
 TestResults/
 artifacts/
 *.user

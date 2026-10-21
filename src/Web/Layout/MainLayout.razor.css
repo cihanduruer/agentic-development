@@ -9,6 +9,12 @@ main {
     min-width: 0;
 }
 
+.page.knowledge-layout { height: 100dvh; overflow: hidden; }
+.knowledge-layout .sidebar { flex-shrink: 0; }
+.knowledge-layout main { display: flex; flex-direction: column; min-height: 0; }
+.knowledge-layout article { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.knowledge-layout article ::deep .knowledge-center { flex: 1; min-height: 0; overflow: hidden; }
+
 .sidebar {
     background: var(--brand-ink);
     border-bottom: 3px solid var(--brand-red);

@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "hotelKnowledgeToken",
+      "description": "Hotel Knowledge Center read-only MCP token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "hotelKnowledge": {
+      "type": "http",
+      "url": "https://ahb-dev-bj5rmi3w3ntgq-api.azurewebsites.net/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:hotelKnowledgeToken}"
+      }
+    }
+  }
+}
