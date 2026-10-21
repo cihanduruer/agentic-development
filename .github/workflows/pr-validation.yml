@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 45
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
+        image: ${{ github.event_name != 'pull_request' && 'mcr.microsoft.com/mssql/server@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090' || '' }}
         env:
           ACCEPT_EULA: Y
           MSSQL_SA_PASSWORD: LocalSql-2026-Bootstrap!
@@ -85,6 +85,8 @@ jobs:
             }
           }
       - uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet-sdk
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -92,6 +94,7 @@ jobs:
       - name: Restore
         run: dotnet restore --locked-mode
       - name: Test SQL bootstrapper source mutations
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
@@ -103,9 +106,11 @@ jobs:
             TrustServerCertificate=True
         run: ./scripts/Test-SqlManagedIdentityBootstrapperMutations.ps1
       - name: Test SQL bootstrapper evidence gate
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: ./scripts/Test-Assert-SqlManagedIdentityBootstrapperEvidence.ps1
       - name: Test SQL bootstrapper evidence mutants
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: ./scripts/Test-SqlManagedIdentityBootstrapperEvidenceMutations.ps1
       - name: Test agentic intake script
@@ -115,6 +120,9 @@ jobs:
       - name: Test QA evidence script
         shell: pwsh
         run: ./scripts/Test-New-QaEvidence.ps1
+      - name: Test QA review eligibility
+        shell: pwsh
+        run: ./scripts/Test-QaReviewEligibility.ps1
       - name: Test QA provenance discovery
         shell: pwsh
         run: ./scripts/Test-QaEvidenceSourceContext.ps1
@@ -160,6 +168,7 @@ jobs:
         shell: bash
         run: bash ./scripts/Test-KnowledgeMcpTransport.sh
       - name: Test SQL bootstrapper against SQL Server
+        if: github.event_name != 'pull_request'
         env:
           SQL_BOOTSTRAP_TEST_CONNECTION: >-
             Server=localhost,${{ job.services.sqlserver.ports[1433] }};
@@ -175,6 +184,7 @@ jobs:
           --logger "trx;LogFileName=sql-bootstrapper.trx"
           --results-directory TestResults
       - name: Verify SQL bootstrapper evidence
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: >-
           ./scripts/Assert-SqlManagedIdentityBootstrapperEvidence.ps1

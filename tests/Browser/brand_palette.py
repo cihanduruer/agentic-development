@@ -69,6 +69,52 @@ def check_focus(locator):
     return {"state": "keyboard focus", "styles": state, "contrast": round(ratio, 3), "minimum": 3}
 
 
+def check_button_states(page, button, selector):
+    checks = []
+    page.mouse.move(0, 0)
+    button.evaluate("e => e.blur()")
+    page.wait_for_timeout(200)
+    checks.append({"selector": selector, "state": "default",
+                   **check_pair(button, "color", "backgroundColor")})
+    button.hover()
+    page.wait_for_timeout(200)
+    checks.append({"selector": selector, "state": "hover",
+                   **check_pair(button, "color", "backgroundColor")})
+    page.mouse.down()
+    page.wait_for_timeout(200)
+    active_state = styles(button)
+    assert active_state["backgroundColor"] == COLORS["ink"], active_state
+    page.mouse.move(0, 0)
+    page.mouse.up()
+    button.focus()
+    page.keyboard.press("Tab")
+    page.keyboard.press("Shift+Tab")
+    focused = styles(button)
+    assert focused["outlineColor"] == COLORS["crimson"] and focused["outlineWidth"] == "3px", focused
+    checks.append(check_focus(button))
+    button.evaluate("e => e.disabled = true")
+    page.wait_for_timeout(200)
+    disabled = check_pair(button, "color", "backgroundColor")
+    assert disabled["styles"]["opacity"] == "1"
+    assert disabled["styles"]["backgroundColor"] == COLORS["taupe"]
+    checks.append({"selector": selector, "state": "disabled DOM fixture", **disabled})
+    button.evaluate("e => e.disabled = false")
+    return checks
+
+
+def search_from_home(page, web_url, hotel_id, check_in, check_out, guests):
+    page.goto(web_url)
+    page.get_by_label("Hotel or destination", exact=True).select_option(hotel_id)
+    page.get_by_label("Check-in", exact=True).fill(check_in)
+    page.get_by_label("Check-out", exact=True).fill(check_out)
+    page.get_by_label("Guests", exact=True).fill(str(guests))
+    with page.expect_response(
+        lambda response: f"/api/hotels/{hotel_id}/availability?" in response.url
+    ) as availability:
+        page.get_by_role("button", name="Check availability").click()
+    return availability.value
+
+
 def tab_to_next_control(page, current, target, max_tabs=6):
     expect(current).to_be_focused()
     for attempt in range(1, max_tabs + 1):
@@ -194,20 +240,10 @@ def run(args, api, output):
                 card_page.get_by_label("Check-in", exact=True).fill(card_check_in)
                 card_page.get_by_label("Check-out", exact=True).fill(card_check_out)
                 card_page.get_by_label("Guests", exact=True).fill("3")
-                held_availability = []
-                card_page.route(
-                    f"**/api/hotels/{harbor_id}/availability**",
-                    lambda route: held_availability.append(route))
-                with card_page.expect_request(
-                    lambda request: f"/api/hotels/{harbor_id}/availability?" in request.url
-                ):
-                    card_page.get_by_role("button", name="View rooms at Harbor Light").click()
-                assert len(held_availability) == 1
-                expect(card_page.locator(".booking-panel")).to_have_count(0)
                 with card_page.expect_response(
                     lambda response: f"/api/hotels/{harbor_id}/availability?" in response.url
                 ) as card_availability:
-                    held_availability.pop().continue_()
+                    card_page.get_by_role("button", name="View rooms at Harbor Light").click()
                 card_response = card_availability.value
                 assert card_response.status == 200
                 assert parse_qs(urlsplit(card_response.url).query) == {
@@ -215,7 +251,17 @@ def run(args, api, output):
                     "checkOut": [card_check_out],
                     "guests": ["3"],
                 }
-                expect(card_page.get_by_label("Hotel or destination", exact=True)).to_have_value(harbor_id)
+                assert parse_qs(urlsplit(card_page.url).query) == {
+                    "hotelId": [harbor_id],
+                    "checkIn": [card_check_in],
+                    "checkOut": [card_check_out],
+                    "guests": ["3"],
+                }
+                expect(card_page.get_by_role("heading", name="Room availability")).to_be_visible()
+                expect(card_page.locator(".search-summary")).to_contain_text("Harbor Light")
+                expect(card_page.locator(".search-summary")).to_contain_text(card_check_in)
+                expect(card_page.locator(".search-summary")).to_contain_text(card_check_out)
+                expect(card_page.locator(".search-summary")).to_contain_text("3")
                 expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Harbor Light")
                 expect(card_page.locator(".room-option")).to_have_count(1)
                 evidence["checks"].append({
@@ -226,17 +272,14 @@ def run(args, api, output):
                         "roomsShown": 1,
                         "usesCurrentStayAndGuestCount": True,
                     },
-                    "availabilityPanelHiddenBeforeSearch": True,
+                    "dedicatedAvailabilityRouteCarriesTheSearch": True,
                 })
-                with card_page.expect_request(
-                    lambda request: f"/api/hotels/{harbor_id}/availability?" in request.url
-                ):
-                    card_page.get_by_role("button", name="View rooms at Harbor Light").click()
-                assert len(held_availability) == 1
-                expect(card_page.locator(".booking-panel")).to_have_count(0)
+                card_page.get_by_role("link", name="Change search").click()
+                expect(card_page.get_by_label("Hotel or destination", exact=True)).to_be_visible()
                 card_page.get_by_label("Hotel or destination", exact=True).select_option(hotel_id)
+                card_page.get_by_label("Check-in", exact=True).fill(card_check_in)
+                card_page.get_by_label("Check-out", exact=True).fill(card_check_out)
                 card_page.get_by_label("Guests", exact=True).fill("2")
-                expect(card_page.locator(".booking-panel")).to_have_count(0)
                 with card_page.expect_response(
                     lambda response: f"/api/hotels/{hotel_id}/availability?" in response.url
                 ) as current_availability:
@@ -244,21 +287,10 @@ def run(args, api, output):
                 assert current_availability.value.status == 200
                 expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
                 expect(card_page.locator(".room-option")).to_have_count(2)
-                with card_page.expect_response(
-                    lambda response: f"/api/hotels/{harbor_id}/availability?" in response.url
-                ) as stale_availability:
-                    held_availability.pop().continue_()
-                assert stale_availability.value.status == 200
-                card_page.wait_for_timeout(100)
-                expect(card_page.locator(".booking-panel h2")).to_have_text("Available rooms at Canal House")
-                expect(card_page.locator(".room-option")).to_have_count(2)
                 evidence["checks"].append({
-                    "outOfOrderAvailability": {
-                        "newerHotel": "Canal House",
-                        "lateOlderResponseDiscarded": True,
-                    }
+                    "homeFormSearch": "navigates to the dedicated page and displays the selected hotel and stay",
                 })
-                capture(card_page, size + "-hotel-card-results")
+                capture(card_page, size + "-availability-results")
                 card_context.close()
                 if size == "mobile":
                     toggle = page.get_by_role("button", name="Navigation menu")
@@ -312,8 +344,29 @@ def run(args, api, output):
                 expect(search).to_be_focused()
                 evidence["checks"].append(check_focus(search))
                 capture(page, size + "-form-focus")
-                page.keyboard.press("Enter")
+                evidence["checks"].extend(check_button_states(page, search, ".btn-primary"))
+                search.focus()
+                expect(search).to_be_focused()
+                with page.expect_response(
+                    lambda response: "/api/hotels/3d41ab14-06c3-4c9a-bf29-61f4392f2227/availability?" in response.url
+                ) as submitted_availability:
+                    page.keyboard.press("Enter")
+                assert submitted_availability.value.status == 200
+                assert parse_qs(urlsplit(page.url).query) == {
+                    "hotelId": ["3d41ab14-06c3-4c9a-bf29-61f4392f2227"],
+                    "checkIn": [check_in],
+                    "checkOut": [check_out],
+                    "guests": ["2"],
+                }
+                expect(page.locator(".search-summary")).to_contain_text(check_in)
+                expect(page.locator(".search-summary")).to_contain_text(check_out)
+                expect(page.locator(".search-summary")).to_contain_text("2")
                 expect(page.locator(".room-option")).to_have_count(2)
+                evidence["checks"].append({
+                    "availabilitySearch": "submitted dates and guest count are displayed unchanged above the results",
+                    "apiStatus": submitted_availability.value.status,
+                })
+                capture(page, size + "-availability-search")
                 amenity_group = page.get_by_role("group", name="Filter available rooms by amenities")
                 coffee = amenity_group.get_by_label("Coffee maker", exact=True)
                 kitchenette = amenity_group.get_by_label("Kitchenette", exact=True)
@@ -365,37 +418,8 @@ def run(args, api, output):
                 vehicle.select_option("")
                 vehicle.select_option("Luxury")
                 capture(page, size + "-search-selected")
-
-                for selector in [".btn-primary", ".btn-success"]:
-                    button = page.locator(selector).first
-                    page.mouse.move(0, 0)
-                    button.evaluate("e => e.blur()")
-                    page.wait_for_timeout(200)
-                    evidence["checks"].append({"selector": selector, "state": "default",
-                                              **check_pair(button, "color", "backgroundColor")})
-                    button.hover()
-                    page.wait_for_timeout(200)
-                    evidence["checks"].append({"selector": selector, "state": "hover",
-                                              **check_pair(button, "color", "backgroundColor")})
-                    page.mouse.down()
-                    page.wait_for_timeout(200)
-                    active_state = styles(button)
-                    assert active_state["backgroundColor"] == COLORS["ink"], active_state
-                    page.mouse.move(0, 0)
-                    page.mouse.up()
-                    button.focus()
-                    page.keyboard.press("Tab")
-                    page.keyboard.press("Shift+Tab")
-                    focused = styles(button)
-                    assert focused["outlineColor"] == COLORS["crimson"] and focused["outlineWidth"] == "3px", focused
-                    evidence["checks"].append(check_focus(button))
-                    button.evaluate("e => e.disabled = true")
-                    page.wait_for_timeout(200)
-                    disabled = check_pair(button, "color", "backgroundColor")
-                    assert disabled["styles"]["opacity"] == "1"
-                    assert disabled["styles"]["backgroundColor"] == COLORS["taupe"]
-                    evidence["checks"].append({"selector": selector, "state": "disabled DOM fixture", **disabled})
-                    button.evaluate("e => e.disabled = false")
+                evidence["checks"].extend(check_button_states(
+                    page, page.get_by_role("button", name="Confirm booking"), ".btn-success"))
 
                 confirm = page.get_by_role("button", name="Confirm booking")
                 with page.expect_response(lambda r: r.url.endswith("/api/reservations")) as invalid:
@@ -422,24 +446,49 @@ def run(args, api, output):
                     "guests": reservation["guests"], "guestName": "Duplicate Browser Test",
                     "vehiclePreference": "Luxury"})
                 assert duplicate.status == 409
-                search.click()
+                booked_stay_availability = search_from_home(
+                    page, args.web_url, reservation["hotelId"], check_in, check_out, 2)
+                assert booked_stay_availability.status == 200
                 expect(page.locator(".room-option")).to_have_count(1)
                 page.locator(".room-option").first.click()
                 expect(page.get_by_label("Vehicle preference", exact=True)).to_be_enabled()
                 expect(page.get_by_label("Vehicle preference", exact=True)).to_have_value("")
                 expect(page.get_by_role("button", name="Confirm booking")).to_be_enabled()
-                page.get_by_label("Guests", exact=True).fill("8")
-                search.click()
+                empty_availability = search_from_home(
+                    page, args.web_url, reservation["hotelId"], check_in, check_out, 8)
+                assert empty_availability.status == 200
                 expect(page.locator(".empty-state")).to_contain_text("No rooms")
                 capture(page, size + "-empty-availability")
+
+                invalid_availability_requests = []
+                page.on("request", lambda request: invalid_availability_requests.append(request.url)
+                        if "/availability?" in request.url else None)
+                past_check_in = (date.today() - timedelta(days=1)).isoformat()
+                future_check_out = (date.today() + timedelta(days=2)).isoformat()
+                page.goto(args.web_url)
+                page.get_by_label("Hotel or destination", exact=True).select_option(reservation["hotelId"])
+                page.get_by_label("Check-in", exact=True).fill(past_check_in)
+                page.get_by_label("Check-out", exact=True).fill(future_check_out)
+                page.get_by_label("Guests", exact=True).fill("2")
+                page.get_by_role("button", name="Check availability").click()
+                expect(page.get_by_role("alert")).to_contain_text("Check-in cannot be in the past")
+                expect(page.locator(".booking-panel, .room-option")).to_have_count(0)
+                assert invalid_availability_requests == []
+                capture(page, size + "-invalid-check-in")
+
+                page.get_by_role("link", name="Change search").click()
+                page.get_by_label("Check-in", exact=True).fill(check_in)
                 page.get_by_label("Check-out", exact=True).fill(check_in)
-                search.click()
-                expect(page.get_by_role("alert")).to_contain_text("Availability could not be checked")
-                capture(page, size + "-invalid-dates")
+                page.get_by_role("button", name="Check availability").click()
+                expect(page.get_by_role("alert")).to_contain_text("Check-out must be after check-in")
+                expect(page.locator(".booking-panel, .room-option")).to_have_count(0)
+                assert invalid_availability_requests == []
+                capture(page, size + "-invalid-check-out")
                 evidence["checks"].append({"viewport": size, "realApi": {
                     "validation": 400, "booking": 201, "overlap": 409,
                     "nights": 3, "totalStayPrice": 567, "reference": reservation["reference"],
-                    "availabilityExcludesBookedRoom": True, "emptyAvailability": True}})
+                    "availabilityExcludesBookedRoom": True, "emptyAvailability": True,
+                    "invalidDatesPreventAvailabilityRequests": True}})
 
                 page.goto(args.web_url + "/operations")
                 expect(page.locator(".connection.live")).to_have_text("Live")

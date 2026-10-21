@@ -295,25 +295,12 @@
     padding-inline: 1.25rem;
 }
 
-.booking-panel {
-    border-radius: 1.25rem;
-}
-
-.room-option {
-    border-radius: .85rem;
-    transition: background-color .15s ease, box-shadow .15s ease;
-}
-
 @media (prefers-reduced-motion: reduce) {
     .hotel-loading-spinner {
         animation: none;
     }
 
     .hotel-card,
-    .room-option {
-        transition: none;
-    }
-
     .hotel-card:hover {
         transform: none;
     }
@@ -323,39 +310,6 @@
         transition: none;
         transform: none;
     }
-}
-
-.amenity-filters {
-    border: 1px solid var(--brand-ink);
-    border-radius: .7rem;
-    margin-top: 1rem;
-    padding: 1rem;
-}
-
-.amenity-filters legend {
-    float: none;
-    width: auto;
-    padding: 0 .35rem;
-    font-weight: 700;
-}
-
-.amenity-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .5rem 1rem;
-    margin-bottom: 1rem;
-}
-
-.amenity-options label {
-    align-items: center;
-    display: inline-flex;
-    gap: .4rem;
-}
-
-.amenity-options input {
-    accent-color: var(--brand-crimson);
-    min-height: 1.1rem;
-    min-width: 1.1rem;
 }
 
 @media (max-width: 1180px) {
