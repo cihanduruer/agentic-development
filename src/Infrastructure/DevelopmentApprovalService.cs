@@ -149,7 +149,10 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
     {
         var checks = await GetAsync($"repos/{Repository}/commits/{context.Sha}/check-runs?filter=latest&per_page=100", cancellationToken);
         Require(checks.GetProperty("total_count").GetInt32() is > 0 and <= 100 &&
-            checks.GetProperty("check_runs").EnumerateArray().All(check =>
+            checks.GetProperty("check_runs").EnumerateArray()
+                .GroupBy(check => Text(check, "name"), StringComparer.Ordinal)
+                .Select(group => group.MaxBy(check => check.GetProperty("id").GetInt64()))
+                .All(check =>
                 Text(check, "status") == "completed" &&
                 (Text(check, "conclusion") == "success" ||
                     Text(check, "name") == "Copilot review not required" && Text(check, "conclusion") == "skipped")),

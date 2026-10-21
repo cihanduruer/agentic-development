@@ -39,6 +39,8 @@ public sealed class DevelopmentApprovalTests
     [InlineData("other-check-skipped")]
     [InlineData("pending-alternative")]
     [InlineData("latest-check-failed")]
+    [InlineData("newer-review-failed")]
+    [InlineData("newer-review-pending")]
     [InlineData("expired-artifact")]
     [InlineData("wrong-validation-sha")]
     [InlineData("partial-validation")]
@@ -73,6 +75,20 @@ public sealed class DevelopmentApprovalTests
         Assert.DoesNotContain("admin@example.test", audit);
         Assert.Contains(Sha, audit);
         Assert.Equal(Sha, handler.MergeExpectedSha);
+    }
+
+    [Theory]
+    [InlineData("historical-review-skipped")]
+    [InlineData("historical-review-failed")]
+    public async Task NewerSuccessfulReviewSupersedesHistoricalCheckSuites(string variant)
+    {
+        var handler = new Handler { Variant = variant };
+        using var service = Create(handler);
+        var state = await service.GetStateAsync(975, 77, default);
+        Assert.True(state.CanApprove);
+        var result = await service.ApproveAsync(new(975, 77, Sha, state.MetadataDigest!), "admin@example.test", default);
+        Assert.Equal("Publishing", result.Status);
+        Assert.Equal(1, handler.Merges);
     }
 
     [Fact]
@@ -276,15 +292,24 @@ public sealed class DevelopmentApprovalTests
                 evidenceReads++;
                 if (Variant == "metadata-changes-during-final-verification" && evidenceReads == 2)
                     metadataChangedDuringVerification = true;
+                var checks = new List<object>
+                {
+                    new { id = 10L, name = "validate", status = "completed", conclusion = Variant == "latest-check-failed" ? "failure" : "success" },
+                    new { id = 11L, name = Variant == "other-check-skipped" ? "Independent QA evidence gate" : "Copilot review not required",
+                        status = Variant == "pending-alternative" ? "queued" : "completed", conclusion = "skipped" }
+                };
+                if (Variant is "historical-review-skipped" or "historical-review-failed" or "newer-review-failed" or "newer-review-pending")
+                {
+                    checks.Add(new { id = 20L, name = "Copilot findings gate",
+                        status = Variant == "newer-review-pending" ? "in_progress" : "completed",
+                        conclusion = Variant == "newer-review-failed" ? "failure" : Variant == "newer-review-pending" ? "" : "success" });
+                    checks.Add(new { id = 12L, name = "Copilot findings gate", status = "completed",
+                        conclusion = Variant == "historical-review-failed" ? "failure" : Variant == "historical-review-skipped" ? "skipped" : "success" });
+                }
                 return Response(new
                 {
-                    total_count = 2,
-                    check_runs = new[]
-                    {
-                        new { name = "validate", status = "completed", conclusion = Variant == "latest-check-failed" ? "failure" : "success" },
-                        new { name = Variant == "other-check-skipped" ? "Independent QA evidence gate" : "Copilot review not required",
-                            status = Variant == "pending-alternative" ? "queued" : "completed", conclusion = "skipped" }
-                    }
+                    total_count = checks.Count,
+                    check_runs = checks
                 });
             }
             if (path.Contains("/workflows/", StringComparison.Ordinal))
