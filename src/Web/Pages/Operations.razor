@@ -59,7 +59,8 @@
                 <div class="request-picker">
                     <label for="delivery-request">History</label>
                     <select id="delivery-request" value="@selectedId" @onchange="SelectAsync" disabled="@(busy || approving)">
-                        @foreach (var delivery in snapshot.Deliveries)
+                        <option value="@selectedId" disabled>Choose another request</option>
+                        @foreach (var delivery in snapshot.Deliveries.Where(delivery => delivery.WorkItemId != current.WorkItemId))
                         {
                             <option value="@delivery.WorkItemId">@delivery.GitHubIssueTitle</option>
                         }
