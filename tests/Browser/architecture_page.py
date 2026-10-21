@@ -388,7 +388,7 @@ def check_knowledge_sign_in(page, base):
             expect(page.get_by_role("heading", name="Welcome back", exact=True)).to_be_visible()
             expect(page.get_by_role("navigation", name="Administration")).to_have_count(0)
         page.goto(f"{base}/", wait_until="networkidle")
-        expect(page.get_by_role("heading", name="Your next stay starts here!", level=1)).to_be_visible()
+        expect(page.get_by_role("heading", name="Spooky stays, cozy nights.", level=1)).to_be_visible()
         page.goto(f"{base}/availability", wait_until="networkidle")
         expect(page).to_have_url(f"{base}/availability")
         expect(page.get_by_role("heading", name="Room availability", exact=True, level=1)).to_be_visible()
@@ -477,7 +477,7 @@ def main():
                 page.on("pageerror", lambda error: errors.append(str(error)))
 
                 page.goto(f"{base}/", wait_until="networkidle")
-                expect(page.get_by_role("heading", name="Your next stay starts here!", level=1)).to_be_visible()
+                expect(page.get_by_role("heading", name="Spooky stays, cozy nights.", level=1)).to_be_visible()
                 expect(page).to_have_title("Hotel Booking")
                 assert not capability_reads, "Public Home must not initialize administrator authentication."
                 if name == "mobile":
