@@ -31,6 +31,13 @@ StrictLoader.add_constructor(
     construct_mapping,
 )
 
+SOURCE_CONTEXT_SCRIPT_SHA256 = (
+    "8f8d1f25cd905fec169ecfea103d71733b2be0c1b20381ecfefc5c44dad0e418"
+)
+QA_REVIEW_ELIGIBILITY_SCRIPT_SHA256 = (
+    "952a2acd9ea2f8cebbdeb9b296082004367f13afb6890265c19d6b2ec9579a2d"
+)
+
 
 def selected_step(step):
     if not isinstance(step, dict):
@@ -46,8 +53,34 @@ def selected_step(step):
         selected["with"] = {
             "script-sha256": hashlib.sha256(script.encode("utf-8")).hexdigest()
         }
+    if selected.get("name") == "Check current review requirement":
+        action_inputs = selected.get("with")
+        if not isinstance(action_inputs, dict) or set(action_inputs) != {"script"}:
+            raise ValueError("Review-eligibility action inputs changed")
+        script = action_inputs["script"]
+        if not isinstance(script, str):
+            raise ValueError("Review-eligibility script must decode to a string")
+        selected["with"] = {
+            "script-sha256": hashlib.sha256(script.encode("utf-8")).hexdigest()
+        }
     return selected
 
+
+expected_eligibility_job = {
+    "name": "Determine whether independent QA is required",
+    "runs-on": "ubuntu-24.04",
+    "outputs": {"run_qa": "${{ steps.check.outputs.run_qa }}"},
+    "steps": [
+        {
+            "name": "Check current review requirement",
+            "id": "check",
+            "uses": "actions/github-script@v8",
+            "with": {
+                "script-sha256": QA_REVIEW_ELIGIBILITY_SCRIPT_SHA256
+            },
+        }
+    ],
+}
 
 expected_steps = [
     {
@@ -55,9 +88,7 @@ expected_steps = [
         "id": "context",
         "uses": "actions/github-script@v8",
         "with": {
-            "script-sha256": (
-                "8f8d1f25cd905fec169ecfea103d71733b2be0c1b20381ecfefc5c44dad0e418"
-            )
+            "script-sha256": SOURCE_CONTEXT_SCRIPT_SHA256
         },
     },
     {
@@ -81,6 +112,7 @@ expected_steps = [
     },
     {
         "uses": "actions/setup-dotnet@v4",
+        "env": {"DOTNET_INSTALL_DIR": "${{ runner.temp }}/dotnet-sdk"},
         "with": {"dotnet-version": "10.0.401"},
     },
     {
@@ -111,6 +143,7 @@ expected_steps = [
     },
     {
         "name": "Write pull request evidence",
+        "id": "qa-inputs",
         "run": (
             "New-Item -ItemType Directory -Path QaEvidence -Force | Out-Null\n"
             ". ./trusted/scripts/PullRequestClassification.ps1\n"
@@ -154,7 +187,7 @@ expected_steps = [
     {
         "name": "Upload QA evidence",
         "uses": "actions/upload-artifact@v4",
-        "if": "always()",
+        "if": "always() && steps.qa-inputs.outcome == 'success'",
         "with": {
             "name": (
                 "qa-evidence-${{ steps.context.outputs.head-sha }}-"
@@ -166,17 +199,6 @@ expected_steps = [
         },
     },
 ]
-
-expected_job_if = (
-    "github.event_name == 'workflow_dispatch' "
-    "|| (github.event.workflow_run.name == 'Hotel code review'\n"
-    "  && github.event.workflow_run.event == 'pull_request_target'\n"
-    "  && github.event.workflow_run.conclusion == 'success')\n"
-    "|| (github.event.workflow_run.name == 'PR validation'\n"
-    "  && github.event.workflow_run.event == 'push'\n"
-    "  && github.event.workflow_run.head_branch == 'main'\n"
-    "  && github.event.workflow_run.conclusion == 'success')"
-)
 
 expected_triggers = {
     "workflow_dispatch": {
@@ -239,17 +261,29 @@ def main():
     if workflow["concurrency"] != expected_concurrency:
         raise ValueError("QA workflow concurrency changed")
     jobs = workflow.get("jobs")
-    if not isinstance(jobs, dict) or set(jobs) != {"qa"}:
-        raise ValueError("Workflow must contain exactly the qa job")
+    if not isinstance(jobs, dict) or set(jobs) != {"eligibility", "qa"}:
+        raise ValueError("Workflow must contain exactly the eligibility and qa jobs")
+    eligibility_job = jobs["eligibility"]
+    if not isinstance(eligibility_job, dict):
+        raise ValueError("QA eligibility job must decode to a mapping")
+    actual_eligibility_job = dict(eligibility_job)
+    if isinstance(actual_eligibility_job.get("steps"), list):
+        actual_eligibility_job["steps"] = [
+            selected_step(step) for step in actual_eligibility_job["steps"]
+        ]
+    if actual_eligibility_job != expected_eligibility_job:
+        raise ValueError("QA eligibility job execution surface changed")
     job = jobs["qa"]
     if not isinstance(job, dict):
         raise ValueError("QA job must decode to a mapping")
-    if set(job) != {"name", "if", "runs-on", "steps"}:
+    if set(job) != {"name", "needs", "if", "runs-on", "steps"}:
         raise ValueError("QA job execution surface changed")
     if job.get("name") != "Independent QA evidence gate":
         raise ValueError("QA job name changed")
-    if job.get("if") != expected_job_if:
-        raise ValueError("QA job condition changed")
+    if job.get("needs") != "eligibility":
+        raise ValueError("QA job must wait for the eligibility job")
+    if job.get("if") != "needs.eligibility.outputs.run_qa == 'true'":
+        raise ValueError("QA job must run only when the trusted eligibility gate passes")
     if job.get("runs-on") != "ubuntu-24.04":
         raise ValueError("QA job runner must be ubuntu-24.04")
     steps = job.get("steps")

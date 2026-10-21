@@ -1,6 +1,6 @@
 @page "/admin/architecture"
 
-<PageTitle>Hotel architecture</PageTitle>
+<PageTitle>Architecture</PageTitle>
 
 <section class="architecture-page" aria-labelledby="architecture-title">
     <AdminNav />
@@ -18,63 +18,11 @@
             </defs>
         </svg>
 
-        <header class="architecture-hero">
-            <div class="color-studies" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-            <div class="circuit-decoration" aria-hidden="true"></div>
-            <h1 id="architecture-title">ARCHITECTURE</h1>
-            <p class="architecture-subtitle">Hotel booking <span aria-hidden="true">&middot;</span> From idea to evidence</p>
-            <div class="architecture-metrics" aria-label="Architecture at a glance">
-                <span class="red"><strong>@Workflows.Length</strong> repository workflows</span>
-                <span class="gold"><strong>2</strong> cloud agent profiles</span>
-                <span class="teal"><strong>3</strong> MCP tools</span>
-                <span class="blue"><strong>1</strong> knowledge authority</span>
-            </div>
+        <header class="architecture-intro">
+            <p class="eyebrow">From request to delivery</p>
+            <h1 id="architecture-title">Architecture</h1>
+            <p>One flow shows what happens, who does it, and why it matters. AI agents build and review; automated workflows check and publish; you decide when to approve.</p>
         </header>
-
-        <ol class="architecture-journey" aria-label="Four stages of agentic delivery">
-            @foreach (var phase in Phases)
-            {
-                <li class="@phase.Tone">
-                    <div class="journey-heading"><span>@phase.Number</span><h2>@phase.Title</h2></div>
-                    <p>@phase.Description</p>
-                    <div class="journey-illustration" aria-hidden="true">
-                        <div class="orbit-ring"><i></i></div>
-                        <div class="orbit-core"><svg><use href="@($"#arch-{phase.Icon}")" /></svg></div>
-                        <svg class="orbit-satellite"><use href="@($"#arch-{phase.Icon}")" /></svg>
-                    </div>
-                </li>
-            }
-        </ol>
-
-        <section class="architecture-section" aria-labelledby="delivery-map-title">
-            <div class="section-heading"><h2 id="delivery-map-title">Agentic delivery map</h2><span>The requirement, the agents, the gates, and the release</span></div>
-            <p class="diagram-disclaimer"><i aria-hidden="true"></i> Sourced from repository configuration. Animated connections illustrate the process, not live runs or service health.</p>
-            <div class="diagram-sheet delivery-sheet">
-                <svg class="map-links delivery-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
-                    <path class="map-rail" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
-                    <path class="map-packets" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
-                    <path class="map-arrow" d="m400 114 10 6-10 6m390-12 10 6-10 6m204 108 6 10 6-10M810 354l-10 6 10 6m-400-12-10 6 10 6M194 474l6 10 6-10m188 120 10 6-10 6" />
-                </svg>
-                <ol class="delivery-grid" aria-label="Requirement to deployment">
-                    @foreach (var stage in DeliveryStages)
-                    {
-                        <li class="delivery-node @stage.Tone">
-                            <span class="node-number">@stage.Number</span>
-                            <div class="node-copy"><span class="node-kicker">@stage.Owner</span><h3>@stage.Title</h3><p>@stage.Description</p></div>
-                            @foreach (var file in stage.Workflows)
-                            {
-                                var workflow = Workflows.Single(item => item.File == file);
-                                <a class="workflow-chip" href="@WorkflowUrl(file)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a>
-                            }
-                        </li>
-                    }
-                </ol>
-            </div>
-            <div class="delivery-guardrails">
-                <p class="red"><strong>Findings or failed checks?</strong> Return to development, fix the change, then collect fresh review and exact-commit evidence. A previous green run is not enough.</p>
-                <p class="blue"><strong>Two paths after merge.</strong> Development deploys from main. Separately, main validation and QA can trigger a release proposal; production still needs explicit human approval.</p>
-            </div>
-        </section>
 
         <section class="architecture-section" aria-labelledby="system-map-title">
             <div class="section-heading"><h2 id="system-map-title">System map</h2><span>Everything the guest and agents touch, and everything behind it</span></div>
@@ -82,12 +30,17 @@
                 <svg class="map-links runtime-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
                     <path class="map-rail" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
                     <path class="map-packets" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                    <g class="connection-badge" transform="translate(360 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(360 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>MCP</text></g>
+                    <g class="connection-badge" transform="translate(772 180)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
+                    <g class="connection-badge" transform="translate(772 360)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>Data</text></g>
+                    <g class="connection-badge" transform="translate(772 540)"><rect x="-24" y="-12" width="48" height="24" rx="12" /><text>API</text></g>
                 </svg>
                 <div class="runtime-column">
                     <article class="system-node red">
                         <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-browser" /></svg><h3>Guest &amp; administrator</h3></div>
                         <p>One Blazor WebAssembly site, hosted by Azure Static Web Apps.</p>
-                        <ul><li>Home: public hotel booking</li><li>AI Product Management: email-code login</li><li>Knowledge, architecture, agent operations</li></ul>
+                        <ul><li>Home: public hotel booking</li><li>Requirement Analysis: email-code login</li><li>Knowledge, architecture, agent operations</li></ul>
                         <span class="service-pill">1 &middot; HTTPS REST + authenticated SignalR</span>
                     </article>
                     <article class="system-node gold">
@@ -103,7 +56,7 @@
                     <ul class="api-capabilities">
                         <li><strong>Guest booking</strong><span>Catalog, availability, reservations</span></li>
                         <li><strong>Administrator session</strong><span>Approved email, 5-minute code, 8-hour tab session</span></li>
-                        <li><strong>Product assistant</strong><span>Grounded answers and confirmed Boards creation</span></li>
+                        <li><strong>Requirement analysis</strong><span>Grounded answers and confirmed Boards creation</span></li>
                         <li><strong>Knowledge Center + /mcp</strong><span>list_knowledge &middot; read_knowledge &middot; search_knowledge</span></li>
                         <li><strong>Deterministic routing</strong><span>Safety, evidence, permissions, bounded model choice</span></li>
                         <li><strong>Operations + delivery reads</strong><span>SQL history, SignalR, bounded GitHub/Boards projection</span></li>
@@ -127,25 +80,88 @@
                     </div>
                 </div>
             </div>
+            <ul class="connection-legend" aria-label="Connection protocols">
+                <li><span class="protocol-tag">API</span><span>Browser to API: HTTPS REST and authenticated SignalR. API to Azure AI, email and telemetry services: HTTPS service APIs.</span></li>
+                <li><span class="protocol-tag">MCP</span><span>Copilot agents to the Knowledge Center: read-only MCP over HTTPS at <code>/mcp</code>.</span></li>
+                <li><span class="protocol-tag">Data</span><span>API to Azure SQL: SQL/TDS. API to Blob Storage and AI Search: HTTPS APIs. Azure service access uses managed identity.</span></li>
+            </ul>
             <p class="section-note">Knowledge flows from retained documents to Search, then through revision-checked API/MCP reads. Repository paths are identifiers, not a second knowledge authority. Delivery status is an API capability, not a live feed on this page.</p>
         </section>
 
-        <section class="architecture-section" aria-labelledby="workflows-title">
-            <div class="section-heading"><h2 id="workflows-title">Which workflow does what?</h2><span>Actual GitHub Actions names &middot; open any workflow to inspect it</span></div>
-            <div class="workflow-catalogue" role="list" aria-label="Repository workflows">
-                @foreach (var workflow in Workflows)
-                {
-                    <article class="workflow-card @workflow.Tone" role="listitem">
-                        <div class="workflow-card-top"><span class="workflow-category">@workflow.Category</span><span class="workflow-trigger">@workflow.Trigger</span></div>
-                        <h3><a href="@WorkflowUrl(workflow.File)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a></h3>
-                        <p>@workflow.Description</p>
-                        <code>@workflow.File</code>
-                    </article>
-                }
+        <section class="architecture-section" aria-labelledby="delivery-map-title">
+            <div class="section-heading"><h2 id="delivery-map-title">How your request becomes a working change</h2><span>Who does each step, what you get, and when you need to act</span></div>
+            <p class="diagram-disclaimer"><i aria-hidden="true"></i> Read from top to bottom. This explains the configured process, not live runs or service health. Automated checks may run together; production is a separate decision.</p>
+            <div class="diagram-sheet delivery-sheet">
+                <ol class="delivery-grid" aria-label="Requirement to deployment">
+                    @foreach (var stage in DeliveryStages)
+                    {
+                        <li class="delivery-node @stage.Tone @(stage.Number == "09" ? "production-stage" : "")">
+                            <span class="node-number">@stage.Number</span>
+                            <div class="node-copy">
+                                <div class="node-header"><span class="node-type">@stage.Type</span><span class="node-kicker">@stage.Owner</span></div>
+                                <h3>@stage.Title</h3>
+                                <p>@stage.Description</p>
+                            </div>
+                            <dl class="stage-outcomes">
+                                <div><dt>What you get</dt><dd>@stage.Outcome</dd></div>
+                                <div><dt>Your part</dt><dd>@stage.ProductOwnerAction</dd></div>
+                            </dl>
+                            @if (stage.Workflows.Length > 0 || stage.Number == "07")
+                            {
+                                <details class="stage-technical">
+                                    <summary>Technical details</summary>
+                                    @if (stage.Number == "03")
+                                    {
+                                        <p>The Copilot cloud agent is a GitHub-managed dynamic run, not another YAML file. The setup workflow prepares its environment; it is not the coding agent itself.</p>
+                                    }
+                                    @if (stage.Number == "06")
+                                    {
+                                        <p>QA evidence applies the hotel-qa evidence contract; it does not dispatch hotel-qa.</p>
+                                    }
+                                    @if (stage.Number == "07")
+                                    {
+                                        <p>The administrator approval API records approval and conditionally merges the exact checked revision. Missing publishing access or failed checks keep approval unavailable. This is not a separate automatic merge workflow.</p>
+                                    }
+                                    @foreach (var file in stage.Workflows)
+                                    {
+                                        var workflow = Workflows.Single(item => item.File == file);
+                                        <div class="flow-workflow">
+                                            <a class="workflow-chip" href="@WorkflowUrl(file)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a>
+                                            <p>@workflow.Description</p>
+                                            <small>Runs: @workflow.Trigger</small>
+                                        </div>
+                                    }
+                                </details>
+                            }
+                            @if (stage.Number is not ("08" or "09"))
+                            {
+                                <span class="delivery-next" aria-hidden="true">&darr;</span>
+                            }
+                        </li>
+                    }
+                </ol>
             </div>
-            <p class="section-note"><strong>Copilot cloud agent</strong> is a GitHub-managed dynamic run, not another YAML file. The two custom agent profiles are not workflows. A schedule is not a guaranteed pickup time, and skipped checks are not proof that review or QA ran.</p>
+            <div class="delivery-guardrails">
+                <p class="red"><strong>Findings or failed checks?</strong> Return to development, fix the change, then collect fresh review and exact-commit evidence. A previous green run is not enough.</p>
+                <p class="blue"><strong>Two paths after merge.</strong> Development deploys from main. Separately, main validation and QA can trigger a release proposal; production still needs explicit human approval.</p>
+            </div>
         </section>
 
+        <details class="architecture-technical">
+            <summary>Technical reference: services, safety and optional tools</summary>
+            <details class="flow-supporting-tools">
+                <summary>Optional tools, not delivery steps</summary>
+                <ul aria-label="Optional supporting workflows">
+                    @foreach (var workflow in Workflows.Where(workflow => !DeliveryStages.Any(stage => stage.Workflows.Contains(workflow.File))))
+                    {
+                        <li>
+                            <a class="workflow-chip" href="@WorkflowUrl(workflow.File)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a>
+                            <p>@workflow.Description</p>
+                            <small>@workflow.Category &middot; @workflow.Trigger</small>
+                        </li>
+                    }
+                </ul>
+            </details>
         <section class="architecture-section" aria-labelledby="routing-title">
             <div class="section-heading"><h2 id="routing-title">A safe agent decision</h2><span>Runtime routing is separate from GitHub's delivery automation</span></div>
             <ol class="decision-flow" aria-label="Runtime routing safety gates">
@@ -178,6 +194,7 @@
                 <article class="blue"><h3>Machines are separate</h3><p>MCP has a dedicated read-only token. Operations ingestion/routing requires its deployed OperationsWriter identity. GitHub uses Azure OIDC; the API uses managed identity.</p></article>
             </div>
         </section>
+        </details>
         <footer class="architecture-provenance">
             <span><strong>Sourced:</strong> repository workflows, infrastructure and delivery policy. <strong>Derived:</strong> this explanatory map and its decorative motion.</span>
             <a href="@SourceUrl("docs/knowledge/agentic-delivery.md")" target="_blank" rel="noopener noreferrer">Delivery rules <span aria-hidden="true">&#8599;</span></a>
@@ -189,44 +206,64 @@
     private const string Repository = "https://github.com/cihanduruer/agentic-development";
     private static string SourceUrl(string path) => $"{Repository}/blob/main/{path}";
     private static string WorkflowUrl(string file) => $"{Repository}/actions/workflows/{file}";
-    private sealed record Phase(string Number, string Title, string Description, string Icon, string Tone);
-    private sealed record DeliveryStage(string Number, string Owner, string Title, string Description, string Tone, string[] Workflows);
+    private sealed record DeliveryStage(string Number, string Type, string Owner, string Title, string Description,
+        string Outcome, string ProductOwnerAction, string Tone, string[] Workflows);
     private sealed record Workflow(string Name, string File, string Category, string Trigger, string Description, string Tone);
     private sealed record AzureService(string Name, string Tier, string Description, string Icon, string Tone, string Source);
 
-    private static readonly Phase[] Phases =
-    [
-        new("01", "Define", "Describe the outcome. Azure Boards holds the agreed requirement and acceptance criteria; scheduled intake turns eligible work into a linked GitHub issue.", "board", "red"),
-        new("02", "Build", "GitHub Copilot works in the cloud, uses the hosted Knowledge Center through MCP, and opens a pull request with implementation and tests.", "code", "gold"),
-        new("03", "Prove", "Exact-commit validation, Copilot review, browser checks and independent QA evidence make the work inspectable. Failed gates send it back.", "check", "teal"),
-        new("04", "Deliver", "After evidence-gated merge, development deploys and Boards synchronizes. A tested release proposal is separate from human-approved production.", "cloud", "blue")
-    ];
     private static readonly DeliveryStage[] DeliveryStages =
     [
-        new("01", "Product owner", "Agree the requirement", "Create a User Story in sample-project with clear acceptance criteria. New work stays New until scheduled intake picks it up.", "red", []),
-        new("02", "Azure Boards → GitHub", "Intake & assignment", "Query eligible New stories and bugs, link one issue by AB identity, then assign Copilot. The schedule is every five minutes, not a pickup guarantee.", "gold", ["agentic-intake.yml"]),
-        new("03", "GitHub-hosted agent", "Cloud development", "Prepare the agent environment; hotel-developer implements the bounded requirement and opens a PR. Copilot cloud agent is GitHub's dynamic run.", "teal", ["copilot-setup-steps.yml"]),
-        new("04", "Exact PR head", "Build, test & inspect", "Validate the change and collect responsive browser evidence. Trusted manual validation binds evidence to the exact PR commit.", "blue", ["pr-validation.yml", "hotel-browser-evidence.yml"]),
-        new("05", "Copilot reviewer", "Review & repair", "Request current-head review. High or unreadable-severity findings block the gate; development fixes and requests fresh evidence.", "gold", ["hotel-code-review.yml"]),
-        new("06", "Independent evidence gate", "Verify acceptance", "Verify trusted validation provenance, rebuild, rerun checks and inspect acceptance evidence. This workflow does not dispatch hotel-qa.", "teal", ["qa-evidence.yml"]),
-        new("07", "Coordinator / human", "Approve & merge", "Merge only the reviewed revision after required evidence passes. There is no automatic merge workflow in this diagram.", "red", []),
-        new("08", "Development environment", "Deploy & sync Boards", "Deploy from main, verify the development environment, then attach exact deployment/QA evidence and synchronize the linked work item.", "blue", ["deploy-development.yml", "sync-development-lifecycle.yml"]),
-        new("09", "Separate production path", "Propose & promote", "Successful main QA permits a checksummed release proposal. Production is a distinct manual promotion of verified artifacts with human approval.", "navy", ["release-proposal.yml", "deploy-production.yml"])
+        new("01", "Human action", "You, the product owner", "Describe what you need",
+            "Explain the change in everyday language. The assistant helps turn it into a clear request and a list of things that must work. Nothing is created until you confirm.",
+            "An agreed request in Azure Boards, with clear acceptance criteria.",
+            "Describe the outcome and confirm what success looks like.", "red", []),
+        new("02", "GitHub workflow", "Scheduled intake", "Your request is picked up",
+            "Automation finds the new request, creates its linked work record in GitHub, and assigns the AI developer. It is scheduled to check every five minutes, but pickup can take longer.",
+            "One linked request, with an AI developer assigned.",
+            "No action needed. Follow progress in Agent Operations.", "gold", ["agentic-intake.yml"]),
+        new("03", "AI coding agent", "GitHub Copilot / hotel-developer", "The AI builds your change",
+            "The AI developer reads the approved knowledge, changes the application, and adds tests. It opens a proposed code change, called a pull request. The change is not live yet.",
+            "A proposed change ready to be checked.",
+            "Wait for development. You do not need to review the code.", "teal", ["copilot-setup-steps.yml"]),
+        new("04", "GitHub workflows", "Automated build and browser checks", "Automatic checks run",
+            "Automation checks that the application builds, tests pass, and the screens work on desktop and mobile. The evidence must belong to the exact version that will be published.",
+            "Build, test and browser evidence for the proposed version.",
+            "No action needed. Failed checks must be fixed before publishing.", "blue", ["pr-validation.yml", "hotel-browser-evidence.yml"]),
+        new("05", "AI reviewer + GitHub workflow", "Copilot reviewer and review gate", "The AI reviews the code",
+            "A separate AI reviewer looks for mistakes. An automated gate blocks serious findings or findings whose severity is unclear. The developer fixes problems and gets the updated version reviewed again.",
+            "A completed code review with no blocking findings.",
+            "Follow the result. Blocking problems must be fixed before approval.", "gold", ["hotel-code-review.yml"]),
+        new("06", "GitHub workflow", "Independent QA evidence gate", "Check the agreed outcome",
+            "Another automated gate checks the recorded acceptance evidence and runs a separate set of tests. Its evidence must match the same proposed change and the same recorded requirements.",
+            "Independent test results and acceptance evidence to support approval.",
+            "Read the acceptance evidence if you want more detail. Your approval comes next.", "teal", ["qa-evidence.yml"]),
+        new("07", "Human approval + API", "You, in Agent Operations", "You approve publishing",
+            "Once the checks pass, choose Approve and publish to demo. The server checks the version again, records your approval, and merges only that checked change so publishing can start.",
+            "Your approval recorded for the verified version, not an untested update.",
+            "Review the request, then choose Approve and publish to demo when ready.", "red", []),
+        new("08", "GitHub workflows", "Development deployment and delivery sync", "Publish to the demo site",
+            "Automation publishes the approved change, checks the demo environment, and updates the linked request with delivery evidence. Approval alone does not mean the demo is ready.",
+            "A verified demo update and a synchronized request status.",
+            "Wait for Ready in Agent Operations, then open the demo and try the change.", "blue", ["deploy-development.yml", "sync-development-lifecycle.yml"]),
+        new("09", "Separate production path", "Human approver + manual GitHub workflow", "Optional: release to production",
+            "Publishing to the demo does not release the change to real users. Production uses a separately verified release package and a manual promotion with explicit human approval.",
+            "A separately approved production release, only if requested.",
+            "Only approve production when a real release is intended.", "navy", ["release-proposal.yml", "deploy-production.yml"])
     ];
     private static readonly Workflow[] Workflows =
     [
-        new("Agentic intake", "agentic-intake.yml", "Intake", "5-minute schedule / manual", "Finds eligible Boards work, creates or reuses the AB-linked issue and assigns the cloud agent. Manual mode targets one work item.", "red"),
-        new("Copilot setup steps", "copilot-setup-steps.yml", "Agent environment", "Agent setup / manual", "Prepares the pinned .NET toolchain and Azure Boards authentication for Copilot. Setup success is not proof that implementation completed.", "gold"),
-        new("PR validation", "pr-validation.yml", "Verification", "PR / main push / manual", "Runs build, tests and infrastructure checks. Trusted manual dispatch binds a validation artifact to the exact requested PR head.", "blue"),
-        new("Hotel browser evidence", "hotel-browser-evidence.yml", "Browser QA", "Pull request", "Runs isolated browser checks on the exact PR head. Captures responsive, accessibility, routing and reduced-motion evidence without live bookings.", "teal"),
-        new("Hotel code review", "hotel-code-review.yml", "Review gate", "Eligible PR events", "Requests Copilot review and gates the current head's findings. Draft/non-main/docs-only alternatives are not presented as completed review.", "gold"),
-        new("QA evidence", "qa-evidence.yml", "Acceptance gate", "Review / main validation / manual", "Checks exact-SHA provenance, independently rebuilds and retests, then records acceptance and negative-path evidence. hotel-qa execution remains not-run.", "teal"),
-        new("Deploy development", "deploy-development.yml", "Development", "Matching main push / manual", "Uses Azure OIDC to deploy development infrastructure, SQL identity/bootstrap, API and Web, then checks readiness and operations authorization.", "blue"),
-        new("Sync development lifecycle", "sync-development-lifecycle.yml", "Boards synchronization", "Development deployment / manual", "Verifies deployment and matching QA provenance before syncing linked Boards state and evidence. PR triggers test synchronization policy only.", "red"),
-        new("Release proposal", "release-proposal.yml", "Release artifacts", "Successful main QA", "Publishes tested API/Web binaries, checksums and the versioned deployment contract. Creates a proposal; does not deploy production.", "navy"),
-        new("Deploy production", "deploy-production.yml", "Human approval", "Manual only", "Verifies the selected release run, exact main SHA, checksums, contract and QA provenance before approved production promotion without rebuilding.", "navy"),
-        new("Microsoft grounded evaluation", "grounded-evaluation.yml", "Optional evaluation", "Manual only", "Runs Microsoft's groundedness evaluator and uploads its JSON evidence. This is not an automatic approval or a substitute for deterministic gates.", "gold"),
-        new("Diagnose development SQL permissions", "diagnose-development-sql.yml", "Operations tool", "Manual only", "Collects development SQL identity/permission diagnostics. A recovery tool, not a normal requirement-delivery stage.", "blue"),
+        new("Agentic intake", "agentic-intake.yml", "Intake", "5-minute schedule / manual", "Links the request to GitHub and assigns the AI developer.", "red"),
+        new("Copilot setup steps", "copilot-setup-steps.yml", "Agent environment", "Agent setup / manual", "Prepares the coding environment; setup success does not mean the change is finished.", "gold"),
+        new("PR validation", "pr-validation.yml", "Verification", "PR / main push / manual", "Builds and tests the change; trusted validation proves which version was checked.", "blue"),
+        new("Hotel browser evidence", "hotel-browser-evidence.yml", "Browser QA", "Pull request", "Checks desktop and mobile screens in an isolated browser without live bookings.", "teal"),
+        new("Hotel code review", "hotel-code-review.yml", "Review gate", "Eligible PR events", "Requests AI review and blocks findings that need fixing; skipped review is not a pass.", "gold"),
+        new("QA evidence", "qa-evidence.yml", "Acceptance gate", "Review / main validation / manual", "Runs independent tests and records acceptance evidence; no separate QA agent is invoked.", "teal"),
+        new("Deploy development", "deploy-development.yml", "Development", "Matching main push / manual", "Publishes the application and infrastructure to the demo environment, then checks readiness.", "blue"),
+        new("Sync development lifecycle", "sync-development-lifecycle.yml", "Boards synchronization", "Development deployment / manual", "Verifies delivery evidence before updating the linked request; PR runs only test this policy.", "red"),
+        new("Release proposal", "release-proposal.yml", "Release artifacts", "Successful main QA", "Prepares a verified release package; it does not deploy production.", "navy"),
+        new("Deploy production", "deploy-production.yml", "Human approval", "Manual only", "Promotes the verified release package to production only with human approval.", "navy"),
+        new("Microsoft grounded evaluation", "grounded-evaluation.yml", "Optional evaluation", "Manual only", "Measures answer grounding; it cannot approve delivery or replace required checks.", "gold"),
+        new("Diagnose development SQL permissions", "diagnose-development-sql.yml", "Operations tool", "Manual only", "Helps investigate demo database permissions; it is not a normal delivery step.", "blue"),
         new("Deploy Knowledge MCP POC", "deploy-knowledge-mcp.yml", "Legacy / separate POC", "Manual only", "Deploys the standalone repository-index MCP proof of concept. It is not the authoritative Hotel /mcp endpoint and is not part of normal delivery.", "teal")
     ];
     private static readonly AzureService[] Services =

@@ -1,247 +1,107 @@
 @page "/"
 @using AgenticHotelBooking.Domain
-@using System.Globalization
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <PageTitle>Hotel Booking</PageTitle>
 
 <div class="home-page">
-<section class="hero">
-    <p class="eyebrow">Your stay starts here</p>
-    <h1>Your next stay starts here!</h1>
-    <p>Choose a hotel and your dates to find the right room.</p>
-    <img class="hero-photo" src="images/hotel-room.jpg" alt="" />
-</section>
-
-@if (!string.IsNullOrWhiteSpace(error))
-{
-    <div class="alert alert-danger" role="alert">@error</div>
-}
-
-@if (hotels is null)
-{
-    @if (error is null)
-    {
-        <div class="hotel-loading" role="status">
-            <span class="hotel-loading-spinner" aria-hidden="true"></span>
-            <span>Loading Hotels</span>
-        </div>
-    }
-}
-else if (hotels.Count == 0)
-{
-    <p class="empty-state" role="status">No hotels are currently available.</p>
-}
-else
-{
-    <section class="search-panel" aria-labelledby="search-title">
-        <h2 id="search-title">Search your stay</h2>
-        <div class="booking-fields search-fields">
-            <div class="search-destination">
-                <label for="hotel-destination">Hotel or destination</label>
-                <select id="hotel-destination" @bind="selectedHotelId" @bind:after="OnHotelSelectionChanged">
-                    @foreach (var hotel in hotels)
-                    {
-                        <option value="@hotel.Id">@hotel.Name — @hotel.City</option>
-                    }
-                </select>
-            </div>
-            <label for="check-in">Check-in
-                <input id="check-in" type="date" @bind="checkIn" />
-            </label>
-            <label for="check-out">Check-out
-                <input id="check-out" type="date" @bind="checkOut" />
-            </label>
-            <label for="guest-count">Guests
-                <input id="guest-count" type="number" min="1" max="8" @bind="guests" />
-            </label>
-            <button class="btn btn-primary search-submit" @onclick="SearchRooms">Check availability</button>
-        </div>
+    <section class="hero">
+        <p class="eyebrow">Your stay starts here</p>
+        <h1>Your next stay starts here!</h1>
+        <p>Choose a hotel and your dates to find the right room.</p>
+        <img class="hero-photo" src="images/hotel-room.jpg" alt="" />
     </section>
 
-    <ul class="value-props" aria-label="Booking benefits">
-        <li>
-            <strong>Live availability</strong>
-            <span>Rooms are checked for your exact dates and guests.</span>
-        </li>
-        <li>
-            <strong>Clear pricing</strong>
-            <span>See the nightly rate and total stay price before you confirm.</span>
-        </li>
-        <li>
-            <strong>Optional extras</strong>
-            <span>Add a vehicle preference. It is not a guaranteed rental.</span>
-        </li>
-    </ul>
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger" role="alert">@error</div>
+    }
 
-    <h2 class="section-title">Our hotels</h2>
-    <div class="hotel-grid">
-        @foreach (var hotel in hotels)
+    @if (hotels is null)
+    {
+        @if (error is null)
         {
-            <article class="hotel-card @(HotelPhoto(hotel) is null ? null : "has-photo")">
-                @if (HotelPhoto(hotel) is { } photo)
-                {
-                    <img class="hotel-photo" src="@photo" alt="" loading="lazy" />
-                }
-                <span class="city">@hotel.City</span>
-                <h2>@hotel.Name</h2>
-                <p>@hotel.Description</p>
-                <button class="btn btn-primary"
-                        aria-label="View rooms at @hotel.Name"
-                        @onclick="() => ViewRooms(hotel)">View rooms</button>
-            </article>
+            <div class="hotel-loading" role="status">
+                <span class="hotel-loading-spinner" aria-hidden="true"></span>
+                <span>Loading Hotels</span>
+            </div>
         }
-    </div>
-}
-
-@if (selectedHotel is not null && rooms is not null)
-{
-    <section class="booking-panel" aria-labelledby="booking-title">
-        <h2 id="booking-title">Available rooms at @selectedHotel.Name</h2>
-
-        @if (rooms is not null)
-        {
-            @if (rooms.Count == 0)
-            {
-                <p class="empty-state" role="status">No rooms are available for these dates and guest count.</p>
-            }
-            else
-            {
-                var matchingRooms = GetMatchingRooms();
-                @if (AmenityOptions.Count > 0)
-                {
-                    <fieldset class="amenity-filters" aria-describedby="amenity-filter-help">
-                        <legend>Filter available rooms by amenities</legend>
-                        <p id="amenity-filter-help">Choose one or more amenities. Rooms must include every selected amenity.</p>
-                        <div class="amenity-options">
-                            @foreach (var (amenity, index) in AmenityOptions.Select((name, index) => (name, index)))
-                            {
-                                var inputId = $"amenity-filter-{index}";
-                                <label for="@inputId">
-                                    <input id="@inputId"
-                                           type="checkbox"
-                                           checked="@selectedAmenities.Contains(amenity)"
-                                           @onchange="args => ToggleAmenity(amenity, args)" />
-                                    @amenity
-                                </label>
-                            }
-                        </div>
-                        <button type="button"
-                                class="btn btn-outline-primary"
-                                @onclick="ClearAmenityFilters"
-                                disabled="@(selectedAmenities.Count == 0)">Clear all filters</button>
-                    </fieldset>
-                }
-
-                @if (matchingRooms.Count == 0)
-                {
-                    <p class="empty-state" role="status">Available rooms were found, but none match all selected amenities. Clear filters or choose different amenities.</p>
-                }
-                else
-                {
-                    <div class="room-list">
-                        @foreach (var room in matchingRooms)
+    }
+    else if (hotels.Count == 0)
+    {
+        <p class="empty-state" role="status">No hotels are currently available.</p>
+    }
+    else
+    {
+        <section class="search-panel" aria-labelledby="search-title">
+            <h2 id="search-title">Search your stay</h2>
+            <div class="booking-fields search-fields">
+                <div class="search-destination">
+                    <label for="hotel-destination">Hotel or destination</label>
+                    <select id="hotel-destination" @bind="selectedHotelId">
+                        @foreach (var hotel in hotels)
                         {
-                            <button type="button"
-                                    class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
-                                    @onclick="() => SelectRoom(room)"
-                                    aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
-                                <strong>@room.Name</strong>
-                                <span>Up to @room.Capacity guests</span>
-                                <span>@FormatEuro(room.NightlyRate) per night</span>
-                                @if (selectedRoom?.Id == room.Id)
-                                {
-                                    <span class="room-selection">Selected</span>
-                                }
-                            </button>
-                        }
-                    </div>
-                }
-            }
-        }
-
-        @if (selectedRoom is not null)
-        {
-            @if (IsStayValid)
-            {
-                <dl class="stay-total">
-                    <dt>Nightly rate</dt>
-                    <dd>@FormatEuro(selectedRoom.NightlyRate)</dd>
-                    <dt>Number of nights</dt>
-                    <dd>@NumberOfNights</dd>
-                    <dt>Total stay price</dt>
-                    <dd><strong>@FormatEuro(TotalStayPrice)</strong></dd>
-                </dl>
-            }
-            <div class="confirm-row">
-                <label>Guest name <input @bind="guestName" /></label>
-                <div class="vehicle-preference">
-                    <label for="vehicle-preference">Vehicle preference</label>
-                    <select id="vehicle-preference"
-                            @bind="vehiclePreference"
-                            aria-describedby="vehicle-preference-help"
-                            disabled="@(reservation is not null)">
-                        <option value="">No preference</option>
-                        @foreach (var option in VehiclePreferences)
-                        {
-                            <option value="@option">@option</option>
+                            <option value="@hotel.Id">@hotel.Name — @hotel.City</option>
                         }
                     </select>
-                    <p id="vehicle-preference-help">
-                        Optional. A vehicle preference is not a guaranteed rental.
-                        Choose No preference to clear it before confirming.
-                    </p>
                 </div>
-                <button class="btn btn-success"
-                        @onclick="BookRoom"
-                        disabled="@(reservation is not null)">Confirm booking</button>
+                <label for="check-in">Check-in
+                    <input id="check-in" type="date" @bind="checkIn" />
+                </label>
+                <label for="check-out">Check-out
+                    <input id="check-out" type="date" @bind="checkOut" />
+                </label>
+                <label for="guest-count">Guests
+                    <input id="guest-count" type="number" min="1" max="8" @bind="guests" />
+                </label>
+                <button class="btn btn-primary search-submit" @onclick="SearchAvailabilityFromForm">Check availability</button>
             </div>
-        }
-    </section>
-}
+        </section>
 
-@if (reservation is not null)
-{
-    <section class="confirmation" role="status">
-        <span>Booking confirmed</span>
-        <h2>@reservation.Reference</h2>
-        <p>@reservation.GuestName · @reservation.CheckIn to @reservation.CheckOut</p>
-        <p>Total stay price: <strong>@FormatEuro(reservation.TotalStayPrice)</strong></p>
-        <p>Vehicle preference: <strong>@(reservation.VehiclePreference?.ToString() ?? "None")</strong></p>
-        <p>A vehicle preference is not a guaranteed rental and cannot be added or changed after confirmation.</p>
-    </section>
-}
+        <ul class="value-props" aria-label="Booking benefits">
+            <li>
+                <strong>Live availability</strong>
+                <span>Rooms are checked for your exact dates and guests.</span>
+            </li>
+            <li>
+                <strong>Clear pricing</strong>
+                <span>See the nightly rate and total stay price before you confirm.</span>
+            </li>
+            <li>
+                <strong>Optional extras</strong>
+                <span>Add a vehicle preference. It is not a guaranteed rental.</span>
+            </li>
+        </ul>
+
+        <h2 class="section-title">Our hotels</h2>
+        <div class="hotel-grid">
+            @foreach (var hotel in hotels)
+            {
+                <article class="hotel-card @(HotelPhoto(hotel) is null ? null : "has-photo")">
+                    @if (HotelPhoto(hotel) is { } photo)
+                    {
+                        <img class="hotel-photo" src="@photo" alt="" loading="lazy" />
+                    }
+                    <span class="city">@hotel.City</span>
+                    <h2>@hotel.Name</h2>
+                    <p>@hotel.Description</p>
+                    <button class="btn btn-primary"
+                            aria-label="View rooms at @hotel.Name"
+                            @onclick="() => SearchAvailability(hotel.Id.ToString())">View rooms</button>
+                </article>
+            }
+        </div>
+    }
 </div>
 
 @code {
     private IReadOnlyList<Hotel>? hotels;
-    private Hotel? selectedHotel;
-    private IReadOnlyList<Room>? rooms;
-    private Room? selectedRoom;
-    private Reservation? reservation;
     private string? error;
     private string? selectedHotelId;
-    private int availabilitySearchId;
-    private string guestName = string.Empty;
-    private VehiclePreference? vehiclePreference;
-    private readonly HashSet<string> selectedAmenities = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly VehiclePreference[] VehiclePreferences = Enum.GetValues<VehiclePreference>();
     private int guests = 2;
     private DateOnly checkIn = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
     private DateOnly checkOut = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
-    private int NumberOfNights => checkOut.DayNumber - checkIn.DayNumber;
-    private bool IsStayValid =>
-        checkIn >= DateOnly.FromDateTime(DateTime.Today) && NumberOfNights > 0;
-    private decimal TotalStayPrice => selectedRoom?.NightlyRate * NumberOfNights ?? 0m;
-    private IReadOnlyList<string> AmenityOptions => selectedHotel?.Rooms
-        .SelectMany(room => room.Amenities)
-        .Where(amenity => !string.IsNullOrWhiteSpace(amenity))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderBy(amenity => amenity, StringComparer.OrdinalIgnoreCase)
-        .ToArray() ?? [];
-
-    private static string FormatEuro(decimal amount) =>
-        amount.ToString("C", CultureInfo.GetCultureInfo("nl-NL"));
 
     private static string? HotelPhoto(Hotel hotel) => hotel.City switch
     {
@@ -257,7 +117,7 @@ else
             hotels = await Http.GetFromJsonAsync<Hotel[]>("api/hotels") ?? [];
             if (hotels.Count > 0)
             {
-                SelectHotel(hotels[0]);
+                selectedHotelId = hotels[0].Id.ToString();
             }
         }
         catch (Exception exception)
@@ -266,133 +126,17 @@ else
         }
     }
 
-    private void SelectHotel(Hotel hotel)
+    private void SearchAvailability(string? hotelId = null)
     {
-        availabilitySearchId++;
-        selectedHotel = hotel;
-        selectedHotelId = hotel.Id.ToString();
-        rooms = null;
-        selectedRoom = null;
-        reservation = null;
-        vehiclePreference = null;
-        selectedAmenities.Clear();
-        error = null;
-    }
-
-    private void OnHotelSelectionChanged()
-    {
-        var hotel = hotels?.FirstOrDefault(item => item.Id.ToString() == selectedHotelId);
-        if (hotel is not null && hotel.Id != selectedHotel?.Id)
-        {
-            SelectHotel(hotel);
-        }
-    }
-
-    private async Task ViewRooms(Hotel hotel)
-    {
-        SelectHotel(hotel);
-        await SearchRooms();
-    }
-
-    private void SelectRoom(Room room)
-    {
-        StartNewReservationIfConfirmed();
-        selectedRoom = room;
-        error = null;
-    }
-
-    private IReadOnlyList<Room> GetMatchingRooms() =>
-        RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities);
-
-    private void ToggleAmenity(string amenity, ChangeEventArgs args)
-    {
-        if (args.Value is true)
-        {
-            selectedAmenities.Add(amenity);
-        }
-        else
-        {
-            selectedAmenities.Remove(amenity);
-        }
-
-        if (selectedRoom is not null &&
-            !GetMatchingRooms().Any(room => room.Id == selectedRoom.Id))
-        {
-            selectedRoom = null;
-        }
-    }
-
-    private void ClearAmenityFilters()
-    {
-        selectedAmenities.Clear();
-    }
-
-    private async Task SearchRooms()
-    {
-        if (selectedHotel is null)
+        var destinationHotelId = hotelId ?? selectedHotelId;
+        if (string.IsNullOrWhiteSpace(destinationHotelId))
         {
             return;
         }
 
-        var searchId = ++availabilitySearchId;
-        var hotelId = selectedHotel.Id;
-        try
-        {
-            StartNewReservationIfConfirmed();
-            error = null;
-            selectedRoom = null;
-            rooms = null;
-            var result = await Http.GetFromJsonAsync<Room[]>(
-                $"api/hotels/{hotelId}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}");
-            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
-            {
-                rooms = result ?? [];
-            }
-        }
-        catch (Exception exception)
-        {
-            if (searchId == availabilitySearchId && hotelId == selectedHotel?.Id)
-            {
-                error = $"Availability could not be checked: {exception.Message}";
-            }
-        }
+        Navigation.NavigateTo(
+            $"/availability?hotelId={Uri.EscapeDataString(destinationHotelId)}&checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}");
     }
 
-    private async Task BookRoom()
-    {
-        if (selectedHotel is null || selectedRoom is null)
-        {
-            return;
-        }
-
-        try
-        {
-            error = null;
-            var response = await Http.PostAsJsonAsync("api/reservations", new BookingRequest(
-                selectedHotel.Id, selectedRoom.Id, checkIn, checkOut, guests, guestName, vehiclePreference));
-            if (!response.IsSuccessStatusCode)
-            {
-                error = await response.Content.ReadAsStringAsync();
-                return;
-            }
-
-            reservation = await response.Content.ReadFromJsonAsync<Reservation>();
-        }
-        catch (Exception exception)
-        {
-            error = $"The booking could not be completed: {exception.Message}";
-        }
-    }
-
-    private void StartNewReservationIfConfirmed()
-    {
-        if (reservation is null)
-        {
-            return;
-        }
-
-        reservation = null;
-        vehiclePreference = null;
-        guestName = string.Empty;
-    }
+    private void SearchAvailabilityFromForm() => SearchAvailability();
 }

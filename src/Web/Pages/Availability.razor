@@ -1,0 +1,352 @@
+@page "/availability"
+@using AgenticHotelBooking.Domain
+@using System.Globalization
+@inject HttpClient Http
+
+<PageTitle>Room availability</PageTitle>
+
+<div class="availability-page">
+    <a class="back-link" href="/">Change search</a>
+    <h1>Room availability</h1>
+
+    <section class="search-summary" aria-labelledby="search-summary-title">
+        <h2 id="search-summary-title">Your search</h2>
+        <dl>
+            @if (selectedHotel is not null)
+            {
+                <dt>Hotel</dt>
+                <dd>@selectedHotel.Name</dd>
+            }
+            <dt>Check-in</dt>
+            <dd>@(CheckInQuery ?? "Not provided")</dd>
+            <dt>Check-out</dt>
+            <dd>@(CheckOutQuery ?? "Not provided")</dd>
+            <dt>Guests</dt>
+            <dd>@(GuestsQuery ?? "Not provided")</dd>
+        </dl>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger" role="alert">@error</div>
+    }
+    else if (isLoading)
+    {
+        <div class="hotel-loading" role="status">
+            <span class="hotel-loading-spinner" aria-hidden="true"></span>
+            <span>Checking room availability</span>
+        </div>
+    }
+
+    @if (selectedHotel is not null && rooms is not null)
+    {
+        <section class="booking-panel" aria-labelledby="booking-title">
+            <h2 id="booking-title">Available rooms at @selectedHotel.Name</h2>
+
+            @if (rooms.Count == 0)
+            {
+                <p class="empty-state" role="status">No rooms are available for these dates and guest count.</p>
+            }
+            else
+            {
+                var matchingRooms = GetMatchingRooms();
+                @if (AmenityOptions.Count > 0)
+                {
+                    <fieldset class="amenity-filters" aria-describedby="amenity-filter-help">
+                        <legend>Filter available rooms by amenities</legend>
+                        <p id="amenity-filter-help">Choose one or more amenities. Rooms must include every selected amenity.</p>
+                        <div class="amenity-options">
+                            @foreach (var (amenity, index) in AmenityOptions.Select((name, index) => (name, index)))
+                            {
+                                var inputId = $"amenity-filter-{index}";
+                                <label for="@inputId">
+                                    <input id="@inputId"
+                                           type="checkbox"
+                                           checked="@selectedAmenities.Contains(amenity)"
+                                           @onchange="args => ToggleAmenity(amenity, args)" />
+                                    @amenity
+                                </label>
+                            }
+                        </div>
+                        <button type="button"
+                                class="btn btn-outline-primary"
+                                @onclick="ClearAmenityFilters"
+                                disabled="@(selectedAmenities.Count == 0)">Clear all filters</button>
+                    </fieldset>
+                }
+
+                @if (matchingRooms.Count == 0)
+                {
+                    <p class="empty-state" role="status">Available rooms were found, but none match all selected amenities. Clear filters or choose different amenities.</p>
+                }
+                else
+                {
+                    <div class="room-list">
+                        @foreach (var room in matchingRooms)
+                        {
+                            <button type="button"
+                                    class="room-option @(selectedRoom?.Id == room.Id ? "selected" : null)"
+                                    @onclick="() => SelectRoom(room)"
+                                    aria-pressed="@(selectedRoom?.Id == room.Id ? "true" : "false")">
+                                <strong>@room.Name</strong>
+                                <span>Up to @room.Capacity guests</span>
+                                <span>@FormatEuro(room.NightlyRate) per night</span>
+                                @if (selectedRoom?.Id == room.Id)
+                                {
+                                    <span class="room-selection">Selected</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            }
+
+            @if (selectedRoom is not null)
+            {
+                <dl class="stay-total">
+                    <dt>Nightly rate</dt>
+                    <dd>@FormatEuro(selectedRoom.NightlyRate)</dd>
+                    <dt>Number of nights</dt>
+                    <dd>@NumberOfNights</dd>
+                    <dt>Total stay price</dt>
+                    <dd><strong>@FormatEuro(TotalStayPrice)</strong></dd>
+                </dl>
+                <div class="confirm-row">
+                    <label>Guest name <input @bind="guestName" /></label>
+                    <div class="vehicle-preference">
+                        <label for="vehicle-preference">Vehicle preference</label>
+                        <select id="vehicle-preference"
+                                @bind="vehiclePreference"
+                                aria-describedby="vehicle-preference-help"
+                                disabled="@(reservation is not null)">
+                            <option value="">No preference</option>
+                            @foreach (var option in VehiclePreferences)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                        <p id="vehicle-preference-help">
+                            Optional. A vehicle preference is not a guaranteed rental.
+                            Choose No preference to clear it before confirming.
+                        </p>
+                    </div>
+                    <button class="btn btn-success"
+                            @onclick="BookRoom"
+                            disabled="@(reservation is not null)">Confirm booking</button>
+                </div>
+            }
+        </section>
+    }
+
+    @if (reservation is not null)
+    {
+        <section class="confirmation" role="status">
+            <span>Booking confirmed</span>
+            <h2>@reservation.Reference</h2>
+            <p>@reservation.GuestName · @reservation.CheckIn to @reservation.CheckOut</p>
+            <p>Total stay price: <strong>@FormatEuro(reservation.TotalStayPrice)</strong></p>
+            <p>Vehicle preference: <strong>@(reservation.VehiclePreference?.ToString() ?? "None")</strong></p>
+            <p>A vehicle preference is not a guaranteed rental and cannot be added or changed after confirmation.</p>
+        </section>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "hotelId")]
+    public string? HotelIdQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "checkIn")]
+    public string? CheckInQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "checkOut")]
+    public string? CheckOutQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "guests")]
+    public string? GuestsQuery { get; set; }
+
+    private IReadOnlyList<Hotel>? hotels;
+    private Hotel? selectedHotel;
+    private IReadOnlyList<Room>? rooms;
+    private Room? selectedRoom;
+    private Reservation? reservation;
+    private string? error;
+    private bool isLoading;
+    private int availabilitySearchId;
+    private int guests;
+    private DateOnly checkIn;
+    private DateOnly checkOut;
+    private string guestName = string.Empty;
+    private VehiclePreference? vehiclePreference;
+    private readonly HashSet<string> selectedAmenities = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly VehiclePreference[] VehiclePreferences = Enum.GetValues<VehiclePreference>();
+    private int NumberOfNights => checkOut.DayNumber - checkIn.DayNumber;
+    private decimal TotalStayPrice => selectedRoom?.NightlyRate * NumberOfNights ?? 0m;
+    private IReadOnlyList<string> AmenityOptions => selectedHotel?.Rooms
+        .SelectMany(room => room.Amenities)
+        .Where(amenity => !string.IsNullOrWhiteSpace(amenity))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(amenity => amenity, StringComparer.OrdinalIgnoreCase)
+        .ToArray() ?? [];
+
+    private static string FormatEuro(decimal amount) =>
+        amount.ToString("C", CultureInfo.GetCultureInfo("nl-NL"));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var searchId = ++availabilitySearchId;
+        selectedHotel = null;
+        rooms = null;
+        selectedRoom = null;
+        reservation = null;
+        selectedAmenities.Clear();
+        vehiclePreference = null;
+        guestName = string.Empty;
+        error = null;
+
+        if (!DateOnly.TryParseExact(
+                CheckInQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out checkIn) ||
+            !DateOnly.TryParseExact(
+                CheckOutQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out checkOut))
+        {
+            error = "Enter valid check-in and check-out dates. No availability search was run.";
+            return;
+        }
+
+        if (checkIn < DateOnly.FromDateTime(DateTime.Today))
+        {
+            error = "Check-in cannot be in the past. No availability results are shown.";
+            return;
+        }
+
+        if (checkOut <= checkIn)
+        {
+            error = "Check-out must be after check-in. No availability results are shown.";
+            return;
+        }
+
+        if (!int.TryParse(GuestsQuery, NumberStyles.None, CultureInfo.InvariantCulture, out guests) ||
+            guests is < 1 or > 8)
+        {
+            error = "Choose between 1 and 8 guests. No availability search was run.";
+            return;
+        }
+
+        if (!Guid.TryParse(HotelIdQuery, out var hotelId))
+        {
+            error = "Choose a valid hotel before checking availability.";
+            return;
+        }
+
+        isLoading = true;
+        try
+        {
+            hotels ??= await Http.GetFromJsonAsync<Hotel[]>("api/hotels") ?? [];
+            if (searchId != availabilitySearchId)
+            {
+                return;
+            }
+
+            selectedHotel = hotels.FirstOrDefault(hotel => hotel.Id == hotelId);
+            if (selectedHotel is null)
+            {
+                error = "The selected hotel could not be found.";
+                return;
+            }
+
+            var result = await Http.GetFromJsonAsync<Room[]>(
+                $"api/hotels/{hotelId}/availability?checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&guests={guests}");
+            if (searchId == availabilitySearchId)
+            {
+                rooms = result ?? [];
+            }
+        }
+        catch (Exception exception)
+        {
+            if (searchId == availabilitySearchId)
+            {
+                rooms = null;
+                error = selectedHotel is null
+                    ? $"Hotels could not be loaded: {exception.Message}"
+                    : $"Availability could not be checked: {exception.Message}";
+            }
+        }
+        finally
+        {
+            if (searchId == availabilitySearchId)
+            {
+                isLoading = false;
+            }
+        }
+    }
+
+    private void SelectRoom(Room room)
+    {
+        StartNewReservationIfConfirmed();
+        selectedRoom = room;
+        error = null;
+    }
+
+    private IReadOnlyList<Room> GetMatchingRooms() =>
+        RoomAmenityFilter.MatchAll(rooms ?? [], selectedAmenities);
+
+    private void ToggleAmenity(string amenity, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedAmenities.Add(amenity);
+        }
+        else
+        {
+            selectedAmenities.Remove(amenity);
+        }
+
+        if (selectedRoom is not null &&
+            !GetMatchingRooms().Any(room => room.Id == selectedRoom.Id))
+        {
+            selectedRoom = null;
+        }
+    }
+
+    private void ClearAmenityFilters()
+    {
+        selectedAmenities.Clear();
+    }
+
+    private async Task BookRoom()
+    {
+        if (selectedHotel is null || selectedRoom is null)
+        {
+            return;
+        }
+
+        try
+        {
+            error = null;
+            var response = await Http.PostAsJsonAsync("api/reservations", new BookingRequest(
+                selectedHotel.Id, selectedRoom.Id, checkIn, checkOut, guests, guestName, vehiclePreference));
+            if (!response.IsSuccessStatusCode)
+            {
+                error = await response.Content.ReadAsStringAsync();
+                return;
+            }
+
+            reservation = await response.Content.ReadFromJsonAsync<Reservation>();
+        }
+        catch (Exception exception)
+        {
+            error = $"The booking could not be completed: {exception.Message}";
+        }
+    }
+
+    private void StartNewReservationIfConfirmed()
+    {
+        if (reservation is null)
+        {
+            return;
+        }
+
+        reservation = null;
+        vehiclePreference = null;
+        guestName = string.Empty;
+    }
+}

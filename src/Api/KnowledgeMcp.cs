@@ -18,6 +18,7 @@ public static partial class KnowledgeAccess
         var path = request.Path.Value?.TrimEnd('/').ToLowerInvariant();
         return request.Path.StartsWithSegments("/api/knowledge") ||
             request.Path.StartsWithSegments("/api/admin") ||
+            request.Path.StartsWithSegments("/api/delivery/approvals") ||
             path is "/api/work-item-chat" or "/api/work-items" or "/api/delivery/status" ||
             (path == "/api/operations/events" && (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method))) ||
             request.Path.StartsWithSegments("/hubs/operations");
@@ -70,7 +71,7 @@ public static partial class KnowledgeAccess
             if (!valid)
             {
                 context.Response.Headers.WWWAuthenticate = "Bearer realm=\"hotel-knowledge\"";
-                await Results.Problem(statusCode: 401, title: mcp ? "A valid MCP access token is required." : "Sign in to AI Product Management to continue.")
+                await Results.Problem(statusCode: 401, title: mcp ? "A valid MCP access token is required." : "Sign in to the administrator workspace to continue.")
                     .ExecuteAsync(context);
                 return;
             }

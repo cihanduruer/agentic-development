@@ -130,7 +130,10 @@ public sealed record DeliverySummary(
     int? PullRequestNumber,
     string? PullRequestUrl,
     IReadOnlyList<DeliveryStageSummary> Stages,
-    BoardsWorkItemSummary? BoardsWorkItem);
+    BoardsWorkItemSummary? BoardsWorkItem)
+{
+    public bool IsDraft { get; init; }
+}
 
 public sealed record DeliveryStageSummary(
     string Name,

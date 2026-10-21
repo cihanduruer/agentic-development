@@ -1,0 +1,12 @@
+@host = http://localhost:5224
+@session = REPLACE_WITH_PRIVATE_ADMINISTRATOR_SESSION
+
+### Read only; missing write configuration is explicitly unavailable.
+GET {{host}}/api/delivery/approvals/77?workItemId=975
+Authorization: Bearer {{session}}
+
+### Reject missing administrator session, even in local Development.
+POST {{host}}/api/delivery/approvals
+Content-Type: application/json
+
+{"workItemId":975,"pullRequestNumber":77,"expectedHeadSha":"0000000000000000000000000000000000000000"}

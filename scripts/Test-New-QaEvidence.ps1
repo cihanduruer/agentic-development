@@ -192,6 +192,21 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
             'name: qa-evidence-${{ steps.context.outputs.head-sha }}-${{ steps.evidence.outputs.metadata-digest }}')
     ) $true 'QA upload must include the metadata digest in its artifact identity.'
     Assert-Equal (
+        $releaseWorkflow.Contains(
+            "const qaJob = jobs.find(job => job.name === 'Independent QA evidence gate');")
+    ) $true 'Release proposal must inspect the independent QA job result.'
+    Assert-Equal (
+        $releaseWorkflow.Contains("if (qaJob.conclusion === 'skipped')")
+    ) $true 'Intentionally skipped QA must not trigger a release proposal.'
+    Assert-Equal (
+        $releaseWorkflow.Contains("if (qaJob.conclusion !== 'success')")
+    ) $true 'Non-successful QA must not be treated as release evidence.'
+    Assert-Equal (
+        [regex]::Matches(
+            $releaseWorkflow,
+            "(?m)^        if: steps\.qa-status\.outputs\.executed == 'true'$").Count
+    ) 2 'Release artifact download and resolution must require executed QA.'
+    Assert-Equal (
         $releaseWorkflow.Contains('qaMetadataDigest = $env:QA_METADATA_DIGEST')
     ) $true 'Release evidence must preserve the QA metadata digest.'
     Assert-Equal (
@@ -350,12 +365,27 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
         },
         @{
             Name = 'job-condition-change'
-            Old = "      github.event_name == 'workflow_dispatch'"
-            New = "      false && github.event_name == 'workflow_dispatch'"
+            Old = "    if: needs.eligibility.outputs.run_qa == 'true'"
+            New = "    if: false && needs.eligibility.outputs.run_qa == 'true'"
             SemanticContextMutation = $true
             OracleScope = 'job-if-prefix'
             OracleKey = '-'
             OracleExpected = 'false &&'
+        },
+        @{
+            Name = 'draft-eligibility-bypass'
+            Old = '                || pull.draft'
+            New = '                || false'
+        },
+        @{
+            Name = 'not-required-review-bypass'
+            Old = "              job.name === 'Copilot findings gate'"
+            New = "              job.name === 'Copilot review not required'"
+        },
+        @{
+            Name = 'unconditional-evidence-upload'
+            Old = "        if: always() && steps.qa-inputs.outcome == 'success'"
+            New = '        if: always()'
         },
         @{
             Name = 'workflow-default-shell'
@@ -637,8 +667,8 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
         },
         @{
             Name = 'windows-job-runner'
-            Old = '    runs-on: ubuntu-24.04'
-            New = '    runs-on: windows-latest'
+            Old = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: ubuntu-24.04"
+            New = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: windows-latest"
             SemanticContextMutation = $true
             OracleScope = 'job-key'
             OracleKey = 'runs-on'
@@ -646,8 +676,8 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
         },
         @{
             Name = 'macos-job-runner'
-            Old = '    runs-on: ubuntu-24.04'
-            New = '    runs-on: macos-latest'
+            Old = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: ubuntu-24.04"
+            New = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: macos-latest"
             SemanticContextMutation = $true
             OracleScope = 'job-key'
             OracleKey = 'runs-on'
@@ -655,8 +685,8 @@ print(json.dumps({"version": yaml.__version__, "path": str(module_path)}))
         },
         @{
             Name = 'job-container'
-            Old = '    runs-on: ubuntu-24.04'
-            New = "    runs-on: ubuntu-24.04`n    container: ubuntu:24.04"
+            Old = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: ubuntu-24.04"
+            New = "  qa:${workflowNewLine}    name: Independent QA evidence gate${workflowNewLine}    needs: eligibility${workflowNewLine}    if: needs.eligibility.outputs.run_qa == 'true'${workflowNewLine}    runs-on: ubuntu-24.04${workflowNewLine}    container: ubuntu:24.04"
             SemanticContextMutation = $true
             OracleScope = 'job-key'
             OracleKey = 'container'

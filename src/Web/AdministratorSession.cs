@@ -176,6 +176,8 @@ public sealed class AdministratorSession(HttpClient signInHttp, IJSRuntime js) :
     public static bool IsAdministratorApi(Uri uri) =>
         uri.AbsolutePath.StartsWith("/api/admin/", StringComparison.OrdinalIgnoreCase) ||
         uri.AbsolutePath.StartsWith("/api/knowledge/", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsolutePath.TrimEnd('/').Equals("/api/delivery/approvals", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsolutePath.StartsWith("/api/delivery/approvals/", StringComparison.OrdinalIgnoreCase) ||
         uri.AbsolutePath is "/api/work-item-chat" or "/api/work-items" or "/api/delivery/status" or "/api/operations/events";
 
     public static string SafeReturnUrl(Uri origin, string? value)

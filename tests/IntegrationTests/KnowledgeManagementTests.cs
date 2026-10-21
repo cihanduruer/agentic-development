@@ -59,6 +59,17 @@ public sealed class KnowledgeManagementTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task EnabledManagementReportsWriteCapability()
+    {
+        using var handler = new SearchFixtureHandler();
+        using var app = CreateApp(handler);
+        using var client = app.CreateClient();
+        var capabilities = await client.GetFromJsonAsync<JsonElement>("/api/knowledge/capabilities");
+        Assert.True(capabilities.GetProperty("canManageUploads").GetBoolean());
+        Assert.Equal(0, handler.DeleteCalls);
+    }
+
+    [Fact]
     public async Task PreviewReturnsCompleteTextInBlockOrderForOnlyTheSelectedSource()
     {
         using var handler = new SearchFixtureHandler();

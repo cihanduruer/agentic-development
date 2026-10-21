@@ -66,6 +66,10 @@ if (!builder.Environment.IsDevelopment())
 }
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IDevelopmentApprovalService>(services => new DevelopmentApprovalService(
+    new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) },
+    services.GetRequiredService<IConfiguration>(),
+    services.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<IDeliveryStatusService>(services => new DeliveryStatusService(
     new HttpClient { BaseAddress = new Uri("https://api.github.com/") },
     new HttpClient { BaseAddress = new Uri("https://dev.azure.com/ai-enabled-ado-org/") },
@@ -193,6 +197,7 @@ if (app.Environment.IsDevelopment())
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
 app.MapMcp("/mcp");
 app.MapKnowledgeSignIn();
+app.MapDevelopmentApproval();
 
 app.MapGet("/api/hotels", async (IHotelBookingService service, CancellationToken cancellationToken) =>
     await service.GetHotelsAsync(cancellationToken));

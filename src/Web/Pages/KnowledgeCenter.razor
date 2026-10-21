@@ -22,6 +22,38 @@
             <button type="button" class="btn btn-primary" @onclick="() => showAdd = !showAdd" aria-expanded="@(showAdd ? "true" : "false")" aria-controls="add-knowledge" disabled="@(adding || !canManageUploads)">@(showAdd ? "Close add content" : "Add content")</button>
         </div>
     </header>
+    @if (adding || addMessage is not null)
+    {
+        <div class="kc-update-banner @(addFailed ? "failed" : adding ? "updating" : "complete")" role="@(addFailed ? "alert" : "status")" aria-atomic="true">
+            @if (adding)
+            {
+                <span class="kc-update-spinner" role="progressbar" aria-label="@updateTitle"></span>
+                <div>
+                    <strong>@updateTitle</strong>
+                    <p>@updateStage</p>
+                    <p>Search and MCP answers may be temporarily unavailable or incomplete while indexing changes. Wait for confirmation before using them.</p>
+                </div>
+            }
+            else
+            {
+                <div>
+                    <strong>@(addFailed ? "Update needs attention" : "Update confirmed")</strong>
+                    <p>@addMessage</p>
+                </div>
+            }
+        </div>
+    }
+    @if (capabilitiesError is not null)
+    {
+        <div class="kc-management-note" role="alert">@capabilitiesError</div>
+    }
+    else if (!loadingCapabilities && !canManageUploads)
+    {
+        <div class="kc-management-note">
+            <strong>Content changes are disabled on the API.</strong>
+            <p>Preview is available. Uploading, approval, deletion and rebuilding are disabled in this environment.</p>
+        </div>
+    }
     @if (confirmRebuild)
     {
         <div class="pm-delete-confirm" role="group" aria-label="Confirm index rebuild">
@@ -32,15 +64,7 @@
     }
 
     <section class="pm-knowledge" aria-label="Knowledge center (RAG)">
-        <div id="knowledge-body">
-        @if (capabilitiesError is not null)
-        {
-            <p class="pm-knowledge-note" role="alert">@capabilitiesError</p>
-        }
-        else if (!canManageUploads)
-        {
-            <p class="pm-knowledge-note">Preview is available. Uploading, approval and deletion are disabled in this environment.</p>
-        }
+        <div id="knowledge-body" aria-busy="@(adding ? "true" : "false")">
         @if (showAdd)
         {
         <div id="add-knowledge" class="pm-add" aria-label="Add content" role="group">
@@ -66,15 +90,6 @@
 
         </div>
         }
-        @if (adding)
-        {
-            <p class="pm-add-status" role="status">Updating the knowledge center...</p>
-        }
-        else if (addMessage is not null)
-        {
-            <p class="pm-add-status @(addFailed ? "failed" : "ok")" role="@(addFailed ? "alert" : "status")">@addMessage</p>
-        }
-
         @if (loadingBlocks)
         {
             <p class="pm-knowledge-note" role="status">Loading indexed content...</p>
@@ -243,6 +258,7 @@
     private bool loadingBlocks = true;
     private string? blocksError;
     private bool canManageUploads;
+    private bool loadingCapabilities = true;
     private string? capabilitiesError;
     private string? previewPath;
     private List<Block> previewBlocks = [];
@@ -262,6 +278,8 @@
     private string? pdfError;
     private bool addFailed;
     private string? addMessage;
+    private string updateTitle = string.Empty;
+    private string updateStage = string.Empty;
     private string pasteTitle = string.Empty;
     private string pasteText = string.Empty;
 
@@ -281,6 +299,7 @@
 
     private async Task LoadCapabilitiesAsync()
     {
+        loadingCapabilities = true;
         try
         {
             var capabilities = await Http.GetFromJsonAsync<KnowledgeCapabilities>("api/knowledge/capabilities")
@@ -292,6 +311,10 @@
         {
             canManageUploads = false;
             capabilitiesError = "Content management permissions could not be loaded. Changes are disabled; refresh to retry.";
+        }
+        finally
+        {
+            loadingCapabilities = false;
         }
     }
 
@@ -429,6 +452,11 @@
 
     private async Task<bool> LoadBlocksAsync(Func<List<Block>, bool>? isCurrent = null)
     {
+        if (adding)
+        {
+            updateStage = "Refreshing and verifying the indexed content...";
+            StateHasChanged();
+        }
         for (var attempt = 0; attempt < 6; attempt++)
         {
             try
@@ -438,7 +466,7 @@
                 {
                     canManageUploads = false;
                     blocks.Clear();
-                    blocksError = "Your session has expired. Sign in to AI Product Management to continue.";
+                    blocksError = "Your session has expired. Sign in to the administrator workspace to continue.";
                     loadingBlocks = false;
                     return false;
                 }
@@ -477,7 +505,7 @@
 
         const long maxBytes = 5 * 1024 * 1024;
         var file = args.File;
-        BeginAdd();
+        BeginAdd("Adding and indexing your file");
         try
         {
             if (file.Size > maxBytes)
@@ -492,9 +520,9 @@
             using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/upload", content);
             await FinishAddAsync(response, file.Name);
         }
-        catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException)
+        catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException or TaskCanceledException)
         {
-            Fail("The file could not be uploaded. Try again.");
+            Fail("Upload completion could not be confirmed. Refresh before retrying; the document may already be retained.");
         }
         finally
         {
@@ -509,7 +537,7 @@
             return;
         }
 
-        BeginAdd();
+        BeginAdd("Adding and indexing your text");
         try
         {
             using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/text", JsonContent.Create(new { title = pasteTitle.Trim(), text = pasteText }));
@@ -520,9 +548,9 @@
                 showPaste = false;
             }
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
-            Fail("The text could not be added. Try again.");
+            Fail("Adding text could not be confirmed. Refresh before retrying; the document may already be retained.");
         }
         finally
         {
@@ -537,7 +565,7 @@
             return;
         }
 
-        BeginAdd();
+        BeginAdd("Approving the document for search and MCP");
         try
         {
             using var response = await SendKnowledgeAsync(HttpMethod.Post, $"api/knowledge/documents/approve?path={Uri.EscapeDataString(path)}");
@@ -556,9 +584,9 @@
             addFailed = false;
             addMessage = $"Approved {FileName(path)}. The assistant can use it now.";
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
-            Fail("The source could not be approved. Try again.");
+            Fail("Approval could not be confirmed. Refresh before trying again.");
         }
         finally
         {
@@ -573,7 +601,7 @@
             return;
         }
 
-        BeginAdd();
+        BeginAdd("Deleting the document and its search blocks");
         try
         {
             using var response = await SendKnowledgeAsync(HttpMethod.Delete, $"api/knowledge/documents?path={Uri.EscapeDataString(path)}");
@@ -608,7 +636,7 @@
             addFailed = false;
             addMessage = $"Deleted {FileName(path)} and {result.Removed} indexed blocks.";
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
             Fail("Deletion could not be confirmed. Refresh the knowledge center before trying again.");
         }
@@ -626,7 +654,12 @@
 
     private async Task RebuildAsync()
     {
-        BeginAdd();
+        if (adding || !canManageUploads || !confirmRebuild)
+        {
+            return;
+        }
+
+        BeginAdd("Rebuilding the search index");
         try
         {
             using var response = await SendKnowledgeAsync(HttpMethod.Post, "api/knowledge/rebuild");
@@ -636,10 +669,14 @@
                 return;
             }
             confirmRebuild = false;
-            await LoadBlocksAsync();
+            if (!await LoadBlocksAsync())
+            {
+                Fail("Rebuild was accepted, but the refreshed index could not be verified. Refresh before using search or MCP.");
+                return;
+            }
             addMessage = "Search index rebuilt from retained documents.";
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
             Fail("Rebuild completion could not be confirmed. Refresh before retrying.");
         }
@@ -649,8 +686,10 @@
         }
     }
 
-    private void BeginAdd()
+    private void BeginAdd(string title)
     {
+        updateTitle = title;
+        updateStage = "Updating retained documents and the search index...";
         adding = true;
         addFailed = false;
         addMessage = null;
@@ -671,17 +710,20 @@
         }
 
         var result = await response.Content.ReadFromJsonAsync<UploadResult>();
-        if (!await LoadBlocksAsync(list => result is null ||
-            (list.Count(block => block.Path == result.Path) == result.Blocks &&
-             list.Where(block => block.Path == result.Path).All(block => block.Pending))))
+        if (result is null || string.IsNullOrWhiteSpace(result.Path) || result.Blocks <= 0)
+        {
+            Fail("The server did not confirm the added document. Refresh before retrying.");
+            return false;
+        }
+        if (!await LoadBlocksAsync(list =>
+            list.Count(block => block.Path == result.Path) == result.Blocks &&
+            list.Where(block => block.Path == result.Path).All(block => block.Pending)))
         {
             Fail("The upload was accepted, but the refreshed list could not confirm it. Refresh before trying again.");
             return false;
         }
         addFailed = false;
-        addMessage = result is null
-            ? $"Added {name}."
-            : $"Added {name}: {result.Blocks} blocks{(result.Replaced > 0 ? $", replaced {result.Replaced} older blocks" : string.Empty)}. Approve it to let the assistant use it.";
+        addMessage = $"Added {name}: {result.Blocks} blocks{(result.Replaced > 0 ? $", replaced {result.Replaced} older blocks" : string.Empty)}. Approve it to let the assistant use it.";
         return true;
     }
 

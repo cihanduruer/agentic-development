@@ -16,7 +16,8 @@ else
 @code {
     [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
     private bool loading = true;
-    private bool IsPublic => RouteData.PageType == typeof(Pages.Home) || RouteData.PageType == typeof(Pages.AdminLogin) ||
+    private bool IsPublic => RouteData.PageType == typeof(Pages.Home) || RouteData.PageType == typeof(Pages.Availability) ||
+        RouteData.PageType == typeof(Pages.AdminLogin) ||
         RouteData.PageType == typeof(Pages.NotFound);
 
     protected override void OnInitialized() => Session.Changed += SessionChanged;
