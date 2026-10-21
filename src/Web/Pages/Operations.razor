@@ -152,6 +152,7 @@
     private DeliveryProgressStep? CurrentStep => steps.FirstOrDefault(step => step.Status != "Passed");
     private bool CanApprove => !busy && !approving && snapshot?.IsStale == false &&
         error is null && approval?.CanApprove == true && CurrentStep?.Name == "Your approval" &&
+        approval.MetadataDigest is { Length: 64 } &&
         approval.HeadSha == current?.Stages.FirstOrDefault(stage => stage.Name == "Pull request")?.HeadSha;
     private string RequestUrl => current?.BoardsWorkItem?.Url ??
         $"https://dev.azure.com/ai-enabled-ado-org/sample-project/_workitems/edit/{current?.WorkItemId}";
@@ -251,7 +252,7 @@
         try
         {
             using var response = await Http.PostAsJsonAsync("api/delivery/approvals",
-                new ApproveDevelopmentRequest(id, number, approval.HeadSha), lifetime.Token);
+                new ApproveDevelopmentRequest(id, number, approval.HeadSha, approval.MetadataDigest ?? ""), lifetime.Token);
             if (!response.IsSuccessStatusCode)
             {
                 using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(lifetime.Token), cancellationToken: lifetime.Token);

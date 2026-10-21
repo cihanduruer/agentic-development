@@ -33,7 +33,11 @@ public sealed class DevelopmentApprovalTests
     [InlineData("fork")]
     [InlineData("wrong-work-item")]
     [InlineData("ambiguous-issue")]
+    [InlineData("later-page-duplicate")]
+    [InlineData("issue-scan-bound")]
     [InlineData("review-skipped")]
+    [InlineData("other-check-skipped")]
+    [InlineData("pending-alternative")]
     [InlineData("latest-check-failed")]
     [InlineData("expired-artifact")]
     [InlineData("wrong-validation-sha")]
@@ -47,7 +51,7 @@ public sealed class DevelopmentApprovalTests
         using var service = Create(handler);
         var state = await service.GetStateAsync(975, 77, default);
         Assert.False(state.CanApprove);
-        await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, Sha), "admin@example.test", default));
+        await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, Sha, Handler.Digest), "admin@example.test", default));
         Assert.Equal(0, handler.Merges);
         Assert.Empty(handler.ReviewBodies);
     }
@@ -60,7 +64,8 @@ public sealed class DevelopmentApprovalTests
         var state = await service.GetStateAsync(975, 77, default);
         Assert.True(state.CanApprove);
         Assert.Equal(Sha, state.HeadSha);
-        var result = await service.ApproveAsync(new(975, 77, Sha), "admin@example.test", default);
+        Assert.Equal(Handler.Digest, state.MetadataDigest);
+        var result = await service.ApproveAsync(new(975, 77, Sha, state.MetadataDigest!), "admin@example.test", default);
         Assert.Equal("Publishing", result.Status);
         Assert.Equal(1, handler.Merges);
         var audit = Assert.Single(handler.ReviewBodies);
@@ -75,7 +80,7 @@ public sealed class DevelopmentApprovalTests
     {
         var handler = new Handler();
         using var service = Create(handler);
-        var request = new ApproveDevelopmentRequest(975, 77, Sha);
+        var request = new ApproveDevelopmentRequest(975, 77, Sha, Handler.Digest);
         var results = await Task.WhenAll(
             service.ApproveAsync(request, "admin@example.test", default),
             service.ApproveAsync(request, "admin@example.test", default));
@@ -95,7 +100,7 @@ public sealed class DevelopmentApprovalTests
         {
             var handler = new Handler { Variant = variant };
             using var service = Create(handler);
-            await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, Sha), "admin@example.test", default));
+            await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, Sha, Handler.Digest), "admin@example.test", default));
             Assert.Equal(0, handler.Merges);
         }
     }
@@ -105,9 +110,57 @@ public sealed class DevelopmentApprovalTests
     {
         var handler = new Handler();
         using var service = Create(handler);
-        await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, new string('a', 40)), "admin@example.test", default));
+        await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.ApproveAsync(new(975, 77, new string('a', 40), Handler.Digest), "admin@example.test", default));
         Assert.Empty(handler.ReviewBodies);
         Assert.Equal(0, handler.Merges);
+    }
+
+    [Fact]
+    public async Task LaterPageSoleCanonicalIssueCanBeApproved()
+    {
+        var handler = new Handler { Variant = "later-page-match" };
+        using var service = Create(handler);
+        var state = await service.GetStateAsync(975, 77, default);
+        Assert.True(state.CanApprove);
+        Assert.Equal(2, handler.IssuePages);
+        var result = await service.ApproveAsync(new(975, 77, Sha, state.MetadataDigest!), "admin@example.test", default);
+        Assert.Equal("Publishing", result.Status);
+        Assert.Equal(1, handler.Merges);
+    }
+
+    [Fact]
+    public async Task AcceptanceChangedSinceReadinessRequiresRefreshEvenWithRegeneratedQa()
+    {
+        var handler = new Handler();
+        using var service = Create(handler);
+        var state = await service.GetStateAsync(975, 77, default);
+        Assert.True(state.CanApprove);
+        handler.MetadataUpdated = true;
+        var error = await Assert.ThrowsAsync<DevelopmentApprovalException>(() =>
+            service.ApproveAsync(new(975, 77, Sha, state.MetadataDigest!), "admin@example.test", default));
+        Assert.Equal(409, error.StatusCode);
+        Assert.Empty(handler.ReviewBodies);
+        Assert.Equal(0, handler.Merges);
+
+        var refreshed = await service.GetStateAsync(975, 77, default);
+        Assert.True(refreshed.CanApprove);
+        Assert.NotEqual(state.MetadataDigest, refreshed.MetadataDigest);
+        await service.ApproveAsync(new(975, 77, Sha, refreshed.MetadataDigest!), "admin@example.test", default);
+        Assert.Equal(1, handler.Merges);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("invalid")]
+    public async Task MissingOrInvalidAcceptanceDigestIsRejectedBeforeGitHub(string? digest)
+    {
+        var handler = new Handler();
+        using var service = Create(handler);
+        var error = await Assert.ThrowsAsync<DevelopmentApprovalException>(() =>
+            service.ApproveAsync(new(975, 77, Sha, digest!), "admin@example.test", default));
+        Assert.Equal(400, error.StatusCode);
+        Assert.Equal(0, handler.Requests);
     }
 
     private static DevelopmentApprovalService Create(Handler handler, bool configured = true) =>
@@ -119,9 +172,13 @@ public sealed class DevelopmentApprovalTests
     {
         private const string Title = "[AB#975] Linear delivery";
         private const string Body = "Azure Boards: AB#975";
-        private static readonly string Digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Title + "\n" + Body)));
+        public static readonly string Digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Title + "\n" + Body)));
+        private string ActiveDigest => MetadataUpdated
+            ? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Title + "\n" + Body + "\nUpdated"))) : Digest;
         public string Variant { get; init; } = "";
+        public bool MetadataUpdated { get; set; }
         public int Requests { get; private set; }
+        public int IssuePages { get; private set; }
         public int Merges { get; private set; }
         public List<string> ReviewBodies { get; } = [];
         public string? MergeExpectedSha { get; private set; }
@@ -163,7 +220,7 @@ public sealed class DevelopmentApprovalTests
                 return Response(new
                 {
                     title = Title,
-                    body = Variant == "metadata-changes" && pullReads > 1 ? Body + "\nUpdated" : Body,
+                    body = MetadataUpdated || Variant == "metadata-changes" && pullReads > 1 ? Body + "\nUpdated" : Body,
                     state = "open",
                     draft = Variant == "draft",
                     merged = Merges > 0,
@@ -179,10 +236,31 @@ public sealed class DevelopmentApprovalTests
             }
             if (path == "/user") return Response(new { login = "demo-approver" });
             if (path.EndsWith("/issues", StringComparison.Ordinal))
+            {
+                IssuePages++;
+                if (Variant == "issue-scan-bound" ||
+                    Variant is "later-page-match" or "later-page-duplicate" &&
+                    request.RequestUri.Query.EndsWith("&page=1", StringComparison.Ordinal))
+                    return Response(Enumerable.Range(0, 100).Select(index => new
+                    {
+                        title = Variant == "later-page-duplicate" && index == 0 ? Title : "Unrelated issue",
+                        body = "",
+                        author_association = "OWNER"
+                    }));
                 return Response(Enumerable.Range(0, Variant == "ambiguous-issue" ? 2 : 1)
                     .Select(_ => new { title = Variant == "wrong-work-item" ? "[AB#976] Other" : Title, body = "", author_association = "OWNER" }));
+            }
             if (path.EndsWith("/check-runs", StringComparison.Ordinal))
-                return Response(new { total_count = 1, check_runs = new[] { new { status = "completed", conclusion = Variant == "latest-check-failed" ? "failure" : "success" } } });
+                return Response(new
+                {
+                    total_count = 2,
+                    check_runs = new[]
+                    {
+                        new { name = "validate", status = "completed", conclusion = Variant == "latest-check-failed" ? "failure" : "success" },
+                        new { name = Variant == "other-check-skipped" ? "Independent QA evidence gate" : "Copilot review not required",
+                            status = Variant == "pending-alternative" ? "queued" : "completed", conclusion = "skipped" }
+                    }
+                });
             if (path.Contains("/workflows/", StringComparison.Ordinal))
             {
                 var review = path.Contains("hotel-code-review", StringComparison.Ordinal);
@@ -201,7 +279,7 @@ public sealed class DevelopmentApprovalTests
                     status = Variant == "qa-failed" ? "failed" : "passed",
                     pullRequest = 77,
                     headSha = Sha,
-                    metadataDigest = Variant == "wrong-qa-digest" ? new string('0', 64) : Digest,
+                    metadataDigest = Variant == "wrong-qa-digest" ? new string('0', 64) : ActiveDigest,
                     trustedKnowledgeRevision = Sha,
                     failures = Array.Empty<string>(),
                     completedAtUtc = Now,
@@ -244,7 +322,7 @@ public sealed class DevelopmentApprovalTests
                     total_count = 1,
                     artifacts = new[] { new
                 {
-                    id, name = qa ? $"qa-evidence-{Sha}-{Digest}" : $"pr-validation-evidence-{Sha}",
+                    id, name = qa ? $"qa-evidence-{Sha}-{ActiveDigest}" : $"pr-validation-evidence-{Sha}",
                     expired = Variant == "expired-artifact", expires_at = Now.AddDays(1), created_at = Now.AddMinutes(-2),
                     workflow_run = new { id }
                 } }

@@ -41,7 +41,7 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
             await VerifyEvidenceAsync(context, cancellationToken);
             return new(pullRequestNumber, context.Sha, true, "Ready",
                 "Your change has passed its checks. Approve it when you are ready to publish to the demo site.",
-                receipt?.Url, receipt?.Actor, receipt?.At);
+                receipt?.Url, receipt?.Actor, receipt?.At, context.Digest);
         }
         catch (DevelopmentApprovalException exception) when (exception.StatusCode == 409)
         {
@@ -54,13 +54,17 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
     {
         if (string.IsNullOrWhiteSpace(Token))
             throw new DevelopmentApprovalException(503, "Demo approval is not configured.");
-        if (string.IsNullOrWhiteSpace(administrator) || !IsSha(request.ExpectedHeadSha))
-            throw new DevelopmentApprovalException(400, "A validated administrator and exact revision are required.");
+        if (string.IsNullOrWhiteSpace(administrator) || !IsSha(request.ExpectedHeadSha) ||
+            request.ExpectedMetadataDigest is not { Length: 64 } ||
+            !Regex.IsMatch(request.ExpectedMetadataDigest, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant))
+            throw new DevelopmentApprovalException(400, "A validated administrator, exact revision and acceptance-metadata digest are required.");
         await approvalLock.WaitAsync(cancellationToken);
         try
         {
             var context = await ReadContextAsync(request.WorkItemId, request.PullRequestNumber, cancellationToken);
             Require(context.Sha == request.ExpectedHeadSha, "The change has been updated. Refresh and review it before approving.");
+            Require(context.Digest == request.ExpectedMetadataDigest,
+                "The acceptance evidence has changed. Refresh and review it before approving.");
             var receipt = await FindReceiptAsync(context, cancellationToken);
             if (context.Merged)
             {
@@ -109,15 +113,26 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
             .Select(match => match.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
         Require(ids.Length == 1 && ids[0] == workItemId.ToString(CultureInfo.InvariantCulture),
             "The change does not identify this request unambiguously.");
-        var issues = await GetAsync($"repos/{Repository}/issues?state=all&per_page=100&sort=updated&direction=desc", cancellationToken);
-        var canonical = issues.EnumerateArray().Where(issue =>
-            !issue.TryGetProperty("pull_request", out _) &&
-            Text(issue, "author_association") is "OWNER" or "MEMBER" or "COLLABORATOR" &&
-            (Regex.IsMatch(Text(issue, "title"), $@"^\[AB#{workItemId}\](?:\s|$)", RegexOptions.CultureInvariant) ||
-                Regex.IsMatch(Text(issue, "body"),
-                    $@"(?m)^\s*Azure Boards work item:\s*\[AB#{workItemId}\]\(https://dev\.azure\.com/ai-enabled-ado-org/sample-project/_workitems/edit/{workItemId}\)\s*$",
-                    RegexOptions.CultureInvariant))).ToArray();
-        Require(canonical.Length == 1, "The linked request could not be verified uniquely. Refresh or contact the administrator.");
+        List<JsonElement> canonical = [];
+        var complete = false;
+        for (var page = 1; page <= 10; page++)
+        {
+            var issues = await GetAsync($"repos/{Repository}/issues?state=all&per_page=100&sort=updated&direction=desc&page={page}", cancellationToken);
+            canonical.AddRange(issues.EnumerateArray().Where(issue =>
+                !issue.TryGetProperty("pull_request", out _) &&
+                Text(issue, "author_association") is "OWNER" or "MEMBER" or "COLLABORATOR" &&
+                (Regex.IsMatch(Text(issue, "title"), $@"^\[AB#{workItemId}\](?:\s|$)", RegexOptions.CultureInvariant) ||
+                    Regex.IsMatch(Text(issue, "body"),
+                        $@"(?m)^\s*Azure Boards work item:\s*\[AB#{workItemId}\]\(https://dev\.azure\.com/ai-enabled-ado-org/sample-project/_workitems/edit/{workItemId}\)\s*$",
+                        RegexOptions.CultureInvariant))));
+            if (issues.GetArrayLength() < 100)
+            {
+                complete = true;
+                break;
+            }
+        }
+        Require(complete, "The request listing could not be completed safely. Contact the administrator.");
+        Require(canonical.Count == 1, "The linked request could not be verified uniquely. Refresh or contact the administrator.");
         var sha = Text(pull.GetProperty("head"), "sha");
         Require(IsSha(sha), "The current change revision could not be verified.");
         return new(workItemId, number, sha, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(title + "\n" + body))),
@@ -129,7 +144,9 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
         var checks = await GetAsync($"repos/{Repository}/commits/{context.Sha}/check-runs?filter=latest&per_page=100", cancellationToken);
         Require(checks.GetProperty("total_count").GetInt32() is > 0 and <= 100 &&
             checks.GetProperty("check_runs").EnumerateArray().All(check =>
-                Text(check, "status") == "completed" && Text(check, "conclusion") == "success"),
+                Text(check, "status") == "completed" &&
+                (Text(check, "conclusion") == "success" ||
+                    Text(check, "name") == "Copilot review not required" && Text(check, "conclusion") == "skipped")),
             "Current revision checks are still running, failed, or incomplete.");
         var reviews = await GetAsync($"repos/{Repository}/actions/workflows/hotel-code-review.yml/runs?per_page=30&head_sha={context.Sha}", cancellationToken);
         var run = reviews.GetProperty("workflow_runs").EnumerateArray()

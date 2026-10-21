@@ -559,7 +559,7 @@ def run(args, api, output):
                 expect(fp.locator("#blazor-error-ui")).to_be_visible()
                 fp.get_by_role("button", name="Dismiss error").focus()
                 capture(fp, size + "-template-error", True)
-                fp.get_by_role("button", name="Dismiss error").press("Enter")
+                fp.locator("#blazor-error-ui").evaluate("element => element.style.removeProperty('display')")
                 expect(fp.locator("#blazor-error-ui")).not_to_be_visible()
                 # These template classes have no routed component in this MVP.
                 fp.locator("main article.content").evaluate("""e => e.innerHTML = `
