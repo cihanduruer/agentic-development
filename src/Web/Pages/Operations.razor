@@ -166,6 +166,8 @@
         {
             "Received" => "Your request is being picked up.",
             "Being built" => "The development agent is preparing your change.",
+            "Checking" when CurrentStep.Status == "Waiting" =>
+                approval?.Message ?? "Waiting for required check results and approval-readiness verification. Open Details for the latest evidence.",
             "Checking" => "Your change is being checked. No action is needed from you yet.",
             "Your approval" => approval?.Message ?? "Waiting for the approval checks to finish.",
             "Publishing" => "Your approved change is being published to the demo site.",
