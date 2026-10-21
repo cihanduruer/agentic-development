@@ -111,7 +111,7 @@ flowchart LR
 
 Solid edges show implemented repository paths. The Boards API call is implemented but its external service-principal membership is unverified until the human steps in `docs/runbooks/boards-status-connector.md` are completed. Dotted telemetry configuration is not proof of emitted events; dotted MCP paths are the separately implemented integration and must be demonstrated before being described as connected.
 
-Repository knowledge remains authoritative. The indexer stores document path, revision, owner, review date, content, and deterministic chunk identity. A local edit/commit does not update the hosted index.
+Knowledge Center is authoritative for application product, domain, and architecture knowledge. Private versioned storage retains documents and originals; Azure Search is rebuildable. MCP clients cite document paths and revisions separately from the implementation SHA. Git retains engineering operating policy; the legacy engineering index is not a fallback application knowledge authority.
 
 For the MCP milestone, demonstrate a **real chat tool call** returning passages with revision and citations, then a **separate cloud developer tool call**. The existing routing existence check is not either of those demonstrations.
 
@@ -171,4 +171,4 @@ No service can by itself eliminate hallucinations. Revisioned retrieval, citatio
 | Knowledge source and projection | [knowledge center](../knowledge/README.md), [KnowledgeIndexer](../../tools/KnowledgeIndexer/), [KnowledgeIndexing.cs](../../src/Infrastructure/KnowledgeIndexing.cs) |
 | Explicit groundedness evaluation | [grounded-evaluation.yml](../../.github/workflows/grounded-evaluation.yml) |
 
-For the product-owner story, use the [short demo](../../demo/TEAM-DEMO-GUIDE.md); for exact policy, use the [canonical delivery](../knowledge/agentic-delivery.md), [architecture](../knowledge/architecture.md), and [security](../knowledge/security.md) documents.
+For the product-owner story, use the [short demo](../../demo/TEAM-DEMO-GUIDE.md); for exact policy, use [delivery](../knowledge/agentic-delivery.md), [Knowledge Center access](../runbooks/knowledge-center-mcp.md), [ADR 0004](../adr/0004-unified-knowledge-center-and-mcp.md), and [security](../knowledge/security.md).

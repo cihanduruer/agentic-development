@@ -9,196 +9,87 @@
         <p class="eyebrow">Product assistant</p>
         <h1 id="product-management-title">AI Product Management</h1>
         <p>Describe what you want. The assistant uses the knowledge center to shape a work item the pipeline can implement, and nothing is created in Azure Boards until you confirm.</p>
+        <p><a href="/admin/knowledge">Manage sources in Knowledge Center</a></p>
     </header>
-
-    <section class="pm-knowledge" aria-labelledby="knowledge-title">
-        <div class="pm-knowledge-heading">
-            <h2 id="knowledge-title">Knowledge center (RAG)</h2>
-            <div class="pm-knowledge-summary">
-                @if (blocks.Count > 0)
-                {
-                    <span class="pm-knowledge-count">@blocks.Count blocks from @blocks.Select(block => block.Path).Distinct().Count() sources</span>
-                }
-                @if (!knowledgeOpen && usedKeys.Count > 0)
-                {
-                    <span class="pm-knowledge-chip used">@usedKeys.Count used in the latest answer</span>
-                }
-                @if (!knowledgeOpen && PendingUploadCount > 0)
-                {
-                    <span class="pm-knowledge-chip pending">@PendingUploadCount awaiting approval</span>
-                }
-                <button type="button" class="pm-toggle" aria-expanded="@knowledgeOpen" aria-controls="knowledge-body" @onclick="() => knowledgeOpen = !knowledgeOpen">
-                    @(knowledgeOpen ? "Collapse" : "Expand")
-                </button>
-            </div>
-        </div>
-
-        @if (blocks.Count > 0)
-        {
-            <ul class="pm-source-tags" aria-label="Indexed files">
-                @foreach (var group in blocks.GroupBy(block => block.Path))
-                {
-                    var pendingSource = group.Any(block => block.Pending);
-                    <li class="pm-source-tag @(pendingSource ? "pending" : null)" title="@group.Key">@FileName(group.Key)@(pendingSource ? " (pending)" : string.Empty)</li>
-                }
-            </ul>
-        }
-
-        <div id="knowledge-body" hidden="@(!knowledgeOpen)">
-        <div class="pm-add" aria-labelledby="add-knowledge-title" role="group">
-            <p id="add-knowledge-title" class="pm-add-title">Add your own knowledge</p>
-            <div class="pm-add-actions">
-                <label class="pm-file-button @(adding ? "disabled" : null)">
-                    <span>Upload a file</span>
-                    <InputFile OnChange="UploadFileAsync" accept=".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv" disabled="@adding" />
-                </label>
-                <button type="button" class="btn btn-outline-primary" @onclick="() => showPaste = !showPaste" aria-expanded="@showPaste" disabled="@adding">Write or paste text</button>
-                <span class="pm-add-hint">PDF, Word, Excel, text, Markdown or CSV, up to 5 MB. Uploads stay out of answers until you approve them.</span>
-            </div>
-
-            @if (showPaste)
-            {
-                <div class="pm-paste">
-                    <label for="paste-title">Title</label>
-                    <input id="paste-title" class="form-control" maxlength="120" @bind="pasteTitle" @bind:event="oninput" />
-                    <label for="paste-text">Text</label>
-                    <textarea id="paste-text" class="form-control" rows="6" maxlength="200000" @bind="pasteText" @bind:event="oninput"></textarea>
-                    <button type="button" class="btn btn-primary" @onclick="AddTextAsync" disabled="@(adding || string.IsNullOrWhiteSpace(pasteTitle) || string.IsNullOrWhiteSpace(pasteText))">Add to knowledge center</button>
-                </div>
-            }
-
-            @if (adding)
-            {
-                <p class="pm-add-status" role="status">Reading and indexing. This takes a few seconds.</p>
-            }
-            else if (addMessage is not null)
-            {
-                <p class="pm-add-status @(addFailed ? "failed" : "ok")" role="@(addFailed ? "alert" : "status")">@addMessage</p>
-            }
-        </div>
-
-        @if (loadingBlocks)
-        {
-            <p class="pm-knowledge-note" role="status">Loading indexed content...</p>
-        }
-        else if (blocksError is not null)
-        {
-            <p class="pm-knowledge-note" role="alert">@blocksError</p>
-        }
-        else if (blocks.Count == 0)
-        {
-            <p class="pm-knowledge-note">Nothing is indexed yet.</p>
-        }
-        else
-        {
-            <p class="pm-knowledge-note">Every message searches these blocks. @(usedKeys.Count > 0 ? $"{usedKeys.Count} were used for the latest answer and are highlighted." : "Blocks used for an answer are highlighted after you send a message.")</p>
-            @foreach (var group in blocks.GroupBy(block => block.Path))
-            {
-                <div class="pm-source-group" role="group" aria-label="@FileName(group.Key)">
-                    <p class="pm-source-name">
-                        <strong>@FileName(group.Key)</strong> <span>@group.Count() blocks</span>
-                        @if (group.Key.StartsWith("uploads/", StringComparison.Ordinal))
-                        {
-                            var pending = group.Any(block => block.Pending);
-                            <span class="pm-upload-tag @(pending ? "pending" : "approved")">@(pending ? "pending approval, not used by the assistant" : "approved")</span>
-                            @if (pending)
-                            {
-                                <button type="button" class="pm-approve" @onclick="() => ApproveAsync(group.Key)" disabled="@adding" aria-label="Approve @FileName(group.Key)">Approve</button>
-                            }
-                            <button type="button" class="pm-remove" @onclick="() => RemoveAsync(group.Key)" disabled="@adding" aria-label="Remove @FileName(group.Key)">Remove</button>
-                        }
-                    </p>
-                    <ul class="pm-blocks">
-                        @foreach (var block in group)
-                        {
-                            var used = usedKeys.Contains(BlockKey(block.Path, block.Title));
-                            <li class="pm-block @(used ? "used" : null)" title="@block.Excerpt">
-                                <span class="pm-block-title">@block.Title</span>
-                                <span class="pm-block-meta">@block.Characters.ToString("N0") chars@(used ? " \u00b7 used" : "")</span>
-                            </li>
-                        }
-                    </ul>
-                </div>
-            }
-        }
-        </div>
-    </section>
 
     <div class="pm-layout">
         <div class="pm-main">
-        <section class="pm-chat" aria-labelledby="chat-title">
-            <h2 id="chat-title">Conversation</h2>
-
-            @if (messages.Count == 0)
-            {
-                <div class="pm-empty">
-                    <p>Start with a plain-language idea, or pick one:</p>
-                    <div class="pm-starters">
-                        @foreach (var starter in Starters)
-                        {
-                            <button type="button" class="btn btn-outline-primary" @onclick="() => SendAsync(starter)" disabled="@thinking">@starter</button>
-                        }
-                    </div>
-                </div>
-            }
-            else
-            {
-                <ol class="pm-messages" role="log" aria-live="polite" aria-label="Conversation">
-                    @foreach (var message in messages)
-                    {
-                        <li class="pm-message @message.Role">
-                            <span class="pm-role">@(message.Role == "user" ? "You" : "Assistant")</span>
-                            <p>@message.Content</p>
-                        </li>
-                    }
-                </ol>
-                @if (messages.Count > MaxSentMessages)
+            <section class="pm-chat" aria-labelledby="chat-title">
+                <h2 id="chat-title">Conversation</h2>
+                @if (messages.Count == 0)
                 {
-                    <p class="pm-hint" role="note">Only the latest @MaxSentMessages messages and the current draft are sent to the assistant.</p>
+                    <div class="pm-empty">
+                        <p>Start with a plain-language idea, or pick one:</p>
+                        <div class="pm-starters">
+                            @foreach (var starter in Starters)
+                            {
+                                <button type="button" class="btn btn-outline-primary" @onclick="() => SendAsync(starter)" disabled="@thinking">@starter</button>
+                            }
+                        </div>
+                    </div>
                 }
-            }
-
-            @if (thinking)
-            {
-                <p class="pm-thinking" role="status">
-                    <span class="pm-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                    Reading the knowledge center and drafting. This takes a few seconds.
-                </p>
-            }
-
-            @if (error is not null)
-            {
-                <div class="alert alert-danger" role="alert">@error</div>
-            }
-
-            <form class="pm-composer" @onsubmit="() => SendAsync(input)" @onsubmit:preventDefault>
-                <label for="pm-input">Message to the product assistant</label>
-                <textarea id="pm-input" @ref="inputElement" @bind="input" @bind:event="oninput" rows="3" maxlength="4000"
-                          placeholder="For example: guests should be able to cancel their booking"
-                          @onkeydown="OnInputKeyDown" disabled="@thinking"></textarea>
-                <div class="pm-composer-actions">
-                    <span class="pm-hint">Ctrl+Enter to send</span>
-                    <button type="submit" class="btn btn-primary" disabled="@(thinking || string.IsNullOrWhiteSpace(input))">Send</button>
-                </div>
-            </form>
-        </section>
+                else
+                {
+                    <ol class="pm-messages" role="log" aria-live="polite" aria-label="Conversation">
+                        @foreach (var message in messages)
+                        {
+                            <li class="pm-message @message.Role">
+                                <span class="pm-role">@(message.Role == "user" ? "You" : "Assistant")</span>
+                                <p>@message.Content</p>
+                            </li>
+                        }
+                    </ol>
+                    @if (messages.Count > MaxSentMessages)
+                    {
+                        <p class="pm-hint" role="note">Only the latest @MaxSentMessages messages and the current draft are sent to the assistant.</p>
+                    }
+                }
+                @if (thinking)
+                {
+                    <p class="pm-thinking" role="status">
+                        <span class="pm-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                        Reading the knowledge center and drafting. This takes a few seconds.
+                    </p>
+                }
+                @if (error is not null)
+                {
+                    <div class="alert alert-danger" role="alert">@error</div>
+                }
+                @if (sources.Count > 0)
+                {
+                    <details class="pm-answer-sources">
+                        <summary>@sources.Count knowledge blocks used in the latest answer</summary>
+                        <ul>
+                            @foreach (var source in sources)
+                            {
+                                <li><strong>@source.Title</strong> (@source.Path)<p>@source.Excerpt</p></li>
+                            }
+                        </ul>
+                    </details>
+                }
+                <form class="pm-composer" @onsubmit="() => SendAsync(input)" @onsubmit:preventDefault>
+                    <label for="pm-input">Message to the product assistant</label>
+                    <textarea id="pm-input" @ref="inputElement" @bind="input" @bind:event="oninput" rows="3" maxlength="4000"
+                              placeholder="For example: guests should be able to cancel their booking"
+                              @onkeydown="OnInputKeyDown" disabled="@thinking"></textarea>
+                    <div class="pm-composer-actions">
+                        <span class="pm-hint">Ctrl+Enter to send</span>
+                        <button type="submit" class="btn btn-primary" disabled="@(thinking || string.IsNullOrWhiteSpace(input))">Send</button>
+                    </div>
+                </form>
+            </section>
         </div>
-
         <aside class="pm-draft" aria-labelledby="draft-title">
             <div class="pm-draft-heading">
                 <h2 id="draft-title">Work item draft</h2>
                 <span class="pm-readiness @(ready ? "ready" : "pending")">@(ready ? "Ready for creation" : "Needs more detail")</span>
             </div>
-
             <label for="draft-title-input">Title</label>
             <input id="draft-title-input" @bind="draftTitle" maxlength="200" placeholder="The assistant fills this in" />
-
             <label for="draft-description">Description</label>
             <textarea id="draft-description" @bind="draftDescription" rows="6" maxlength="8000" placeholder="As a ..., I want ..., so that ..."></textarea>
-
             <label for="draft-criteria">Acceptance criteria <span class="pm-hint">one per line</span></label>
             <textarea id="draft-criteria" @bind="criteriaText" rows="9" maxlength="12000" placeholder="Each line is one testable statement"></textarea>
-
             @if (openQuestions.Count > 0)
             {
                 <div class="pm-questions">
@@ -211,7 +102,6 @@
                     </ul>
                 </div>
             }
-
             @if (created is not null)
             {
                 <div class="pm-created" role="status">
@@ -240,7 +130,6 @@
                     }
                 </div>
             }
-
             @if (createError is not null)
             {
                 <div class="alert alert-danger" role="alert">@createError</div>
@@ -259,22 +148,10 @@
         "Let guests filter rooms by price"
     ];
 
-    private readonly List<Turn> messages = [];
-
     // The API accepts at most 24 messages and requires the last to be from the user.
     private const int MaxSentMessages = 23;
+    private readonly List<Turn> messages = [];
     private List<Source> sources = [];
-    private List<Block> blocks = [];
-    private HashSet<string> usedKeys = [];
-    private bool loadingBlocks = true;
-    private string? blocksError;
-    private bool adding;
-    private bool showPaste;
-    private bool knowledgeOpen = true;
-    private bool addFailed;
-    private string? addMessage;
-    private string pasteTitle = string.Empty;
-    private string pasteText = string.Empty;
     private List<string> openQuestions = [];
     private ElementReference inputElement;
     private string input = string.Empty;
@@ -289,12 +166,6 @@
     private bool confirming;
     private bool creating;
 
-    private int PendingUploadCount => blocks
-        .Where(block => block.Pending)
-        .Select(block => block.Path)
-        .Distinct()
-        .Count();
-
     private List<string> Criteria => criteriaText
         .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .ToList();
@@ -303,197 +174,6 @@
         !string.IsNullOrWhiteSpace(draftTitle) &&
         !string.IsNullOrWhiteSpace(draftDescription) &&
         Criteria.Count > 0;
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadBlocksAsync();
-    }
-
-    private async Task LoadBlocksAsync(Func<List<Block>, bool>? isCurrent = null)
-    {
-        for (var attempt = 0; attempt < 6; attempt++)
-        {
-            try
-            {
-                blocks = await Http.GetFromJsonAsync<List<Block>>("api/knowledge/blocks") ?? [];
-                blocksError = null;
-            }
-            catch (Exception exception) when (exception is HttpRequestException or JsonException)
-            {
-                blocksError = "The indexed content could not be loaded. The assistant may still be able to answer.";
-                break;
-            }
-
-            if (isCurrent is null || isCurrent(blocks))
-            {
-                break;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(700));
-        }
-
-        loadingBlocks = false;
-    }
-
-    private async Task UploadFileAsync(InputFileChangeEventArgs args)
-    {
-        if (adding)
-        {
-            return;
-        }
-
-        const long maxBytes = 5 * 1024 * 1024;
-        var file = args.File;
-        BeginAdd();
-        try
-        {
-            if (file.Size > maxBytes)
-            {
-                Fail("That file is larger than 5 MB.");
-                return;
-            }
-
-            using var content = new MultipartFormDataContent();
-            var part = new StreamContent(file.OpenReadStream(maxBytes));
-            content.Add(part, "file", file.Name);
-            var response = await Http.PostAsync("api/knowledge/upload", content);
-            await FinishAddAsync(response, file.Name);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or IOException or JsonException)
-        {
-            Fail("The file could not be uploaded. Try again.");
-        }
-        finally
-        {
-            adding = false;
-        }
-    }
-
-    private async Task AddTextAsync()
-    {
-        if (adding || string.IsNullOrWhiteSpace(pasteTitle) || string.IsNullOrWhiteSpace(pasteText))
-        {
-            return;
-        }
-
-        BeginAdd();
-        try
-        {
-            var response = await Http.PostAsJsonAsync("api/knowledge/text", new { title = pasteTitle.Trim(), text = pasteText });
-            if (await FinishAddAsync(response, pasteTitle.Trim()))
-            {
-                pasteTitle = string.Empty;
-                pasteText = string.Empty;
-                showPaste = false;
-            }
-        }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
-        {
-            Fail("The text could not be added. Try again.");
-        }
-        finally
-        {
-            adding = false;
-        }
-    }
-
-    private async Task ApproveAsync(string path)
-    {
-        if (adding)
-        {
-            return;
-        }
-
-        BeginAdd();
-        try
-        {
-            var response = await Http.PostAsync($"api/knowledge/uploads/approve?path={Uri.EscapeDataString(path)}", null);
-            if (!response.IsSuccessStatusCode)
-            {
-                Fail(await ReadProblemAsync(response, "The source could not be approved."));
-                return;
-            }
-
-            await LoadBlocksAsync(list => list.Where(block => block.Path == path).All(block => !block.Pending));
-            addFailed = false;
-            addMessage = $"Approved {FileName(path)}. The assistant can use it now.";
-        }
-        catch (HttpRequestException)
-        {
-            Fail("The source could not be approved. Try again.");
-        }
-        finally
-        {
-            adding = false;
-        }
-    }
-
-    private async Task RemoveAsync(string path)
-    {
-        if (adding)
-        {
-            return;
-        }
-
-        BeginAdd();
-        try
-        {
-            var response = await Http.DeleteAsync($"api/knowledge/uploads?path={Uri.EscapeDataString(path)}");
-            if (!response.IsSuccessStatusCode)
-            {
-                Fail(await ReadProblemAsync(response, "The source could not be removed."));
-                return;
-            }
-
-            await LoadBlocksAsync(list => !list.Any(block => block.Path == path));
-            addFailed = false;
-            addMessage = $"Removed {FileName(path)}.";
-        }
-        catch (HttpRequestException)
-        {
-            Fail("The source could not be removed. Try again.");
-        }
-        finally
-        {
-            adding = false;
-        }
-    }
-
-    private void BeginAdd()
-    {
-        adding = true;
-        addFailed = false;
-        addMessage = null;
-    }
-
-    private void Fail(string message)
-    {
-        addFailed = true;
-        addMessage = message;
-    }
-
-    private async Task<bool> FinishAddAsync(HttpResponseMessage response, string name)
-    {
-        if (!response.IsSuccessStatusCode)
-        {
-            Fail(await ReadProblemAsync(response, "The knowledge center could not store that. Try again."));
-            return false;
-        }
-
-        var result = await response.Content.ReadFromJsonAsync<UploadResult>();
-        await LoadBlocksAsync(list => result is null ||
-            (list.Count(block => block.Path == result.Path) == result.Blocks &&
-             list.Where(block => block.Path == result.Path).All(block => block.Pending)));
-        addFailed = false;
-        addMessage = result is null
-            ? $"Added {name}."
-            : $"Added {name}: {result.Blocks} blocks{(result.Replaced > 0 ? $", replaced {result.Replaced} older blocks" : string.Empty)}. Approve it to let the assistant use it.";
-        return true;
-    }
-
-    private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
-
-    private static string BlockKey(string path, string title) => $"{path}|{title}";
 
     private async Task OnInputKeyDown(KeyboardEventArgs args)
     {
@@ -517,10 +197,9 @@
         input = string.Empty;
         thinking = true;
         StateHasChanged();
-
         try
         {
-            var response = await Http.PostAsJsonAsync("api/work-item-chat", new
+            using var response = await Http.PostAsJsonAsync("api/work-item-chat", new
             {
                 messages = messages.TakeLast(MaxSentMessages).ToList(),
                 draft = new Draft(draftTitle, draftDescription, Criteria)
@@ -533,16 +212,15 @@
                 return;
             }
 
-            var chatReply = await response.Content.ReadFromJsonAsync<ChatReply>()
+            var reply = await response.Content.ReadFromJsonAsync<ChatReply>()
                 ?? throw new InvalidOperationException("Empty reply.");
-            messages.Add(new Turn("assistant", chatReply.Reply));
-            draftTitle = chatReply.Draft.Title;
-            draftDescription = chatReply.Draft.Description;
-            criteriaText = string.Join('\n', chatReply.Draft.AcceptanceCriteria);
-            ready = chatReply.ReadyForCreation;
-            openQuestions = chatReply.OpenQuestions;
-            sources = chatReply.Sources;
-            usedKeys = chatReply.Sources.Select(source => BlockKey(source.Path, source.Title)).ToHashSet();
+            messages.Add(new Turn("assistant", reply.Reply));
+            draftTitle = reply.Draft.Title;
+            draftDescription = reply.Draft.Description;
+            criteriaText = string.Join('\n', reply.Draft.AcceptanceCriteria);
+            ready = reply.ReadyForCreation;
+            openQuestions = reply.OpenQuestions;
+            sources = reply.Sources;
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException)
         {
@@ -569,7 +247,7 @@
         createError = null;
         try
         {
-            var response = await Http.PostAsJsonAsync("api/work-items", new Draft(draftTitle, draftDescription, Criteria));
+            using var response = await Http.PostAsJsonAsync("api/work-items", new Draft(draftTitle, draftDescription, Criteria));
             if (!response.IsSuccessStatusCode)
             {
                 createError = await ReadProblemAsync(response, "Azure Boards could not create the work item.");
@@ -595,7 +273,6 @@
     {
         messages.Clear();
         sources = [];
-        usedKeys = [];
         openQuestions = [];
         input = draftTitle = draftDescription = criteriaText = string.Empty;
         error = createError = null;
@@ -607,7 +284,7 @@
     {
         try
         {
-            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
             return document.RootElement.TryGetProperty("title", out var title) && title.GetString() is { Length: > 0 } text
                 ? text
                 : fallback;
@@ -619,16 +296,8 @@
     }
 
     private sealed record Turn(string Role, string Content);
-
     private sealed record Draft(string Title, string Description, List<string> AcceptanceCriteria);
-
     private sealed record Source(string Title, string Path, string Excerpt);
-
-    private sealed record Block(string Id, string Title, string Path, string Area, string SourceType, int ChunkIndex, int Characters, string Excerpt, string LastReviewed, bool Pending);
-
     private sealed record ChatReply(string Reply, Draft Draft, bool ReadyForCreation, List<string> OpenQuestions, List<Source> Sources);
-
     private sealed record Created(int Id, string Url);
-
-    private sealed record UploadResult(string Path, int Blocks, int Characters, int Replaced);
 }

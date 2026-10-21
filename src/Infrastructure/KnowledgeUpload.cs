@@ -5,6 +5,7 @@ using System.Text;
 using Azure;
 using Azure.Core;
 using Azure.Search.Documents;
+using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Models;
 using DocumentFormat.OpenXml.Packaging;
 using UglyToad.PdfPig;
@@ -395,14 +396,18 @@ public static class UploadedDocumentExtractor
 public sealed class KnowledgeUploadService(
     KnowledgeUploadOptions upload,
     WorkItemChatOptions chat,
-    TokenCredential credential)
+    TokenCredential credential,
+    SearchClient? client = null,
+    IKnowledgeDocumentStore? store = null,
+    IKnowledgeEmbedder? embeddingClient = null,
+    SearchIndexClient? schemaClient = null)
 {
-    private readonly Lazy<AzureOpenAiEmbedder> embedder = new(() => new AzureOpenAiEmbedder(
+    private readonly Lazy<IKnowledgeEmbedder> embedder = new(() => embeddingClient ?? new AzureOpenAiEmbedder(
         new Uri(chat.Endpoint ?? throw new InvalidOperationException("WorkItemChat:Endpoint is required.")),
         chat.EmbeddingDeployment,
         credential));
 
-    private readonly Lazy<SearchClient> searchClient = new(() => new SearchClient(
+    private readonly Lazy<SearchClient> searchClient = new(() => client ?? new SearchClient(
         new Uri(chat.SearchEndpoint ?? throw new InvalidOperationException("WorkItemChat:SearchEndpoint is required.")),
         chat.SearchIndex,
         credential));
@@ -442,32 +447,52 @@ public sealed class KnowledgeUploadService(
         return KnowledgeUploadLimits.UploadsPrefix + cleaned;
     }
 
-    public static bool IsUploadPath(string? path) =>
-        path is { Length: > 8 and <= 120 } &&
-        path.StartsWith(KnowledgeUploadLimits.UploadsPrefix, StringComparison.Ordinal) &&
-        !path.Contains("..", StringComparison.Ordinal) &&
-        path.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or ' ' or '/');
+    public static bool IsUploadPath(string? path) => IsSourcePath(path);
+
+    public static bool IsSourcePath(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && path.Length <= 1024 &&
+        !path.StartsWith('/') && !path.Contains('\\') &&
+        !path.Split('/').Any(part => part is "" or "." or "..") &&
+        !path.Any(char.IsControl);
 
     public async Task<UploadResult> IngestAsync(
         string displayName,
         ExtractedDocument document,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        byte[]? original = null)
     {
         if (!upload.Enabled)
         {
             throw new KnowledgeUploadDisabledException();
         }
 
+        await using var lease = store is null ? null : await store.LockAsync(cancellationToken);
+        cancellationToken = lease?.Token ?? cancellationToken;
         var path = SourcePathFor(displayName);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var record = new KnowledgeDocument(
+            path, document.SourceType, Guid.NewGuid().ToString("N"),
+            KnowledgeApproval.PendingOwner, today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            document.Sections, original);
+        if (store is not null)
+        {
+            await store.SaveAsync(record, cancellationToken);
+        }
+
+        return await IndexDocumentAsync(record, cancellationToken);
+    }
+
+    private async Task<UploadResult> IndexDocumentAsync(KnowledgeDocument record, CancellationToken cancellationToken)
+    {
+        var path = record.Path;
         var chunks = KnowledgeCenterChunker.FromSections(
-            "uploads",
+            "knowledge",
             path,
-            document.SourceType,
-            KnowledgeApproval.PendingOwner,
-            today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            "upload-" + today.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
-            document.Sections);
+            record.SourceType,
+            record.Owner,
+            record.LastReviewed,
+            record.Revision,
+            record.Sections);
         if (chunks.Count == 0)
         {
             throw new InvalidDataException("No readable text was found.");
@@ -487,6 +512,11 @@ public sealed class KnowledgeUploadService(
         var vectors = await embedder.Value.EmbedAsync(
             chunks.Select(chunk => $"{chunk.Title}\n\n{chunk.Content}").ToArray(),
             cancellationToken);
+        if (vectors.Count != chunks.Count ||
+            vectors.Any(vector => vector.Length != KnowledgeCenterSchema.EmbeddingDimensions))
+        {
+            throw new InvalidDataException("The embedding service returned invalid knowledge vectors.");
+        }
         var documents = chunks.Select((chunk, position) => new KnowledgeCenterDocument
         {
             Id = chunk.Id,
@@ -525,14 +555,26 @@ public sealed class KnowledgeUploadService(
             throw new KnowledgeUploadDisabledException();
         }
 
-        if (!IsUploadPath(path))
+        if (!IsSourcePath(path))
         {
-            throw new ArgumentException("Only uploaded sources can be removed.", nameof(path));
+            throw new ArgumentException("A valid document path is required.", nameof(path));
+        }
+
+        await using var lease = store is null ? null : await store.LockAsync(cancellationToken);
+        cancellationToken = lease?.Token ?? cancellationToken;
+        var document = store is null ? null : await store.GetAsync(path, cancellationToken);
+        if (document is not null)
+        {
+            await store!.SaveAsync(document with { Deleted = true }, cancellationToken);
         }
 
         var ids = await FindIdsAsync(path, cancellationToken);
         await DeleteIdsAsync(ids, cancellationToken);
-        return ids.Count;
+        if (store is not null)
+        {
+            await store.DeleteAsync(path, cancellationToken);
+        }
+        return Math.Max(ids.Count, document is null ? 0 : 1);
     }
 
     public async Task<int> ApproveAsync(string path, CancellationToken cancellationToken)
@@ -542,11 +584,18 @@ public sealed class KnowledgeUploadService(
             throw new KnowledgeUploadDisabledException();
         }
 
-        if (!IsUploadPath(path))
+        if (!IsSourcePath(path))
         {
-            throw new ArgumentException("Only uploaded sources can be approved.", nameof(path));
+            throw new ArgumentException("A valid document path is required.", nameof(path));
         }
 
+        await using var lease = store is null ? null : await store.LockAsync(cancellationToken);
+        cancellationToken = lease?.Token ?? cancellationToken;
+        var document = store is null ? null : await store.GetAsync(path, cancellationToken);
+        if (store is not null && (document is null || document.Deleted))
+        {
+            return 0;
+        }
         var ids = await FindIdsAsync(path, cancellationToken);
         if (ids.Count == 0)
         {
@@ -555,7 +604,51 @@ public sealed class KnowledgeUploadService(
 
         await KnowledgeIndexOperations.SetOwnerAsync(
             searchClient.Value, ids, KnowledgeApproval.ApprovedOwner, cancellationToken);
+        if (document is not null)
+        {
+            await store!.SaveAsync(document with { Owner = KnowledgeApproval.ApprovedOwner }, cancellationToken);
+        }
         return ids.Count;
+    }
+
+    public async Task<int> RebuildAsync(CancellationToken cancellationToken)
+    {
+        if (!Enabled)
+        {
+            throw new KnowledgeUploadDisabledException();
+        }
+        if (store is null)
+        {
+            throw new InvalidOperationException("Durable knowledge storage is required for rebuilding.");
+        }
+
+        await using var lease = await store.LockAsync(cancellationToken);
+        var documents = await store.ListAsync(lease.Token);
+        var schema = schemaClient ?? new SearchIndexClient(
+            new Uri(chat.SearchEndpoint ?? throw new InvalidOperationException("WorkItemChat:SearchEndpoint is required.")), credential);
+        try
+        {
+            await schema.GetIndexAsync(chat.SearchIndex, lease.Token);
+        }
+        catch (RequestFailedException exception) when (exception.Status == 404)
+        {
+            await schema.CreateIndexAsync(KnowledgeCenterSchema.BuildIndex(chat.SearchIndex), lease.Token);
+        }
+        var count = 0;
+        foreach (var document in documents.Where(document => !document.Deleted))
+        {
+            var result = await IndexDocumentAsync(document, lease.Token);
+            count += result.Blocks;
+        }
+
+        var keep = documents.Where(document => !document.Deleted)
+            .SelectMany(document => KnowledgeCenterChunker.FromSections(
+                "knowledge", document.Path, document.SourceType, document.Owner,
+                document.LastReviewed, document.Revision, document.Sections))
+            .Select(chunk => chunk.Id).ToHashSet(StringComparer.Ordinal);
+        var existing = await KnowledgeIndexOperations.FindIdsAsync(searchClient.Value, null, lease.Token);
+        await DeleteIdsAsync(existing.Where(id => !keep.Contains(id)).ToArray(), lease.Token);
+        return count;
     }
 
     private Task<List<string>> FindIdsAsync(string path, CancellationToken cancellationToken) =>

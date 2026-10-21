@@ -3,59 +3,54 @@ namespace AgenticHotelBooking.UnitTests;
 public sealed class ArchitecturePageTests
 {
     [Fact]
-    public void ArchitecturePageShowsHotelServicesNumberedFlowsAndDeclaredResponsibilities()
+    public void ArchitecturePageShowsCompleteAgenticProcessAndHotelSystem()
     {
         var page = ReadSource("src/Web/Pages/Architecture.razor");
 
         Assert.Contains("@page \"/admin/architecture\"", page);
-        Assert.Contains("<h1 id=\"architecture-title\">Hotel services and delivery path</h1>", page);
-        Assert.Contains("Static Web Apps", page);
-        Assert.Contains("Blazor WebAssembly", page);
-        Assert.Contains("App Service", page);
-        Assert.Contains("SignalR operations hub", page);
-        Assert.Contains("Azure SQL", page);
-        Assert.Contains("Azure AI Content Safety", page);
-        Assert.Contains("Azure AI Search", page);
-        Assert.Contains("Azure OpenAI via Microsoft Agent Framework", page);
-        Assert.Contains("Application Insights + Log Analytics", page);
-        Assert.Contains("GitHub Actions intake", page);
-        Assert.Contains("GitHub issue + cloud agent", page);
-        Assert.Contains("Pull request + evidence gates", page);
-        Assert.Contains("Live delivery-status read path", page);
-        Assert.Contains("GET /api/delivery/status", page);
-        Assert.Contains("Fixed public GETs", page);
-        Assert.Contains("Selected AB# GET · human provisioned", page);
-        Assert.Contains("Azure Boards REST v7.1", page);
-        Assert.Contains("not proven by this diagram", page);
-        Assert.Contains("service-connector", page);
-        Assert.Contains("connector-label", page);
-        Assert.Contains("1 · HTTPS/API", page);
-        Assert.Contains("2 · Managed identity / EF Core", page);
-        Assert.Contains("1 · Telemetry configuration", page);
-        Assert.Contains("2 · Workspace-backed", page);
-        Assert.Contains("1 · Scheduled query", page);
-        Assert.Contains("2 · Linked issue + assignment", page);
-        Assert.Contains("3 · Agent opens PR", page);
-        Assert.Contains("4 · Evidence-passed merge", page);
+        Assert.Contains("<h1 id=\"architecture-title\">ARCHITECTURE</h1>", page);
+        foreach (var service in new[]
+        {
+            "Azure Static Web Apps", "Blazor WebAssembly", "App Service", "Azure SQL",
+            "Azure AI Content Safety", "Azure AI Search", "Microsoft Agent Framework",
+            "Blob Storage", "Communication Services Email", "Application Insights", "Log Analytics"
+        })
+        {
+            Assert.Contains(service, page);
+        }
         AssertOrdered(page,
-            "<h4>Azure Boards</h4>",
-            "<h4>GitHub Actions intake</h4>",
-            "<h4>GitHub issue + cloud agent</h4>",
-            "<h4>Pull request + evidence gates</h4>",
-            "<h4>Development deployment</h4>");
-        AssertOrdered(page,
-            "<h4>App Service API</h4>",
-            "<h4>Application Insights</h4>",
-            "<h4>Log Analytics workspace</h4>");
-        Assert.Contains("aria-label=\"Guest booking service path\"", page);
-        Assert.Contains("aria-label=\"API telemetry configuration path\"", page);
-        Assert.Contains("Numbered flow explanations", page);
-        Assert.Contains("Declared tier and responsibility", page);
-        Assert.Contains("End-to-end delivery flow", page);
+            "\"Agree the requirement\"", "\"Intake & assignment\"", "\"Cloud development\"",
+            "\"Build, test & inspect\"", "\"Review & repair\"", "\"Verify acceptance\"",
+            "\"Approve & merge\"", "\"Deploy & sync Boards\"", "\"Propose & promote\"");
+        Assert.Contains("aria-label=\"Requirement to deployment\"", page);
+        Assert.Contains("aria-label=\"Repository workflows\"", page);
+        Assert.Contains("aria-label=\"Declared Azure services\"", page);
+        Assert.Contains("hotel-developer", page);
+        Assert.Contains("does not dispatch hotel-qa", page);
+        Assert.Contains("not another YAML file", page);
+        Assert.Contains("not the authoritative Hotel /mcp", page);
+        Assert.Contains("not live runs or service health", page);
+        Assert.Contains("production still needs explicit human approval", page);
         Assert.Contains("Microsoft-Decision-1", page);
-        Assert.Contains("shadow mode only", page);
         Assert.Contains("not implemented", page, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("live", page, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("service-paths", page);
+    }
+
+    [Fact]
+    public void ArchitectureCatalogueUsesEveryActualWorkflowNameAndFile()
+    {
+        var page = ReadSource("src/Web/Pages/Architecture.razor");
+        var workflowDirectory = Path.GetDirectoryName(FindSource(".github/workflows/agentic-intake.yml"))
+            ?? throw new DirectoryNotFoundException();
+        var files = Directory.GetFiles(workflowDirectory, "*.yml");
+        Assert.Equal(13, files.Length);
+        foreach (var file in files)
+        {
+            var header = File.ReadLines(file).First();
+            Assert.StartsWith("name: ", header);
+            var name = header["name: ".Length..].Trim();
+            Assert.Contains($"new(\"{name}\", \"{Path.GetFileName(file)}\",", page);
+        }
     }
 
     [Fact]
@@ -64,11 +59,15 @@ public sealed class ArchitecturePageTests
         var page = ReadSource("src/Web/Pages/Architecture.razor");
         var styles = ReadSource("src/Web/Pages/Architecture.razor.css");
 
-        Assert.Contains("Decorative moving dot", page);
+        Assert.Contains("Animated connections illustrate the process", page);
         Assert.Contains("aria-hidden=\"true\"", page);
         Assert.Contains("@media (prefers-reduced-motion: reduce)", styles);
         Assert.Contains("animation: none;", styles);
-        Assert.Contains("@media (max-width: 1000px)", styles);
+        Assert.Contains("@media (max-width: 760px)", styles);
+        Assert.Contains("@keyframes architecture-flow", styles);
+        Assert.Contains("@keyframes architecture-orbit", styles);
+        Assert.DoesNotContain("overflow-x: auto", styles);
+        Assert.Contains("minmax(0, 1fr)", styles);
     }
 
     [Fact]
@@ -169,7 +168,9 @@ public sealed class ArchitecturePageTests
         Assert.Equal(positions.Order().ToArray(), positions);
     }
 
-    private static string ReadSource(string relativePath)
+    private static string ReadSource(string relativePath) => File.ReadAllText(FindSource(relativePath));
+
+    private static string FindSource(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
@@ -177,7 +178,7 @@ public sealed class ArchitecturePageTests
             var candidate = Path.Combine(directory.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(candidate))
             {
-                return File.ReadAllText(candidate);
+                return candidate;
             }
 
             directory = directory.Parent;

@@ -1,0 +1,150 @@
+@page "/admin/login"
+@inject AdministratorSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Administrator sign-in | Hotel</PageTitle>
+
+<section class="login-page" aria-labelledby="login-title">
+    <div class="login-intro">
+        <span class="login-eyebrow">Hotel administrator workspace</span>
+        <h1 id="login-title">AI Product Management</h1>
+        <p class="login-lead">One secure sign-in.<br />Your entire workspace.</p>
+        <p>Manage product knowledge, work with the AI assistant, and explore architecture and operations in one place.</p>
+        <ul class="login-features">
+            <li><span aria-hidden="true">01</span> Product conversations and requirements</li>
+            <li><span aria-hidden="true">02</span> Knowledge Center and document management</li>
+            <li><span aria-hidden="true">03</span> Architecture and agent operations</li>
+        </ul>
+        <a href="/" class="login-home">Back to guest booking <span aria-hidden="true">&rarr;</span></a>
+    </div>
+    <div class="login-card">
+        <div class="login-mark" aria-hidden="true">&#10022;</div>
+        <span class="login-eyebrow">Administrator access</span>
+        <h2>@(codeRequested ? "Check your inbox" : "Welcome back")</h2>
+        <p class="login-description">@(codeRequested ? "Enter the six-digit code sent to your approved email address." : "Use your approved email address. We will send you a one-time sign-in code.")</p>
+        @if (loading)
+        {
+            <p role="status">Checking your session...</p>
+        }
+        else
+        {
+            <form @onsubmit="SubmitAsync" @onsubmit:preventDefault>
+                <label for="admin-email">Administrator email</label>
+                <input id="admin-email" class="form-control" type="email" autocomplete="username" placeholder="you@example.com" maxlength="254" required @bind="email" disabled="@(busy || codeRequested)" />
+                @if (codeRequested)
+                {
+                    <label for="admin-code">One-time code</label>
+                    <input id="admin-code" class="form-control login-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required @bind="code" disabled="@busy" />
+                }
+                <button type="submit" class="btn btn-primary login-submit" disabled="@(busy || !Session.EmailSignInEnabled)">
+                    @(busy ? "Please wait..." : codeRequested ? "Sign in" : "Send sign-in code")
+                    <span aria-hidden="true">&rarr;</span>
+                </button>
+                @if (codeRequested)
+                {
+                    <div class="login-secondary">
+                        <button type="button" @onclick="SendCodeAsync" disabled="@busy">Resend code</button>
+                        <button type="button" @onclick="ChangeEmail" disabled="@busy">Use a different email</button>
+                    </div>
+                }
+            </form>
+            @if (!Session.EmailSignInEnabled && Session.Error is null)
+            {
+                <p class="login-message error" role="alert">Administrator email sign-in is not configured. Contact the site administrator.</p>
+            }
+            @if (Session.Error is not null)
+            {
+                <p class="login-message error" role="alert">@Session.Error</p>
+                <button type="button" class="login-retry" @onclick="RetryAsync" disabled="@busy">Retry connection</button>
+            }
+            @if (message is not null)
+            {
+                <p class="login-message" role="status">@message</p>
+            }
+            @if (Session.Notice is not null)
+            {
+                <p class="login-message" role="status">@Session.Notice</p>
+            }
+            <p class="login-footnote">Codes expire in 5 minutes. Sign-in is remembered for up to 8 hours in this browser tab. No password required.</p>
+        }
+    </div>
+</section>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    private string email = string.Empty;
+    private string code = string.Empty;
+    private bool loading = true;
+    private bool busy;
+    private bool codeRequested;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Session.InitializeAsync();
+        loading = false;
+        NavigateIfSignedIn();
+    }
+
+    private void NavigateIfSignedIn()
+    {
+        if (Session.IsAuthenticated)
+        {
+            Navigation.NavigateTo(AdministratorSession.SafeReturnUrl(new Uri(Navigation.BaseUri), ReturnUrl), replace: true);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!codeRequested)
+        {
+            await SendCodeAsync();
+            return;
+        }
+        busy = true;
+        message = null;
+        try
+        {
+            if (await Session.VerifyCodeAsync(email, code))
+            {
+                code = string.Empty;
+                NavigateIfSignedIn();
+            }
+        }
+        finally { busy = false; }
+    }
+
+    private async Task SendCodeAsync()
+    {
+        busy = true;
+        message = null;
+        try
+        {
+            if (await Session.RequestCodeAsync(email))
+            {
+                codeRequested = true;
+                code = string.Empty;
+                message = "If your email is approved, a code will arrive shortly. Check your spam folder. You can request another code after one minute.";
+            }
+        }
+        finally { busy = false; }
+    }
+
+    private void ChangeEmail()
+    {
+        codeRequested = false;
+        code = string.Empty;
+        message = null;
+    }
+
+    private async Task RetryAsync()
+    {
+        busy = true;
+        try
+        {
+            await Session.RetryAsync();
+            NavigateIfSignedIn();
+        }
+        finally { busy = false; }
+    }
+}

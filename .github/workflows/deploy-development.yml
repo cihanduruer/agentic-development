@@ -35,6 +35,7 @@ on:
       - 'tools/SqlManagedIdentityBootstrapper/**'
       - '.github/workflows/deploy-development.yml'
       - 'scripts/Test-DevelopmentOperations.ps1'
+      - 'scripts/Enable-KnowledgeAccess.ps1'
 
 permissions:
   contents: read
@@ -609,6 +610,18 @@ jobs:
             (Join-Path $env:RUNNER_TEMP 'development-previous-sql-connection.txt'),
             (Join-Path $env:RUNNER_TEMP 'development-api-cutover-error.txt')
           )
+      - name: Enable authenticated unified knowledge management
+        shell: pwsh
+        env:
+          KNOWLEDGE_MCP_TOKEN: ${{ secrets.KNOWLEDGE_MCP_TOKEN }}
+          KNOWLEDGE_MANAGEMENT_TOKEN: ${{ secrets.KNOWLEDGE_MANAGEMENT_TOKEN }}
+          KNOWLEDGE_EMAIL_ENDPOINT: ${{ secrets.KNOWLEDGE_EMAIL_ENDPOINT }}
+          KNOWLEDGE_EMAIL_SENDER: ${{ secrets.KNOWLEDGE_EMAIL_SENDER }}
+          KNOWLEDGE_ADMIN_EMAILS: ${{ secrets.KNOWLEDGE_ADMIN_EMAILS }}
+        run: |
+          ./scripts/Enable-KnowledgeAccess.ps1 `
+            -ResourceGroup agentic-hotelbookingdev `
+            -AppName '${{ steps.infrastructure.outputs.apiAppName }}'
       - name: Publish web
         run: dotnet publish src/Web/AgenticHotelBooking.Web.csproj -c Release -o artifacts/web
       - name: Configure web API endpoint
@@ -628,6 +641,7 @@ jobs:
       - name: Verify operations authorization and persistence
         shell: pwsh
         env:
+          KNOWLEDGE_MANAGEMENT_TOKEN: ${{ secrets.KNOWLEDGE_MANAGEMENT_TOKEN }}
           OPERATIONS_API_AUDIENCE: ${{ vars.OPERATIONS_API_AUDIENCE }}
           OPERATIONS_API_RESOURCE: ${{ vars.OPERATIONS_API_RESOURCE }}
         run: |

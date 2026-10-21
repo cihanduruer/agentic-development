@@ -661,9 +661,9 @@ Use these four questions to structure the remaining meeting. Keep the discussion
 
 - `docs/development-pipeline/README.md` - implemented end-to-end process
 - `docs/knowledge/agentic-delivery.md` - routing, autonomy, and evidence rules
-- `docs/knowledge/architecture.md` - runtime and agent architecture
+- Knowledge Center document `docs/knowledge/architecture.md` - canonical application architecture, retrieved through MCP with its document revision
 - `docs/knowledge/security.md` - identity, data, and action controls
-- `docs/knowledge/product.md` - public/admin route and accessibility behavior
+- Knowledge Center document `docs/knowledge/product.md` - canonical product behavior, retrieved through MCP with its document revision
 - `docs/adr/0001-agentic-delivery-platform.md` - platform decision
 - `docs/adr/0002-microsoft-native-agent-routing.md` - routing decision
 - `.github/workflows/` - executable delivery controls
