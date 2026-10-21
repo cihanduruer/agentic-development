@@ -1,11 +1,15 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using AgenticHotelBooking.Api;
 using AgenticHotelBooking.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace AgenticHotelBooking.IntegrationTests;
 
@@ -22,6 +26,10 @@ public sealed class KnowledgeSignInTests
     [InlineData("POST", "/api/work-items/")]
     [InlineData("GET", "/api/delivery/status")]
     [InlineData("GET", "/api/delivery/status/")]
+    [InlineData("GET", "/api/delivery/approvals/77?workItemId=975")]
+    [InlineData("GET", "/API/DELIVERY/APPROVALS/77/?workItemId=975")]
+    [InlineData("POST", "/api/delivery/approvals")]
+    [InlineData("POST", "/API/DELIVERY/APPROVALS/")]
     [InlineData("GET", "/api/operations/events")]
     [InlineData("GET", "/api/operations/events/")]
     [InlineData("POST", "/hubs/operations/negotiate?negotiateVersion=1")]
@@ -39,6 +47,59 @@ public sealed class KnowledgeSignInTests
             var response = await client.SendAsync(request);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManagementDerivedSignatureCannotForgeAnEmailVerifiedSession(bool includeSessionId)
+    {
+        using var fixture = new Fixture();
+        using var client = fixture.App.CreateClient();
+        var forged = ForgeSession(fixture.Clock.GetUtcNow(), fixture.Clock.GetUtcNow().AddHours(8),
+            includeSessionId ? Convert.ToHexString(RandomNumberGenerator.GetBytes(32)) : null);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", forged);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/admin/auth/session")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/api/delivery/approvals/77?workItemId=975")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/delivery/approvals",
+            new AgenticHotelBooking.Application.ApproveDevelopmentRequest(975, 77, new string('a', 40), new string('b', 64)))).StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifiedSessionCannotBeExtendedUsingManagementSigningMaterial()
+    {
+        using var fixture = new Fixture();
+        var service = fixture.App.Services.GetRequiredService<KnowledgeSignInService>();
+        await service.RequestCodeAsync(Admin, default);
+        var session = await service.VerifyCodeAsync(Admin, fixture.Email.Code!, default);
+        var identifier = new JsonWebTokenHandler().ReadJsonWebToken(session.Token).Id;
+        var extended = ForgeSession(fixture.Clock.GetUtcNow(), session.ExpiresAt.AddHours(1), identifier);
+        Assert.False(await service.AuthorizeAsync(extended));
+        Assert.True(await service.AuthorizeAsync(session.Token));
+        fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        await service.RequestCodeAsync(Admin, default);
+        var second = await service.VerifyCodeAsync(Admin, fixture.Email.Code!, default);
+        Assert.True(await service.AuthorizeAsync(session.Token));
+        Assert.True(await service.AuthorizeAsync(second.Token));
+    }
+
+    private static string ForgeSession(DateTimeOffset now, DateTimeOffset expires, string? sessionId)
+    {
+        var key = HMACSHA256.HashData(Encoding.UTF8.GetBytes(new string('m', 64)),
+            Encoding.UTF8.GetBytes("Hotel Knowledge Center email sign-in v1"));
+        var claims = new Dictionary<string, object> { ["email"] = Admin, ["role"] = "KnowledgeAdministrator" };
+        if (sessionId is not null) claims["jti"] = sessionId;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = "hotel-knowledge-sign-in",
+            Audience = "hotel-knowledge-management",
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expires.UtcDateTime,
+            Claims = claims,
+            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256)
+        });
     }
 
     [Fact]
@@ -66,6 +127,13 @@ public sealed class KnowledgeSignInTests
         Assert.Equal(session.ExpiresAt.ToUnixTimeSeconds(), profile.ExpiresAt.ToUnixTimeSeconds());
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/knowledge/blocks")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/operations/events")).StatusCode);
+        var approval = await client.GetFromJsonAsync<AgenticHotelBooking.Application.DevelopmentApprovalState>(
+            "/api/delivery/approvals/77?workItemId=975");
+        Assert.NotNull(approval);
+        Assert.False(approval.CanApprove);
+        Assert.Equal("Unavailable", approval.Status);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsJsonAsync("/api/delivery/approvals",
+            new AgenticHotelBooking.Application.ApproveDevelopmentRequest(975, 77, new string('a', 40)))).StatusCode);
         Assert.Equal(HttpStatusCode.OK,
             (await client.PostAsync("/hubs/operations/negotiate?negotiateVersion=1", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/mcp", new { })).StatusCode);
@@ -208,17 +276,33 @@ public sealed class KnowledgeSignInTests
             (await client.PostAsJsonAsync("/api/knowledge/auth/request-code", new { email = "unknown@example.test" })).StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManagementCredentialCannotApproveEvenInDevelopment(bool development)
+    {
+        using var fixture = new Fixture(development: development);
+        using var client = fixture.App.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Knowledge-Token", new string('m', 64));
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/API/DELIVERY/APPROVALS/77/?workItemId=975")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/API/DELIVERY/APPROVALS/",
+                new AgenticHotelBooking.Application.ApproveDevelopmentRequest(975, 77, new string('a', 40)))).StatusCode);
+    }
+
     private sealed class Fixture : IDisposable
     {
         public EmailSender Email { get; } = new();
         public ChallengeStore Store { get; } = new();
         public Clock Clock { get; } = new();
         public WebApplicationFactory<Program> App { get; }
-        public Fixture(bool configured = true)
+        public Fixture(bool configured = true, bool development = false)
         {
             App = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                builder.UseEnvironment("Production");
+                builder.UseEnvironment(development ? "Development" : "Production");
+                builder.UseSetting("DevelopmentApproval:GitHubToken", "");
                 builder.UseSetting("OperationsAuth:Authority", "https://login.example/tenant/v2.0");
                 builder.UseSetting("OperationsAuth:Audience", "operations-test");
                 builder.UseSetting("OperationsAuth:RequiredRole", "Operations.Ingest");
@@ -266,19 +350,30 @@ public sealed class KnowledgeSignInTests
     private sealed class ChallengeStore : IKnowledgeChallengeStore
     {
         private readonly object gate = new();
+        private readonly Dictionary<string, VersionedKnowledgeChallenge> challenges = [];
+        private readonly Dictionary<string, KnowledgeAdministratorSession> sessions = [];
         public VersionedKnowledgeChallenge? Current { get; private set; }
         public Task<VersionedKnowledgeChallenge?> GetAsync(string key, CancellationToken cancellationToken)
         {
-            lock (gate) { return Task.FromResult(Current); }
+            lock (gate) { return Task.FromResult(challenges.GetValueOrDefault(key)); }
         }
         public Task<bool> TrySaveAsync(string key, KnowledgeEmailChallenge challenge, string? version, CancellationToken cancellationToken)
         {
             lock (gate)
             {
-                if (version != Current?.Version) { return Task.FromResult(false); }
+                if (version != challenges.GetValueOrDefault(key)?.Version) { return Task.FromResult(false); }
                 Current = new VersionedKnowledgeChallenge(challenge, Guid.NewGuid().ToString());
+                challenges[key] = Current;
                 return Task.FromResult(true);
             }
+        }
+        public Task<KnowledgeAdministratorSession?> GetSessionAsync(string key, CancellationToken cancellationToken)
+        {
+            lock (gate) { return Task.FromResult(sessions.GetValueOrDefault(key)); }
+        }
+        public Task<bool> TryCreateSessionAsync(string key, KnowledgeAdministratorSession session, CancellationToken cancellationToken)
+        {
+            lock (gate) { return Task.FromResult(sessions.TryAdd(key, session)); }
         }
     }
 

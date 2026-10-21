@@ -16,6 +16,50 @@ public sealed class DeliveryStatusServiceTests
     private const string FakeGitHubToken = "fake-readonly-github-token";
 
     [Fact]
+    public async Task OlderHeadRunCannotPassCurrentRevisionEvenWhenPullRequestNumberMatches()
+    {
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, """
+                    {"workflow_runs":[{
+                      "name":"PR validation","status":"completed","conclusion":"success",
+                      "head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "html_url":"https://github.com/cihanduruer/agentic-development/actions/runs/999",
+                      "created_at":"2026-10-13T10:20:00Z","updated_at":"2026-10-13T10:25:00Z",
+                      "pull_requests":[{"number":43}]
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == WorkItemId);
+        Assert.Equal("Not started", delivery.Stages.Single(stage => stage.Name == "PR validation").Status);
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("skipped")]
+    public async Task OneQaWorkflowCannotStandInForBothRequiredEvidenceSources(string conclusion)
+    {
+        var handler = new DeliveryHandler(githubResponse: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/actions/runs", StringComparison.Ordinal)
+                ? JsonResponse(HttpStatusCode.OK, $$"""
+                    {"workflow_runs":[{
+                      "name":"Hotel browser evidence","status":"completed","conclusion":"{{conclusion}}",
+                      "head_sha":"{{HeadSha}}",
+                      "html_url":"https://github.com/cihanduruer/agentic-development/actions/runs/999",
+                      "created_at":"2026-10-13T10:20:00Z","updated_at":"2026-10-13T10:25:00Z",
+                      "pull_requests":[{"number":43}]
+                    }]}
+                    """)
+                : DeliveryHandler.StandardGitHubResponse(request));
+        using var service = CreateService(handler);
+        var snapshot = await service.GetStatusAsync(null, CancellationToken.None);
+        var delivery = Assert.Single(snapshot.Deliveries, item => item.WorkItemId == WorkItemId);
+        Assert.NotEqual("Passed", delivery.Stages.Single(stage => stage.Name == "QA evidence").Status);
+    }
+
+    [Fact]
     public async Task SelectedDeliveryProjectsOnlyAllowlistedBoardsFieldsAndTypedLinks()
     {
         var handler = new DeliveryHandler();

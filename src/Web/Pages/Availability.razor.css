@@ -1,0 +1,99 @@
+.availability-page {
+    background: var(--brand-cream);
+    margin: -1.1rem -1.5rem;
+    min-height: calc(100vh - 4.6rem);
+    min-width: 0;
+    overflow-x: clip;
+    padding: 1.5rem;
+}
+
+.availability-page h1 {
+    margin: .75rem 0 1rem;
+}
+
+.back-link {
+    color: var(--brand-crimson);
+    font-weight: 600;
+}
+
+.search-summary {
+    background: var(--brand-cream);
+    border: 1px solid var(--brand-ink);
+    border-radius: 1rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem 1.25rem;
+}
+
+.search-summary h2 {
+    font-size: 1.2rem;
+    margin-bottom: .75rem;
+}
+
+.search-summary dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: .4rem 1rem;
+    margin: 0;
+}
+
+.search-summary dt {
+    font-weight: 700;
+}
+
+.search-summary dd {
+    margin: 0;
+}
+
+.booking-panel {
+    border-radius: 1.25rem;
+}
+
+.room-option {
+    border-radius: .85rem;
+    transition: background-color .15s ease, box-shadow .15s ease;
+}
+
+.amenity-filters {
+    border: 1px solid var(--brand-ink);
+    border-radius: .7rem;
+    margin-top: 1rem;
+    padding: 1rem;
+}
+
+.amenity-filters legend {
+    float: none;
+    width: auto;
+    padding: 0 .35rem;
+    font-weight: 700;
+}
+
+.amenity-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.amenity-options label {
+    align-items: center;
+    display: inline-flex;
+    gap: .4rem;
+}
+
+.amenity-options input {
+    accent-color: var(--brand-crimson);
+    min-height: 1.1rem;
+    min-width: 1.1rem;
+}
+
+@media (max-width: 480px) {
+    .availability-page {
+        padding-inline: 1rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .room-option {
+        transition: none;
+    }
+}

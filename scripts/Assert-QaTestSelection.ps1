@@ -40,12 +40,14 @@ $jobRunners = @(
         $workflow,
         '(?m)^    runs-on:[ \t]*(?<value>[^\r\n]+?)[ \t]*\r?$')
 )
-if ($jobRunners.Count -ne 1 -or
-    -not [string]::Equals(
-        $jobRunners[0].Groups['value'].Value,
-        'ubuntu-24.04',
-        [StringComparison]::Ordinal)) {
-    throw 'The QA job must run exactly once on ubuntu-24.04.'
+if ($jobRunners.Count -ne 2 -or
+    @($jobRunners | Where-Object {
+        -not [string]::Equals(
+            $_.Groups['value'].Value,
+            'ubuntu-24.04',
+            [StringComparison]::Ordinal)
+    }).Count -ne 0) {
+    throw 'The QA eligibility and evidence jobs must run on ubuntu-24.04.'
 }
 if ([regex]::IsMatch($workflow, '(?m)^    container:')) {
     throw 'A job container is not allowed for the QA command surface.'

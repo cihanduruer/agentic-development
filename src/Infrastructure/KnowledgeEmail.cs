@@ -13,10 +13,14 @@ public sealed record KnowledgeEmailChallenge(
 
 public sealed record VersionedKnowledgeChallenge(KnowledgeEmailChallenge Challenge, string Version);
 
+public sealed record KnowledgeAdministratorSession(byte[] EmailHash, DateTimeOffset ExpiresAt);
+
 public interface IKnowledgeChallengeStore
 {
     Task<VersionedKnowledgeChallenge?> GetAsync(string key, CancellationToken cancellationToken);
     Task<bool> TrySaveAsync(string key, KnowledgeEmailChallenge challenge, string? version, CancellationToken cancellationToken);
+    Task<KnowledgeAdministratorSession?> GetSessionAsync(string key, CancellationToken cancellationToken);
+    Task<bool> TryCreateSessionAsync(string key, KnowledgeAdministratorSession session, CancellationToken cancellationToken);
 }
 
 public interface IKnowledgeEmailSender
@@ -47,6 +51,39 @@ public sealed class BlobKnowledgeChallengeStore(KnowledgeStorageOptions options,
     private readonly Lazy<BlobContainerClient> container = new(() => new BlobContainerClient(
         new Uri((options.Endpoint ?? throw new InvalidOperationException("Knowledge storage endpoint is required."))
             .TrimEnd('/') + "/" + options.Container), credential));
+
+    public async Task<KnowledgeAdministratorSession?> GetSessionAsync(string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await container.Value.GetBlobClient($"authentication/sessions/{key}.json").DownloadContentAsync(cancellationToken);
+            return response.Value.Content.ToObjectFromJson<KnowledgeAdministratorSession>()
+                ?? throw new InvalidDataException("Stored administrator session is invalid.");
+        }
+        catch (RequestFailedException exception) when (exception.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> TryCreateSessionAsync(string key, KnowledgeAdministratorSession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await container.Value.GetBlobClient($"authentication/sessions/{key}.json").UploadAsync(
+                BinaryData.FromObjectAsJson(session),
+                new BlobUploadOptions
+                {
+                    HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" },
+                    Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All }
+                }, cancellationToken);
+            return true;
+        }
+        catch (RequestFailedException exception) when (exception.Status is 409 or 412)
+        {
+            return false;
+        }
+    }
 
     public async Task<VersionedKnowledgeChallenge?> GetAsync(string key, CancellationToken cancellationToken)
     {
