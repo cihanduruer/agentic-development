@@ -96,7 +96,7 @@ public sealed class DevelopmentApprovalTests
     [Fact]
     public async Task HeadOrAcceptanceEvidenceChangedDuringApprovalCannotMerge()
     {
-        foreach (var variant in new[] { "head-changes", "metadata-changes" })
+        foreach (var variant in new[] { "head-changes", "metadata-changes", "metadata-changes-during-final-verification" })
         {
             var handler = new Handler { Variant = variant };
             using var service = Create(handler);
@@ -163,9 +163,27 @@ public sealed class DevelopmentApprovalTests
         Assert.Equal(0, handler.Requests);
     }
 
+    [Fact]
+    public async Task InstallationCredentialsAreExplicitlyUnsupportedWithoutAnyMutation()
+    {
+        var handler = new Handler { Variant = "installation-token" };
+        using var service = Create(handler);
+        var error = await Assert.ThrowsAsync<DevelopmentApprovalException>(() => service.GetStateAsync(975, 77, default));
+        Assert.Equal(503, error.StatusCode);
+        Assert.Contains("installation tokens are not supported", error.Message);
+        await Assert.ThrowsAsync<DevelopmentApprovalException>(() =>
+            service.ApproveAsync(new(975, 77, Sha, Handler.Digest), "admin@example.test", default));
+        Assert.Empty(handler.ReviewBodies);
+        Assert.Equal(0, handler.Merges);
+        Assert.Equal(0, handler.Requests);
+    }
+
     private static DevelopmentApprovalService Create(Handler handler, bool configured = true) =>
         new(new HttpClient(handler), new ConfigurationBuilder().AddInMemoryCollection(
-            configured ? new Dictionary<string, string?> { ["DevelopmentApproval:GitHubToken"] = "fake-write-token" } : []).Build(), new Clock());
+            configured ? new Dictionary<string, string?>
+            {
+                ["DevelopmentApproval:GitHubToken"] = handler.Variant == "installation-token" ? "ghs_fake-installation-token" : "fake-write-token"
+            } : []).Build(), new Clock());
 
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
     private sealed class Handler : HttpMessageHandler
@@ -183,6 +201,8 @@ public sealed class DevelopmentApprovalTests
         public List<string> ReviewBodies { get; } = [];
         public string? MergeExpectedSha { get; private set; }
         private int pullReads;
+        private int evidenceReads;
+        private bool metadataChangedDuringVerification;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -220,7 +240,8 @@ public sealed class DevelopmentApprovalTests
                 return Response(new
                 {
                     title = Title,
-                    body = MetadataUpdated || Variant == "metadata-changes" && pullReads > 1 ? Body + "\nUpdated" : Body,
+                    body = MetadataUpdated || metadataChangedDuringVerification ||
+                        Variant == "metadata-changes" && pullReads > 1 ? Body + "\nUpdated" : Body,
                     state = "open",
                     draft = Variant == "draft",
                     merged = Merges > 0,
@@ -251,6 +272,10 @@ public sealed class DevelopmentApprovalTests
                     .Select(_ => new { title = Variant == "wrong-work-item" ? "[AB#976] Other" : Title, body = "", author_association = "OWNER" }));
             }
             if (path.EndsWith("/check-runs", StringComparison.Ordinal))
+            {
+                evidenceReads++;
+                if (Variant == "metadata-changes-during-final-verification" && evidenceReads == 2)
+                    metadataChangedDuringVerification = true;
                 return Response(new
                 {
                     total_count = 2,
@@ -261,6 +286,7 @@ public sealed class DevelopmentApprovalTests
                             status = Variant == "pending-alternative" ? "queued" : "completed", conclusion = "skipped" }
                     }
                 });
+            }
             if (path.Contains("/workflows/", StringComparison.Ordinal))
             {
                 var review = path.Contains("hotel-code-review", StringComparison.Ordinal);

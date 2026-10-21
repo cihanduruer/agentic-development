@@ -29,6 +29,7 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
             throw new DevelopmentApprovalException(400, "A valid request and pull request are required.");
         if (string.IsNullOrWhiteSpace(Token))
             return new(pullRequestNumber, "", false, "Unavailable", "Demo approval is not configured. Contact the administrator.");
+        RequireUserCredential();
         try
         {
             var context = await ReadContextAsync(workItemId, pullRequestNumber, cancellationToken);
@@ -54,6 +55,7 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
     {
         if (string.IsNullOrWhiteSpace(Token))
             throw new DevelopmentApprovalException(503, "Demo approval is not configured.");
+        RequireUserCredential();
         if (string.IsNullOrWhiteSpace(administrator) || !IsSha(request.ExpectedHeadSha) ||
             request.ExpectedMetadataDigest is not { Length: 64 } ||
             !Regex.IsMatch(request.ExpectedMetadataDigest, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant))
@@ -85,6 +87,10 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
                 "The change or its acceptance evidence changed during approval. Refresh and review it again.");
             if (fresh.Merged) return Published(fresh, receipt);
             await VerifyEvidenceAsync(fresh, cancellationToken);
+            var final = await ReadContextAsync(request.WorkItemId, request.PullRequestNumber, cancellationToken);
+            Require(final.Sha == context.Sha && final.Digest == context.Digest,
+                "The change or its acceptance evidence changed during final verification. Refresh and review it again.");
+            if (final.Merged) return Published(final, receipt);
             var merge = await SendJsonAsync(HttpMethod.Put, $"repos/{Repository}/pulls/{request.PullRequestNumber}/merge",
                 new { sha = context.Sha, merge_method = "squash" }, cancellationToken);
             Require(merge.TryGetProperty("merged", out var merged) && merged.ValueKind == JsonValueKind.True,
@@ -266,6 +272,12 @@ public sealed class DevelopmentApprovalService(HttpClient github, IConfiguration
     private bool Recent(string value) => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var at) &&
         at <= time.GetUtcNow().AddMinutes(5) && at >= time.GetUtcNow().AddHours(-24);
     private static bool IsSha(string? value) => value is not null && Regex.IsMatch(value, "^[0-9a-f]{40}$", RegexOptions.CultureInvariant);
+    private void RequireUserCredential()
+    {
+        if (Token?.StartsWith("ghs_", StringComparison.Ordinal) == true)
+            throw new DevelopmentApprovalException(503,
+                "Demo approval requires a user access token. GitHub App installation tokens are not supported.");
+    }
     private static string Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : "";
     private static void Require(bool condition, string message)

@@ -120,6 +120,12 @@ public sealed class KnowledgeSignInService(
         }
 
         var expires = now.AddHours(8);
+        var sessionId = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        if (!await store.TryCreateSessionAsync(StoreKey("session\n" + sessionId),
+            new KnowledgeAdministratorSession(SHA256.HashData(Encoding.UTF8.GetBytes(email)), expires), cancellationToken))
+        {
+            throw new KnowledgeSignInException(503, "The verified session could not be recorded. Request a new code.");
+        }
         var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
@@ -127,7 +133,7 @@ public sealed class KnowledgeSignInService(
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
             Expires = expires.UtcDateTime,
-            Claims = new Dictionary<string, object> { ["email"] = email, ["role"] = "KnowledgeAdministrator" },
+            Claims = new Dictionary<string, object> { ["email"] = email, ["role"] = "KnowledgeAdministrator", ["jti"] = sessionId },
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Key), SecurityAlgorithms.HmacSha256)
         });
         return new KnowledgeSignInSession(token, expires);
@@ -156,8 +162,16 @@ public sealed class KnowledgeSignInService(
                 expires > time.GetUtcNow().UtcDateTime
         });
         var email = result.ClaimsIdentity?.FindFirst("email")?.Value;
-        return result.IsValid && email is not null && allowed.Contains(email) &&
-            result.ClaimsIdentity?.FindFirst("role")?.Value == "KnowledgeAdministrator";
+        if (!result.IsValid || email is null || !allowed.Contains(email) ||
+            result.ClaimsIdentity?.FindFirst("role")?.Value != "KnowledgeAdministrator" ||
+            result.SecurityToken is not JsonWebToken validated || validated.Id is not { Length: 64 })
+        {
+            return false;
+        }
+        var session = await store.GetSessionAsync(StoreKey("session\n" + validated.Id), CancellationToken.None);
+        return session is not null && session.ExpiresAt > time.GetUtcNow() &&
+            session.ExpiresAt.ToUnixTimeSeconds() == new DateTimeOffset(validated.ValidTo, TimeSpan.Zero).ToUnixTimeSeconds() &&
+            CryptographicOperations.FixedTimeEquals(session.EmailHash, SHA256.HashData(Encoding.UTF8.GetBytes(email)));
     }
 
     public async Task<AdministratorProfile?> GetProfileAsync(string token)
