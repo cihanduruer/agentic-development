@@ -67,7 +67,7 @@ The runtime C# routing API is a separate capability, not the dispatcher for the 
 | GitHub Copilot | Product discussion, bounded implementation, review assistance, and QA assistance |
 | GitHub Actions | Intake polling, quality gates, infrastructure deployment, and application deployment |
 | Azure | Runtime hosting, data, AI services, secrets, search, identity, and observability |
-| Repository knowledge center | Versioned product, domain, architecture, security, and delivery rules |
+| Hosted Knowledge Center | Authoritative, versioned application knowledge through read-only MCP; Git retains engineering operating policy |
 
 Azure Boards deliberately tracks hotel-product work only. Platform automation and AI-operations maintenance are managed in GitHub.
 

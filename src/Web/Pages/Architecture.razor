@@ -4,287 +4,241 @@
 
 <section class="architecture-page" aria-labelledby="architecture-title">
     <AdminNav />
-    <header class="architecture-heading">
-        <p class="eyebrow">Repository-sourced service map</p>
-        <h1 id="architecture-title">Hotel services and delivery path</h1>
-        <p>
-            This explains configured repository paths and declared resource tiers. It is not a live
-            service-health or delivery-status view, and does not prove a cloud connection is active.
-        </p>
-        <div class="diagram-legend" aria-label="Diagram legend">
-            <span><i class="legend-line" aria-hidden="true"></i> Configured or declared relationship</span>
-            <span><i class="legend-dot" aria-hidden="true"></i> Decorative moving dot; not live traffic</span>
-            <span>Every connector is numbered and labelled with its configured call or delivery action; matching explanations follow below.</span>
-        </div>
-    </header>
+    <div class="architecture-canvas">
+        <svg class="architecture-symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <symbol id="arch-board" viewBox="0 0 48 48"><rect x="10" y="9" width="28" height="34" rx="4" /><path d="M18 9V5h12v8H18M17 23l3 3 6-7M17 34h14" /></symbol>
+                <symbol id="arch-code" viewBox="0 0 48 48"><path d="m16 13-11 11 11 11m16-22 11 11-11 11M28 7l-8 34" /></symbol>
+                <symbol id="arch-check" viewBox="0 0 48 48"><path d="M24 4 7 11v13c0 10 17 20 17 20s17-10 17-20V11ZM15 24l6 6 13-14" /></symbol>
+                <symbol id="arch-cloud" viewBox="0 0 48 48"><path d="M12 35a10 10 0 0 1-1-20 14 14 0 0 1 26 0 10 10 0 0 1-1 20H12M24 39V21m-7 7 7-7 7 7" /></symbol>
+                <symbol id="arch-browser" viewBox="0 0 48 48"><rect x="4" y="7" width="40" height="29" rx="4" /><path d="M4 15h40M16 43h16M24 36v7M10 11h1m4 0h1" /></symbol>
+                <symbol id="arch-data" viewBox="0 0 48 48"><ellipse cx="24" cy="9" rx="16" ry="6" /><path d="M8 9v28c0 8 32 8 32 0V9M8 23c0 8 32 8 32 0" /></symbol>
+                <symbol id="arch-spark" viewBox="0 0 48 48"><path d="m24 4 5 14 14 6-14 5-5 15-5-15-15-5 15-6ZM39 3v10m-5-5h10" /></symbol>
+                <symbol id="arch-mail" viewBox="0 0 48 48"><rect x="4" y="10" width="40" height="29" rx="4" /><path d="m5 13 19 15 19-15" /></symbol>
+            </defs>
+        </svg>
 
-    <section class="architecture-section" aria-labelledby="service-map-title">
-        <p class="eyebrow">Hotel services only</p>
-        <h2 id="service-map-title">Service map</h2>
-        <p class="section-intro">
-            The numbered, labelled lines illustrate repository-declared calls and delivery
-            responsibilities. They are a static diagram: no live traffic or telemetry is queried.
-        </p>
+        <header class="architecture-hero">
+            <div class="color-studies" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="circuit-decoration" aria-hidden="true"></div>
+            <h1 id="architecture-title">ARCHITECTURE</h1>
+            <p class="architecture-subtitle">Hotel booking <span aria-hidden="true">&middot;</span> From idea to evidence</p>
+            <div class="architecture-metrics" aria-label="Architecture at a glance">
+                <span class="red"><strong>@Workflows.Length</strong> repository workflows</span>
+                <span class="gold"><strong>2</strong> cloud agent profiles</span>
+                <span class="teal"><strong>3</strong> MCP tools</span>
+                <span class="blue"><strong>1</strong> knowledge authority</span>
+            </div>
+        </header>
 
-        <div class="service-paths">
-            <section aria-labelledby="booking-path-title">
-                <h3 id="booking-path-title">Guest booking and operations</h3>
-                <ol class="service-flow" aria-label="Guest booking service path">
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">1</span>
-                            <h4>Static Web Apps</h4>
-                            <p>Hosts the Blazor WebAssembly booking UI.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">1 · HTTPS/API</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">2</span>
-                            <h4>App Service</h4>
-                            <p>ASP.NET Core booking API and its hosted SignalR operations hub.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">2 · Managed identity / EF Core</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">3</span>
-                            <h4>Azure SQL</h4>
-                            <p>Hotel catalog, rooms, reservations, and bounded operations events.</p>
-                        </article>
-                    </li>
-                </ol>
-            </section>
-
-            <section aria-labelledby="telemetry-path-title">
-                <h3 id="telemetry-path-title">API telemetry destination</h3>
-                <ol class="service-flow" aria-label="API telemetry configuration path">
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">1</span>
-                            <h4>App Service API</h4>
-                            <p>Application Insights connection is configured for the API.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">1 · Telemetry configuration</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">2</span>
-                            <h4>Application Insights</h4>
-                            <p>Receives configured API telemetry.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">2 · Workspace-backed</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">3</span>
-                            <h4>Log Analytics workspace</h4>
-                            <p>Backs Application Insights and retains logs.</p>
-                        </article>
-                    </li>
-                </ol>
-                <p class="flow-note">Configuration does not prove live telemetry is being emitted.</p>
-            </section>
-
-            <section aria-labelledby="routing-path-title">
-                <h3 id="routing-path-title">Runtime routing services</h3>
-                <ol class="service-flow" aria-label="Runtime routing service path">
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">1</span>
-                            <h4>App Service API</h4>
-                            <p>Deterministic C# policy owns safety and evidence gates.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">1 · Prompt Shields check</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">2</span>
-                            <h4>Azure AI Content Safety</h4>
-                            <p>Prompt Shields checks routing metadata before an optional suggestion.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">2 · API search after safety</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">3</span>
-                            <h4>Azure AI Search</h4>
-                            <p>Checks evidence against the exact requested knowledge revision.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">3 · Conditional model call</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">4</span>
-                            <h4>Azure OpenAI via Microsoft Agent Framework</h4>
-                            <p>Optional bounded choice only when multiple safe workers remain.</p>
-                        </article>
-                    </li>
-                </ol>
-                <p class="flow-note">
-                    Safety, grounding, and model failure route to human review. The model cannot grant
-                    permissions or approve delivery; the API returns a routing decision.
-                </p>
-            </section>
-
-            <section aria-labelledby="delivery-path-title">
-                <h3 id="delivery-path-title">Requirement-to-deployment path</h3>
-                <ol class="service-flow delivery-service-flow" aria-label="Azure Boards and GitHub delivery path" tabindex="0">
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">1</span>
-                            <h4>Azure Boards</h4>
-                            <p>Requirement, acceptance criteria, and work-item state.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">1 · Scheduled query</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">2</span>
-                            <h4>GitHub Actions intake</h4>
-                            <p>Queries Boards and creates or reuses the linked GitHub issue.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">2 · Linked issue + assignment</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">3</span>
-                            <h4>GitHub issue + cloud agent</h4>
-                            <p>The assigned agent implements the bounded requirement.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">3 · Agent opens PR</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">4</span>
-                            <h4>Pull request + evidence gates</h4>
-                            <p>Validation, Copilot review, and QA verify the proposed revision.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">4 · Evidence-passed merge</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">5</span>
-                            <h4>Development deployment</h4>
-                            <p>Actions deploys the merged revision to the development environment.</p>
-                        </article>
-                    </li>
-                </ol>
-            </section>
-
-            <section aria-labelledby="delivery-status-path-title">
-                <h3 id="delivery-status-path-title">Live delivery-status read path</h3>
-                <p class="section-intro">
-                    The browser calls only the API. The API reads fixed public GitHub metadata and
-                    optionally one selected Azure Boards item; Boards identity provisioning requires
-                    a human and is not proven by this diagram.
-                </p>
-                <ol class="service-flow delivery-service-flow" aria-label="GitHub delivery status API path" tabindex="0">
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">1</span>
-                            <h4>Delivery overview</h4>
-                            <p>Accessible delivery selector and ordered stage status.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">1 · GET /api/delivery/status</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">2</span>
-                            <h4>App Service delivery API</h4>
-                            <p>Validates AB# IDs, applies 45-second cache, and projects allowlisted fields.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">2 · Fixed public GETs</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">3</span>
-                            <h4>GitHub API</h4>
-                            <p>Recent AB issues, open/merged PRs, and named workflow runs.</p>
-                        </article>
-                        <span class="service-connector"><span class="connector-label">3 · Selected AB# GET · human provisioned</span></span>
-                    </li>
-                    <li>
-                        <article class="service-card">
-                            <span class="service-number">4</span>
-                            <h4>Azure Boards REST v7.1</h4>
-                            <p>System identity, organization Basic, project Reader; minimal read-only projection.</p>
-                        </article>
-                    </li>
-                </ol>
-                <p class="flow-note">
-                    Browser access to upstream services is never used. Stale last-good data is labelled;
-                    an unprovisioned Boards connection remains unverified or not connected.
-                </p>
-            </section>
-        </div>
-    </section>
-
-    <section class="architecture-section" aria-labelledby="flow-explanations-title">
-        <h2 id="flow-explanations-title">Numbered flow explanations</h2>
-        <ol class="flow-explanations">
-            <li><strong>Booking 1–2:</strong> Static Web Apps serves Blazor files; the UI calls the App Service API over HTTPS. The API uses managed identity and EF Core to access SQL.</li>
-            <li><strong>Telemetry 1–2:</strong> the API is configured to send telemetry to Application Insights; the Log Analytics workspace backs the component. This configuration is not proof of live telemetry.</li>
-            <li><strong>Routing 1–3:</strong> the API calls Prompt Shields, then performs exact-revision Search after safety passes; Microsoft Agent Framework may make a conditional Azure OpenAI call only when multiple safe workers remain.</li>
-            <li><strong>Delivery 1–4:</strong> Boards is queried by scheduled intake; Actions links an issue and assigns the cloud agent; the agent opens a PR; evidence-gated merge precedes development deployment.</li>
-            <li><strong>Status read 1–3:</strong> `/admin` calls `GET /api/delivery/status`; the API reads public GitHub issues, PRs, and allowlisted workflow runs, then reads only a selected recent AB# item from Azure Boards. Managed-identity organization provisioning is a separate human deployment step.</li>
+        <ol class="architecture-journey" aria-label="Four stages of agentic delivery">
+            @foreach (var phase in Phases)
+            {
+                <li class="@phase.Tone">
+                    <div class="journey-heading"><span>@phase.Number</span><h2>@phase.Title</h2></div>
+                    <p>@phase.Description</p>
+                    <div class="journey-illustration" aria-hidden="true">
+                        <div class="orbit-ring"><i></i></div>
+                        <div class="orbit-core"><svg><use href="@($"#arch-{phase.Icon}")" /></svg></div>
+                        <svg class="orbit-satellite"><use href="@($"#arch-{phase.Icon}")" /></svg>
+                    </div>
+                </li>
+            }
         </ol>
-    </section>
 
-    <section class="architecture-section" aria-labelledby="sku-title">
-        <h2 id="sku-title">Declared tier and responsibility</h2>
-        <p class="flow-note">
-            Tiers below are sourced from Bicep, not live resource discovery or pricing. SaaS products
-            without a repository-declared Azure SKU are identified as such.
-        </p>
-        <div class="sku-card-grid" role="list" aria-label="Repository-declared service tiers and responsibilities">
-            <article class="sku-card" role="listitem">
-                <h3>Static Web Apps</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>Free</dd><dt>Responsibility</dt><dd>Blazor WebAssembly files and client-side routing.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>App Service plan</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>Basic B1</dd><dt>Responsibility</dt><dd>ASP.NET Core API and API-hosted SignalR hub.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>Azure SQL Database</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>GP_S_Gen5 serverless GeneralPurpose, capacity 1; minCapacity 0.5 vCore, auto-pause 60 min</dd><dt>Responsibility</dt><dd>Catalog, reservations, and bounded event persistence.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>Azure AI Search</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>Basic; 1 replica, 1 partition; semantic search Free</dd><dt>Responsibility</dt><dd>Revisioned knowledge evidence lookup.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>Azure AI Services</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>S0; Azure OpenAI deployment gpt-4.1-mini GlobalStandard, capacity 10</dd><dt>Responsibility</dt><dd>Content Safety Prompt Shields and optional model suggestion via Microsoft Agent Framework.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>Application Insights + Log Analytics</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>Workspace-backed; 30-day workspace retention</dd><dt>Responsibility</dt><dd>API telemetry and log retention.</dd><dt>Source</dt><dd><code>infra/modules/platform.bicep</code></dd></dl>
-            </article>
-            <article class="sku-card" role="listitem">
-                <h3>Azure Boards + GitHub Actions</h3>
-                <dl><dt>Declared tier / SKU</dt><dd>Hosted SaaS; no Azure resource SKU declared here</dd><dt>Responsibility</dt><dd>Boards manages work state; Actions performs intake, verification, and deployment.</dd><dt>Source</dt><dd><code>.github/workflows/</code> and <code>docs/knowledge/agentic-delivery.md</code></dd></dl>
-            </article>
-        </div>
-    </section>
+        <section class="architecture-section" aria-labelledby="delivery-map-title">
+            <div class="section-heading"><h2 id="delivery-map-title">Agentic delivery map</h2><span>The requirement, the agents, the gates, and the release</span></div>
+            <p class="diagram-disclaimer"><i aria-hidden="true"></i> Sourced from repository configuration. Animated connections illustrate the process, not live runs or service health.</p>
+            <div class="diagram-sheet delivery-sheet">
+                <svg class="map-links delivery-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
+                    <path class="map-rail" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
+                    <path class="map-packets" d="M200 120H1000V360H200V600H600M200 600V710H1000V600" />
+                    <path class="map-arrow" d="m400 114 10 6-10 6m390-12 10 6-10 6m204 108 6 10 6-10M810 354l-10 6 10 6m-400-12-10 6 10 6M194 474l6 10 6-10m188 120 10 6-10 6" />
+                </svg>
+                <ol class="delivery-grid" aria-label="Requirement to deployment">
+                    @foreach (var stage in DeliveryStages)
+                    {
+                        <li class="delivery-node @stage.Tone">
+                            <span class="node-number">@stage.Number</span>
+                            <div class="node-copy"><span class="node-kicker">@stage.Owner</span><h3>@stage.Title</h3><p>@stage.Description</p></div>
+                            @foreach (var file in stage.Workflows)
+                            {
+                                var workflow = Workflows.Single(item => item.File == file);
+                                <a class="workflow-chip" href="@WorkflowUrl(file)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a>
+                            }
+                        </li>
+                    }
+                </ol>
+            </div>
+            <div class="delivery-guardrails">
+                <p class="red"><strong>Findings or failed checks?</strong> Return to development, fix the change, then collect fresh review and exact-commit evidence. A previous green run is not enough.</p>
+                <p class="blue"><strong>Two paths after merge.</strong> Development deploys from main. Separately, main validation and QA can trigger a release proposal; production still needs explicit human approval.</p>
+            </div>
+        </section>
 
-    <section class="architecture-section" aria-labelledby="end-to-end-title">
-        <h2 id="end-to-end-title">End-to-end delivery flow</h2>
-        <p class="section-intro">Development and production are separate. A release proposal never deploys production; promotion is a distinct human-approved manual path.</p>
-        <ol class="end-to-end-flow" tabindex="0" aria-label="End-to-end delivery stages, horizontally scrollable">
-            <li>Boards intake</li><li>GitHub issue + cloud agent</li><li>Pull request</li>
-            <li>PR validation</li><li>Copilot review gate</li><li>QA evidence</li>
-            <li>Merge</li><li>Development deployment</li><li>Lifecycle sync + evidence</li>
-            <li>Release proposal</li><li>Human production approval</li>
-        </ol>
-        <p class="proposal-note">
-            <strong>Coordinator proposal, not implemented:</strong> durable stage coordination with
-            per-stage evidence envelopes and deterministic readiness policy. Microsoft-Decision-1
-            recovery classification is proposed for shadow mode only and must not influence retries,
-            permissions, gate outcomes, merges, or release approval.
-            <a href="https://github.com/cihanduruer/agentic-development/blob/main/docs/knowledge/agentic-delivery.md"
-               target="_blank" rel="noopener noreferrer">Read the proposal and its limits</a>.
-        </p>
-    </section>
+        <section class="architecture-section" aria-labelledby="system-map-title">
+            <div class="section-heading"><h2 id="system-map-title">System map</h2><span>Everything the guest and agents touch, and everything behind it</span></div>
+            <div class="diagram-sheet runtime-map">
+                <svg class="map-links runtime-links" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true">
+                    <path class="map-rail" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                    <path class="map-packets" d="M180 180H600M180 540H600M600 180H1020M600 360H1020M600 540H1020" />
+                </svg>
+                <div class="runtime-column">
+                    <article class="system-node red">
+                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-browser" /></svg><h3>Guest &amp; administrator</h3></div>
+                        <p>One Blazor WebAssembly site, hosted by Azure Static Web Apps.</p>
+                        <ul><li>Home: public hotel booking</li><li>AI Product Management: email-code login</li><li>Knowledge, architecture, agent operations</li></ul>
+                        <span class="service-pill">1 &middot; HTTPS REST + authenticated SignalR</span>
+                    </article>
+                    <article class="system-node gold">
+                        <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-code" /></svg><h3>GitHub Copilot agents</h3></div>
+                        <p><strong>hotel-developer</strong> implements a bounded requirement with tests.</p>
+                        <p><strong>hotel-qa</strong> defines independent evidence expectations; separate human invocation is supported. The QA workflow does not claim this agent ran.</p>
+                        <span class="service-pill">2 &middot; Read-only hosted MCP</span>
+                    </article>
+                </div>
+                <article class="system-node api-node blue">
+                    <div class="system-node-heading"><svg aria-hidden="true"><use href="#arch-cloud" /></svg><h3>App Service API</h3></div>
+                    <span class="service-pill">ASP.NET Core &middot; Basic B1</span>
+                    <ul class="api-capabilities">
+                        <li><strong>Guest booking</strong><span>Catalog, availability, reservations</span></li>
+                        <li><strong>Administrator session</strong><span>Approved email, 5-minute code, 8-hour tab session</span></li>
+                        <li><strong>Product assistant</strong><span>Grounded answers and confirmed Boards creation</span></li>
+                        <li><strong>Knowledge Center + /mcp</strong><span>list_knowledge &middot; read_knowledge &middot; search_knowledge</span></li>
+                        <li><strong>Deterministic routing</strong><span>Safety, evidence, permissions, bounded model choice</span></li>
+                        <li><strong>Operations + delivery reads</strong><span>SQL history, SignalR, bounded GitHub/Boards projection</span></li>
+                    </ul>
+                    <p class="identity-note">Managed identity for Azure services. Protected machine credentials stay separate from browser sessions.</p>
+                </article>
+                <div class="runtime-column">
+                    <div class="resource-group gold">
+                        <span class="group-label">Azure AI &middot; service-side only</span>
+                        <article class="system-node"><h3>Azure AI Services</h3><p>Prompt Shields &middot; gpt-6.1-sol chat &middot; text-embedding-3-large &middot; optional gpt-4.1-mini routing</p><span class="service-pill">3 &middot; Safety, chat and embeddings</span></article>
+                    </div>
+                    <div class="resource-group teal">
+                        <span class="group-label">Data and knowledge</span>
+                        <article class="system-node"><h3>Azure SQL Database</h3><p>Catalog, reservations and bounded operations events</p></article>
+                        <article class="system-node"><h3>Blob Storage + AI Search</h3><p>Canonical originals and approvals; rebuildable search index</p><span class="service-pill">4 &middot; One Knowledge Center</span></article>
+                    </div>
+                    <div class="resource-group red">
+                        <span class="group-label">Email and observability</span>
+                        <article class="system-node"><h3>Communication Services Email</h3><p>Approved administrator sign-in codes</p></article>
+                        <article class="system-node"><h3>Application Insights + Log Analytics</h3><p>Correlated API telemetry; metadata, not prompts or credentials</p><span class="service-pill">5 &middot; Delivery and telemetry</span></article>
+                    </div>
+                </div>
+            </div>
+            <p class="section-note">Knowledge flows from retained documents to Search, then through revision-checked API/MCP reads. Repository paths are identifiers, not a second knowledge authority. Delivery status is an API capability, not a live feed on this page.</p>
+        </section>
+
+        <section class="architecture-section" aria-labelledby="workflows-title">
+            <div class="section-heading"><h2 id="workflows-title">Which workflow does what?</h2><span>Actual GitHub Actions names &middot; open any workflow to inspect it</span></div>
+            <div class="workflow-catalogue" role="list" aria-label="Repository workflows">
+                @foreach (var workflow in Workflows)
+                {
+                    <article class="workflow-card @workflow.Tone" role="listitem">
+                        <div class="workflow-card-top"><span class="workflow-category">@workflow.Category</span><span class="workflow-trigger">@workflow.Trigger</span></div>
+                        <h3><a href="@WorkflowUrl(workflow.File)" target="_blank" rel="noopener noreferrer">@workflow.Name <span aria-hidden="true">&#8599;</span></a></h3>
+                        <p>@workflow.Description</p>
+                        <code>@workflow.File</code>
+                    </article>
+                }
+            </div>
+            <p class="section-note"><strong>Copilot cloud agent</strong> is a GitHub-managed dynamic run, not another YAML file. The two custom agent profiles are not workflows. A schedule is not a guaranteed pickup time, and skipped checks are not proof that review or QA ran.</p>
+        </section>
+
+        <section class="architecture-section" aria-labelledby="routing-title">
+            <div class="section-heading"><h2 id="routing-title">A safe agent decision</h2><span>Runtime routing is separate from GitHub's delivery automation</span></div>
+            <ol class="decision-flow" aria-label="Runtime routing safety gates">
+                <li class="red"><span>01</span><h3>Check the input</h3><p>Azure AI Content Safety Prompt Shields checks untrusted routing inputs.</p></li>
+                <li class="gold"><span>02</span><h3>Ground the request</h3><p>Azure AI Search must return evidence for the exact requested knowledge revision.</p></li>
+                <li class="teal"><span>03</span><h3>Apply C# policy</h3><p>Deterministic rules filter the live worker options and enforce permissions.</p></li>
+                <li class="blue"><span>04</span><h3>Choose, or escalate</h3><p>Microsoft Agent Framework can ask a model only when multiple safe options remain. Failures go to human review.</p></li>
+            </ol>
+            <p class="section-note">A model cannot authorize actions, bypass checks, merge a PR or approve production. Durable coordinator and Microsoft-Decision-1 recovery remain proposals, not implemented automation.</p>
+        </section>
+
+        <section class="architecture-section" aria-labelledby="services-title">
+            <div class="section-heading"><h2 id="services-title">Azure services and SKUs</h2><span>Declared configuration, not live discovery or pricing</span></div>
+            <div class="service-catalogue" role="list" aria-label="Declared Azure services">
+                @foreach (var service in Services)
+                {
+                    <article class="azure-service @service.Tone" role="listitem">
+                        <span class="service-icon" aria-hidden="true"><svg><use href="@($"#arch-{service.Icon}")" /></svg></span>
+                        <div><h3>@service.Name</h3><span class="service-pill">@service.Tier</span><p>@service.Description</p><a class="source-link" href="@SourceUrl(service.Source)" target="_blank" rel="noopener noreferrer">Configuration source <span aria-hidden="true">&#8599;</span></a></div>
+                    </article>
+                }
+            </div>
+        </section>
+
+        <section class="architecture-section" aria-labelledby="boundaries-title">
+            <div class="section-heading"><h2 id="boundaries-title">Where are the boundaries?</h2><span>Public experience, private workspace, trusted machines</span></div>
+            <div class="boundary-grid">
+                <article class="red"><h3>Public to guests</h3><p>Home and the guest booking APIs stay public. No administrator login is needed to browse hotels or make a reservation.</p></article>
+                <article class="teal"><h3>One administrator workspace</h3><p>Email-code login protects every administrator page and its data APIs. Knowledge documents share the same preview, approval, deletion and rebuild rules.</p></article>
+                <article class="blue"><h3>Machines are separate</h3><p>MCP has a dedicated read-only token. Operations ingestion/routing requires its deployed OperationsWriter identity. GitHub uses Azure OIDC; the API uses managed identity.</p></article>
+            </div>
+        </section>
+        <footer class="architecture-provenance">
+            <span><strong>Sourced:</strong> repository workflows, infrastructure and delivery policy. <strong>Derived:</strong> this explanatory map and its decorative motion.</span>
+            <a href="@SourceUrl("docs/knowledge/agentic-delivery.md")" target="_blank" rel="noopener noreferrer">Delivery rules <span aria-hidden="true">&#8599;</span></a>
+        </footer>
+    </div>
 </section>
+
+@code {
+    private const string Repository = "https://github.com/cihanduruer/agentic-development";
+    private static string SourceUrl(string path) => $"{Repository}/blob/main/{path}";
+    private static string WorkflowUrl(string file) => $"{Repository}/actions/workflows/{file}";
+    private sealed record Phase(string Number, string Title, string Description, string Icon, string Tone);
+    private sealed record DeliveryStage(string Number, string Owner, string Title, string Description, string Tone, string[] Workflows);
+    private sealed record Workflow(string Name, string File, string Category, string Trigger, string Description, string Tone);
+    private sealed record AzureService(string Name, string Tier, string Description, string Icon, string Tone, string Source);
+
+    private static readonly Phase[] Phases =
+    [
+        new("01", "Define", "Describe the outcome. Azure Boards holds the agreed requirement and acceptance criteria; scheduled intake turns eligible work into a linked GitHub issue.", "board", "red"),
+        new("02", "Build", "GitHub Copilot works in the cloud, uses the hosted Knowledge Center through MCP, and opens a pull request with implementation and tests.", "code", "gold"),
+        new("03", "Prove", "Exact-commit validation, Copilot review, browser checks and independent QA evidence make the work inspectable. Failed gates send it back.", "check", "teal"),
+        new("04", "Deliver", "After evidence-gated merge, development deploys and Boards synchronizes. A tested release proposal is separate from human-approved production.", "cloud", "blue")
+    ];
+    private static readonly DeliveryStage[] DeliveryStages =
+    [
+        new("01", "Product owner", "Agree the requirement", "Create a User Story in sample-project with clear acceptance criteria. New work stays New until scheduled intake picks it up.", "red", []),
+        new("02", "Azure Boards → GitHub", "Intake & assignment", "Query eligible New stories and bugs, link one issue by AB identity, then assign Copilot. The schedule is every five minutes, not a pickup guarantee.", "gold", ["agentic-intake.yml"]),
+        new("03", "GitHub-hosted agent", "Cloud development", "Prepare the agent environment; hotel-developer implements the bounded requirement and opens a PR. Copilot cloud agent is GitHub's dynamic run.", "teal", ["copilot-setup-steps.yml"]),
+        new("04", "Exact PR head", "Build, test & inspect", "Validate the change and collect responsive browser evidence. Trusted manual validation binds evidence to the exact PR commit.", "blue", ["pr-validation.yml", "hotel-browser-evidence.yml"]),
+        new("05", "Copilot reviewer", "Review & repair", "Request current-head review. High or unreadable-severity findings block the gate; development fixes and requests fresh evidence.", "gold", ["hotel-code-review.yml"]),
+        new("06", "Independent evidence gate", "Verify acceptance", "Verify trusted validation provenance, rebuild, rerun checks and inspect acceptance evidence. This workflow does not dispatch hotel-qa.", "teal", ["qa-evidence.yml"]),
+        new("07", "Coordinator / human", "Approve & merge", "Merge only the reviewed revision after required evidence passes. There is no automatic merge workflow in this diagram.", "red", []),
+        new("08", "Development environment", "Deploy & sync Boards", "Deploy from main, verify the development environment, then attach exact deployment/QA evidence and synchronize the linked work item.", "blue", ["deploy-development.yml", "sync-development-lifecycle.yml"]),
+        new("09", "Separate production path", "Propose & promote", "Successful main QA permits a checksummed release proposal. Production is a distinct manual promotion of verified artifacts with human approval.", "navy", ["release-proposal.yml", "deploy-production.yml"])
+    ];
+    private static readonly Workflow[] Workflows =
+    [
+        new("Agentic intake", "agentic-intake.yml", "Intake", "5-minute schedule / manual", "Finds eligible Boards work, creates or reuses the AB-linked issue and assigns the cloud agent. Manual mode targets one work item.", "red"),
+        new("Copilot setup steps", "copilot-setup-steps.yml", "Agent environment", "Agent setup / manual", "Prepares the pinned .NET toolchain and Azure Boards authentication for Copilot. Setup success is not proof that implementation completed.", "gold"),
+        new("PR validation", "pr-validation.yml", "Verification", "PR / main push / manual", "Runs build, tests and infrastructure checks. Trusted manual dispatch binds a validation artifact to the exact requested PR head.", "blue"),
+        new("Hotel browser evidence", "hotel-browser-evidence.yml", "Browser QA", "Pull request", "Runs isolated browser checks on the exact PR head. Captures responsive, accessibility, routing and reduced-motion evidence without live bookings.", "teal"),
+        new("Hotel code review", "hotel-code-review.yml", "Review gate", "Eligible PR events", "Requests Copilot review and gates the current head's findings. Draft/non-main/docs-only alternatives are not presented as completed review.", "gold"),
+        new("QA evidence", "qa-evidence.yml", "Acceptance gate", "Review / main validation / manual", "Checks exact-SHA provenance, independently rebuilds and retests, then records acceptance and negative-path evidence. hotel-qa execution remains not-run.", "teal"),
+        new("Deploy development", "deploy-development.yml", "Development", "Matching main push / manual", "Uses Azure OIDC to deploy development infrastructure, SQL identity/bootstrap, API and Web, then checks readiness and operations authorization.", "blue"),
+        new("Sync development lifecycle", "sync-development-lifecycle.yml", "Boards synchronization", "Development deployment / manual", "Verifies deployment and matching QA provenance before syncing linked Boards state and evidence. PR triggers test synchronization policy only.", "red"),
+        new("Release proposal", "release-proposal.yml", "Release artifacts", "Successful main QA", "Publishes tested API/Web binaries, checksums and the versioned deployment contract. Creates a proposal; does not deploy production.", "navy"),
+        new("Deploy production", "deploy-production.yml", "Human approval", "Manual only", "Verifies the selected release run, exact main SHA, checksums, contract and QA provenance before approved production promotion without rebuilding.", "navy"),
+        new("Microsoft grounded evaluation", "grounded-evaluation.yml", "Optional evaluation", "Manual only", "Runs Microsoft's groundedness evaluator and uploads its JSON evidence. This is not an automatic approval or a substitute for deterministic gates.", "gold"),
+        new("Diagnose development SQL permissions", "diagnose-development-sql.yml", "Operations tool", "Manual only", "Collects development SQL identity/permission diagnostics. A recovery tool, not a normal requirement-delivery stage.", "blue"),
+        new("Deploy Knowledge MCP POC", "deploy-knowledge-mcp.yml", "Legacy / separate POC", "Manual only", "Deploys the standalone repository-index MCP proof of concept. It is not the authoritative Hotel /mcp endpoint and is not part of normal delivery.", "teal")
+    ];
+    private static readonly AzureService[] Services =
+    [
+        new("Azure Static Web Apps", "Free", "Blazor WebAssembly, client routing, public booking and the administrator workspace.", "browser", "red", "infra/modules/platform.bicep"),
+        new("Azure App Service", "Basic B1", "ASP.NET Core API, hosted MCP, administrator access and the SignalR operations hub.", "cloud", "blue", "infra/modules/platform.bicep"),
+        new("Azure AI Services", "S0 · GlobalStandard models", "gpt-6.1-sol chat, text-embedding-3-large, gpt-4.1-mini routing and Content Safety.", "spark", "gold", "infra/modules/platform.bicep"),
+        new("Azure SQL Database", "GP_S_Gen5 · serverless", "Capacity 1, minimum 0.5 vCore, 60-minute auto-pause. Catalog, reservations and events.", "data", "blue", "infra/modules/platform.bicep"),
+        new("Azure AI Search", "Basic · 1 replica / 1 partition", "Hybrid retrieval and revision-grounded evidence. The index is derived and rebuildable.", "spark", "teal", "infra/modules/platform.bicep"),
+        new("Azure Blob Storage", "Standard_LRS · private / versioned", "Canonical documents, originals, approvals, tombstones and conditional code challenges.", "data", "teal", "infra/modules/knowledge-storage.bicep"),
+        new("Communication Services Email", "Azure-managed sender · Europe", "Managed-identity email delivery for approved administrator one-time codes.", "mail", "red", "infra/knowledge-email.bicep"),
+        new("Application Insights", "Workspace-backed", "Correlated API telemetry. Configuration does not prove that telemetry is arriving.", "spark", "gold", "infra/modules/platform.bicep"),
+        new("Log Analytics", "30-day retention", "Workspace backing for Application Insights; operational metadata, not prompt bodies.", "data", "navy", "infra/modules/platform.bicep")
+    ];
+}

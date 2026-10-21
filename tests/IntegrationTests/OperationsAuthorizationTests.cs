@@ -52,7 +52,7 @@ public sealed class OperationsAuthorizationTests
     }
 
     [Fact]
-    public async Task AuthorizedWorkloadCanIngestWhileDashboardReadRemainsPublic()
+    public async Task AuthorizedWorkloadCanIngestWhileDashboardReadRequiresAdministratorAccess()
     {
         await using var factory = new SecuredApiFactory();
         using var writer = factory.CreateClient();
@@ -61,8 +61,13 @@ public sealed class OperationsAuthorizationTests
 
         var created = await writer.PostAsJsonAsync("/api/operations/events", CreateEvent());
         using var dashboard = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await dashboard.GetAsync("/api/operations/events")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await writer.GetAsync("/api/operations/events")).StatusCode);
+        dashboard.DefaultRequestHeaders.Add("X-Knowledge-Token", new string('m', 64));
         var events = await dashboard.GetFromJsonAsync<AgentEvent[]>("/api/operations/events");
         var hotels = await dashboard.GetAsync("/api/hotels");
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await dashboard.PostAsJsonAsync("/api/operations/events", CreateEvent())).StatusCode);
 
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         Assert.Contains(events!, item => item.CorrelationId == "secured-flow");
@@ -106,6 +111,8 @@ public sealed class OperationsAuthorizationTests
                 "https://login.microsoftonline.com/test/v2.0");
             builder.UseSetting("OperationsAuth:Audience", "api://operations");
             builder.UseSetting("OperationsAuth:RequiredRole", "Operations.Ingest");
+            builder.UseSetting("KnowledgeAccess:ManagementToken", new string('m', 64));
+            builder.UseSetting("KnowledgeAccess:McpToken", new string('c', 64));
             builder.ConfigureTestServices(services =>
                 services.AddAuthentication(options =>
                     {

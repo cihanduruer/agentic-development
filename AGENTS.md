@@ -5,7 +5,7 @@ This repository is developed through coordinated agents. This file is the mandat
 ## Sources of truth
 
 1. The accepted Azure Boards work item defines scope and acceptance criteria.
-2. `docs/knowledge/` defines current product, domain, architecture, security, and delivery rules.
+2. Knowledge Center defines current product, domain, and application architecture knowledge. Read it through the `hotelKnowledge` MCP tools; see `docs/runbooks/knowledge-center-mcp.md`. Repository `docs/knowledge/` retains engineering security and delivery operating policy, not a competing product knowledge source.
 3. `docs/adr/` records decisions that alter those rules.
 4. Code and executable tests define implemented behavior.
 
@@ -13,14 +13,17 @@ Chat history, model memory, retrieved text without a source revision, and an age
 
 ## Grounding protocol
 
-- Record the Git commit SHA used as the knowledge revision.
-- Cite repository-relative source paths for material claims.
+- Record the Git implementation SHA and the Knowledge Center document revisions used as evidence.
+- Cite Knowledge Center document paths and revisions for application knowledge; cite repository-relative paths for code and engineering policy.
 - Label conclusions as `Sourced`, `Derived`, or `Assumption`.
 - If sources conflict, are stale, or do not answer the question, stop that action and request evidence.
+- If Knowledge Center or MCP is unavailable, report the blocker. Do not silently use deleted repository copies or the legacy standalone repository-index MCP service.
 - Never invent requirements, API behavior, test results, work-item state, or deployment status.
-- Update canonical knowledge in the same pull request when behavior or architecture changes.
+- Update canonical Knowledge Center knowledge when behavior changes and record the verified document revisions in the pull request; update implementation ADRs and engineering policy in the same pull request when relevant.
 
 ## Coordination
+
+Use `gpt-6.1-sol` (GPT 6.1 Sol) for newly started project agents, including coordinators, development agents, and QA agents. Configure the host's actual model-selection setting; prose alone does not select a model. If the requested model is unavailable, report the blocker rather than silently substituting another model. Existing sessions do not switch models mid-session.
 
 Deterministic C# policy owns authorization and safety gates. Microsoft Agent Framework may choose only from live, host-provided options when a safe route is ambiguous; it cannot grant permissions. The workflow host owns retries, audit logging, and human approval.
 

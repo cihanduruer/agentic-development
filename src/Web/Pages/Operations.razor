@@ -2,7 +2,12 @@
 @implements IAsyncDisposable
 @using AgenticHotelBooking.Application
 @using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.AspNetCore.SignalR
+@using Microsoft.AspNetCore.Http.Connections
+@using Microsoft.Extensions.Logging
 @inject HttpClient Http
+@inject AdministratorSession Session
+@inject ILogger<Operations> Logger
 
 <PageTitle>Agent Operations</PageTitle>
 
@@ -66,49 +71,61 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var loaded = await Http.GetFromJsonAsync<AgentEvent[]>("api/operations/events?limit=100") ?? [];
-        events.AddRange(loaded);
-
-        hubConnection = new HubConnectionBuilder()
-            .WithUrl(new Uri(Http.BaseAddress!, "hubs/operations"))
-            .WithAutomaticReconnect()
-            .Build();
-
-        hubConnection.On<AgentEvent>("AgentEventRecorded", item =>
-        {
-            events.Insert(0, item);
-            if (events.Count > 100)
-            {
-                events.RemoveAt(events.Count - 1);
-            }
-
-            InvokeAsync(StateHasChanged);
-        });
-
-        hubConnection.Reconnecting += _ =>
-        {
-            SetConnection("Reconnecting", "connecting");
-            return Task.CompletedTask;
-        };
-        hubConnection.Reconnected += _ =>
-        {
-            SetConnection("Live", "live");
-            return Task.CompletedTask;
-        };
-        hubConnection.Closed += _ =>
-        {
-            SetConnection("Offline", "offline");
-            return Task.CompletedTask;
-        };
-
         try
         {
+            var loaded = await Http.GetFromJsonAsync<AgentEvent[]>("api/operations/events?limit=100") ?? [];
+            events.AddRange(loaded);
+
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl(new Uri(Http.BaseAddress!, "hubs/operations"), options =>
+                {
+                    options.Transports = HttpTransportType.LongPolling;
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(Session.Token);
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            hubConnection.On<AgentEvent>("AgentEventRecorded", item =>
+            {
+                events.Insert(0, item);
+                if (events.Count > 100)
+                {
+                    events.RemoveAt(events.Count - 1);
+                }
+
+                InvokeAsync(StateHasChanged);
+            });
+
+            hubConnection.Reconnecting += _ =>
+            {
+                SetConnection("Reconnecting", "connecting");
+                return Task.CompletedTask;
+            };
+            hubConnection.Reconnected += _ =>
+            {
+                SetConnection("Live", "live");
+                return Task.CompletedTask;
+            };
+            hubConnection.Closed += async exception =>
+            {
+                SetConnection("Offline", "offline");
+                if (exception is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+                {
+                    await Session.SignOutAsync("Your session has expired. Sign in again to continue.");
+                }
+            };
+
             await hubConnection.StartAsync();
             SetConnection("Live", "live");
         }
-        catch
+        catch (Exception exception) when (exception is HttpRequestException or HubException or TimeoutException or InvalidOperationException)
         {
+            Logger.LogWarning(exception, "Administrator operations connection failed.");
             SetConnection("Offline", "offline");
+            if (exception is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                await Session.SignOutAsync("Your session has expired. Sign in again to continue.");
+            }
         }
     }
 

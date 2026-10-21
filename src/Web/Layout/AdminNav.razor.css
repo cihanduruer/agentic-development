@@ -1,30 +1,42 @@
 .admin-nav {
     display: flex;
     flex-wrap: wrap;
-    gap: .5rem;
-    margin: 0 0 .75rem;
+    gap: .15rem .5rem;
+    margin: 0 0 .5rem;
+    border-bottom: 1px solid var(--brand-taupe);
 }
 
-.admin-nav a {
+.admin-nav ::deep a {
     display: inline-flex;
     min-height: 2.75rem;
     align-items: center;
     padding: .45rem .8rem;
-    border: 1px solid var(--brand-crimson);
-    border-radius: .5rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: .3rem .3rem 0 0;
     color: var(--brand-ink);
     background: var(--brand-cream);
     font-weight: 700;
+    font-size: .85rem;
+    text-decoration: none;
 }
 
-.admin-nav a.active {
-    color: var(--brand-cream);
-    background: var(--brand-ink);
-    text-decoration: underline;
-    text-underline-offset: .2em;
+.admin-nav ::deep a.active {
+    color: var(--brand-crimson);
+    border-bottom-color: var(--brand-crimson);
+    background: var(--brand-cream);
 }
 
-.admin-nav a:focus-visible {
+.admin-nav ::deep a:hover { background: var(--brand-blush); }
+.admin-identity { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-left: auto; font-size: .75rem; overflow-wrap: anywhere; }
+.admin-identity button { min-height: 2.5rem; border: 0; border-radius: .35rem; padding: .4rem .65rem; background: var(--brand-taupe); color: var(--brand-crimson); font-weight: 700; }
+.admin-identity button:hover { background: var(--brand-blush); }
+.admin-session-notice { flex-basis: 100%; padding: .4rem; font-size: .8rem; }
+@media (max-width: 640px) {
+    .admin-identity { width: 100%; margin: .25rem 0; justify-content: space-between; }
+}
+
+.admin-nav ::deep a:focus-visible {
     outline: 3px solid var(--brand-crimson);
     outline-offset: 3px;
     box-shadow: 0 0 0 3px var(--brand-cream);

@@ -7,6 +7,12 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? builder.HostEnvironment.BaseAddress;
-builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(apiBaseUrl) });
+var apiOrigin = new Uri(apiBaseUrl);
+builder.Services.AddScoped(services => new AdministratorSession(
+    new HttpClient { BaseAddress = apiOrigin }, services.GetRequiredService<Microsoft.JSInterop.IJSRuntime>()));
+builder.Services.AddScoped(services => new HttpClient(new AdministratorSessionHandler(
+    services.GetRequiredService<AdministratorSession>(), apiOrigin)
+{ InnerHandler = new HttpClientHandler() })
+{ BaseAddress = apiOrigin });
 
 await builder.Build().RunAsync();

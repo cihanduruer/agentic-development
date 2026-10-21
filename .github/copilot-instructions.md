@@ -2,6 +2,8 @@
 
 Follow [AGENTS.md](../AGENTS.md) and the canonical [delivery rules](../docs/knowledge/agentic-delivery.md).
 
+For product, domain, and application architecture facts, use the authoritative Knowledge Center through `hotelKnowledge` MCP. List/search, then read relevant documents and cite their revisions. All approved documents have equal standing regardless of historical path. If MCP is unavailable or evidence conflicts, stop and report the gap rather than using stale repository copies. Connection instructions are in [the MCP runbook](../docs/runbooks/knowledge-center-mcp.md).
+
 ## Default for new Hotel requirements
 
 The product owner may be nontechnical. Accept requirements in plain language; do not require them to know work-item types, tags, GitHub commands, or agent prompts. Clarify missing business details when necessary and capture the agreed requirement with clear acceptance criteria.

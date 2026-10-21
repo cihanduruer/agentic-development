@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,6 +41,17 @@ if (!builder.Environment.IsDevelopment())
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    if (KnowledgeAccess.IsAdministratorRequest(context.Request) || context.Request.Path.StartsWithSegments("/mcp"))
+                    {
+                        context.NoResult();
+                    }
+                    return Task.CompletedTask;
+                }
+            };
             options.Authority = authority;
             options.Audience = audience;
             options.MapInboundClaims = false;
@@ -90,6 +102,26 @@ var workItemChatOptions = new WorkItemChatOptions(
     builder.Configuration.GetValue("WorkItemChat:CreateEnabled", false));
 builder.Services.AddSingleton(workItemChatOptions);
 builder.Services.AddSingleton<KnowledgeCenterSearch>();
+builder.Services.AddSingleton(new KnowledgeStorageOptions(builder.Configuration["KnowledgeStorage:Endpoint"]));
+builder.Services.AddSingleton<IKnowledgeDocumentStore, BlobKnowledgeDocumentStore>();
+var knowledgeEmailOptions = new KnowledgeEmailOptions(
+    builder.Configuration["KnowledgeSignIn:EmailEndpoint"],
+    builder.Configuration["KnowledgeSignIn:SenderAddress"]);
+builder.Services.AddSingleton(knowledgeEmailOptions);
+builder.Services.AddSingleton(new KnowledgeSignInOptions(
+    (builder.Configuration["KnowledgeSignIn:AllowedEmails"] ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+    builder.Configuration["KnowledgeAccess:ManagementToken"]));
+builder.Services.AddSingleton<IKnowledgeChallengeStore, BlobKnowledgeChallengeStore>();
+builder.Services.AddSingleton<IKnowledgeEmailSender, AzureKnowledgeEmailSender>();
+builder.Services.AddSingleton<KnowledgeSignInService>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("knowledge-sign-in", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
+builder.Services.AddMcpServer().WithHttpTransport().WithTools<KnowledgeMcpTools>();
 builder.Services.AddSingleton(new KnowledgeUploadOptions(
     builder.Configuration.GetValue("WorkItemChat:UploadEnabled", false)));
 builder.Services.AddSingleton<KnowledgeUploadService>();
@@ -145,6 +177,8 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
 }));
 
 app.UseCors();
+app.UseRateLimiter();
+app.UseKnowledgeAccess();
 if (!app.Environment.IsDevelopment())
 {
     app.UseAuthentication();
@@ -157,6 +191,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+app.MapMcp("/mcp");
+app.MapKnowledgeSignIn();
 
 app.MapGet("/api/hotels", async (IHotelBookingService service, CancellationToken cancellationToken) =>
     await service.GetHotelsAsync(cancellationToken));
@@ -191,6 +227,78 @@ app.MapGet("/api/operations/events", (
     IAgentEventStore store,
     CancellationToken cancellationToken) =>
     store.GetRecentAsync(limit ?? 100, cancellationToken));
+
+app.MapGet("/api/knowledge/capabilities", (KnowledgeUploadService uploads, IHostEnvironment environment, IConfiguration configuration, KnowledgeSignInService signIn) =>
+    Results.Ok(new { canManageUploads = uploads.Enabled, requiresToken = KnowledgeAccess.RequiresAdministratorSignIn(environment, configuration), emailSignInEnabled = signIn.Enabled }));
+
+app.MapGet("/api/knowledge/original", async (string path, IKnowledgeDocumentStore store, CancellationToken cancellationToken) =>
+{
+    var document = await store.GetAsync(path, cancellationToken);
+    if (document is null || document.Deleted)
+    {
+        return Results.NotFound();
+    }
+    if (document.Original is null)
+    {
+        return Results.Problem(statusCode: 404, title: "Only extracted text was retained for this legacy document.");
+    }
+    var contentType = document.SourceType == "pdf" ? "application/pdf" : "application/octet-stream";
+    return Results.File(document.Original, contentType);
+}).WithSummary("Read the retained original knowledge document.");
+
+app.MapPost("/api/knowledge/rebuild", async (KnowledgeUploadService uploads, ILogger<Program> logger, CancellationToken cancellationToken) =>
+{
+    if (!uploads.Enabled)
+    {
+        return Results.Problem(statusCode: 403, title: "Knowledge management is disabled in this environment.");
+    }
+    try
+    {
+        return Results.Ok(new { rebuilt = await uploads.RebuildAsync(cancellationToken) });
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException or
+        Azure.Identity.AuthenticationFailedException or Azure.Identity.CredentialUnavailableException or System.ClientModel.ClientResultException)
+    {
+        KnowledgeAccess.RebuildFailed(logger, exception);
+        return Results.Problem(statusCode: 502, title: "Rebuild could not reach storage, search or embeddings. Retained documents are safe; repair access and retry.");
+    }
+})
+    .WithSummary("Rebuild the retrieval index from durable Knowledge Center documents.");
+
+app.MapGet("/api/knowledge/preview", async (
+    string? path,
+    KnowledgeCenterSearch knowledge,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(path) || path.Length > 1024)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "A source path of 1 to 1,024 characters is required.");
+    }
+
+    try
+    {
+        var blocks = await knowledge.PreviewAsync(path, cancellationToken);
+        return blocks.Count == 0
+            ? Results.Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "That source was not found. Refresh the knowledge center.")
+            : Results.Ok(blocks);
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The knowledge center is not configured in this environment.");
+    }
+    catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException)
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "The source could not be previewed. Try again.");
+    }
+});
 
 app.MapGet("/api/knowledge/blocks", async (
     KnowledgeCenterSearch knowledge,
@@ -238,8 +346,9 @@ app.MapPost("/api/knowledge/upload", async (
         await using var stream = file.OpenReadStream();
         using var buffer = new MemoryStream();
         await stream.CopyToAsync(buffer, cancellationToken);
-        var document = UploadedDocumentExtractor.Extract(file.FileName, buffer.ToArray());
-        return Results.Ok(await uploads.IngestAsync(file.FileName, document, cancellationToken));
+        var bytes = buffer.ToArray();
+        var document = UploadedDocumentExtractor.Extract(file.FileName, bytes);
+        return Results.Ok(await uploads.IngestAsync(file.FileName, document, cancellationToken, bytes));
     }
     catch (InvalidDataException exception)
     {
@@ -276,7 +385,8 @@ app.MapPost("/api/knowledge/text", async (
     try
     {
         var document = UploadedDocumentExtractor.ExtractText(request?.Title ?? string.Empty, request?.Text ?? string.Empty);
-        return Results.Ok(await uploads.IngestAsync(request!.Title.Trim() + ".txt", document, cancellationToken));
+        return Results.Ok(await uploads.IngestAsync(request!.Title.Trim() + ".txt", document, cancellationToken,
+            System.Text.Encoding.UTF8.GetBytes(request.Text)));
     }
     catch (InvalidDataException exception)
     {
@@ -296,7 +406,7 @@ app.MapPost("/api/knowledge/text", async (
     }
 });
 
-app.MapPost("/api/knowledge/uploads/approve", async (
+app.MapPost("/api/knowledge/documents/approve", async (
     string path,
     KnowledgeUploadService uploads,
     CancellationToken cancellationToken) =>
@@ -308,11 +418,11 @@ app.MapPost("/api/knowledge/uploads/approve", async (
             title: "Uploading knowledge is disabled in this environment.");
     }
 
-    if (!KnowledgeUploadService.IsUploadPath(path))
+    if (!KnowledgeUploadService.IsSourcePath(path))
     {
         return Results.Problem(
             statusCode: StatusCodes.Status400BadRequest,
-            title: "Only uploaded sources can be approved.");
+            title: "A valid document path is required.");
     }
 
     try
@@ -330,7 +440,7 @@ app.MapPost("/api/knowledge/uploads/approve", async (
     }
 });
 
-app.MapDelete("/api/knowledge/uploads", async (
+app.MapDelete("/api/knowledge/documents", async (
     string path,
     KnowledgeUploadService uploads,
     CancellationToken cancellationToken) =>
@@ -342,16 +452,19 @@ app.MapDelete("/api/knowledge/uploads", async (
             title: "Uploading knowledge is disabled in this environment.");
     }
 
-    if (!KnowledgeUploadService.IsUploadPath(path))
+    if (!KnowledgeUploadService.IsSourcePath(path))
     {
         return Results.Problem(
             statusCode: StatusCodes.Status400BadRequest,
-            title: "Only uploaded sources can be removed.");
+            title: "A valid document path is required.");
     }
 
     try
     {
-        return Results.Ok(new { removed = await uploads.RemoveAsync(path, cancellationToken) });
+        var removed = await uploads.RemoveAsync(path, cancellationToken);
+        return removed == 0
+            ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "That source was not found. Refresh the knowledge center.")
+            : Results.Ok(new { removed });
     }
     catch (Exception exception) when (exception is Azure.RequestFailedException or HttpRequestException or InvalidOperationException)
     {

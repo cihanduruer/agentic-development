@@ -1,0 +1,52 @@
+@implements IDisposable
+@inject AdministratorSession Session
+@inject NavigationManager Navigation
+
+@if (IsPublic || (!loading && Session.IsAuthenticated))
+{
+    <RouteView RouteData="@RouteData" DefaultLayout="@typeof(MainLayout)" />
+}
+else
+{
+    <LayoutView Layout="@typeof(MainLayout)">
+        <div class="admin-access-loading" role="status">Opening administrator sign-in...</div>
+    </LayoutView>
+}
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
+    private bool loading = true;
+    private bool IsPublic => RouteData.PageType == typeof(Pages.Home) || RouteData.PageType == typeof(Pages.AdminLogin) ||
+        RouteData.PageType == typeof(Pages.NotFound);
+
+    protected override void OnInitialized() => Session.Changed += SessionChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsPublic)
+        {
+            loading = true;
+            await Session.InitializeAsync();
+            loading = false;
+            RedirectIfRequired();
+        }
+    }
+
+    private void SessionChanged() => _ = InvokeAsync(() =>
+    {
+        RedirectIfRequired();
+        StateHasChanged();
+    });
+
+    private void RedirectIfRequired()
+    {
+        if (!IsPublic && !loading && !Session.IsAuthenticated)
+        {
+            var current = new Uri(Navigation.Uri);
+            var returnUrl = current.PathAndQuery + current.Fragment;
+            Navigation.NavigateTo("/admin/login?returnUrl=" + Uri.EscapeDataString(returnUrl), replace: true);
+        }
+    }
+
+    public void Dispose() => Session.Changed -= SessionChanged;
+}
